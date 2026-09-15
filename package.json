@@ -8,6 +8,7 @@
   "main": "main.js",
   "scripts": {
     "build": "vite build",
+    "test": "vitest run",
     "start": "npm run build && electron .",
     "dev": "npm run build && electron .",
     "pack": "npm run build && electron-builder --dir",
@@ -54,11 +55,14 @@
     }
   },
   "dependencies": {
+    "dompurify": "^3.4.15",
     "oh-my-live2d": "^0.19.3"
   },
   "devDependencies": {
     "electron": "^44.1.0",
     "electron-builder": "^26.15.3",
-    "vite": "^8.2.2"
+    "jsdom": "^30.0.1",
+    "vite": "^8.2.2",
+    "vitest": "^5.0.1"
   }
 }

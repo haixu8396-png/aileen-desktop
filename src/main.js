@@ -13,11 +13,11 @@ import { renderMarkdown, escapeHtml } from './lib/markdown.js';
 const $ = (id) => document.getElementById(id);
 
 // 错误收集（供自检诊断使用）
-window.__AIRI_ERRORS = [];
-window.addEventListener('error', (e) => window.__AIRI_ERRORS.push(String(e.message || e)));
+window.__ELYSIA_ERRORS = [];
+window.addEventListener('error', (e) => window.__ELYSIA_ERRORS.push(String(e.message || e)));
 window.addEventListener('unhandledrejection', (e) => {
   const r = e && e.reason;
-  window.__AIRI_ERRORS.push('rejection: ' + String((r && r.message) || r));
+  window.__ELYSIA_ERRORS.push('rejection: ' + String((r && r.message) || r));
 });
 
 // ---------------- LLM 供应商预设 ----------------
@@ -176,7 +176,7 @@ async function duplicateCard(file) {
   copy.name = (copy.name || '角色') + ' 副本';
   copy.createdAt = Date.now();
   copy.updatedAt = Date.now();
-  const res = await window.api.writeCharacter(cardFileName(copy), copy);
+  const res = await window.api.writeCharacter(cardFileName(copy), copy, 'create');
   if (res) {
     await refreshCharacters(res.file);
     toast('已复制为「' + copy.name + '」');
@@ -191,7 +191,7 @@ async function deleteCard(file) {
   if (current && current.file === file) {
     current = null;
     messages = [];
-    try { localStorage.removeItem(chatKey(file)); } catch { /* ignore */ }
+    try { await window.api.clearChat(file); localStorage.removeItem(chatKey(file)); } catch { /* ignore */ }
   }
   await refreshCharacters();
   toast('角色已删除');
@@ -227,7 +227,7 @@ async function saveQuickModal() {
   const c = findChar(quickFile);
   if (!c) return;
   const data = { ...c.data, model: $('q-model').value, voice: $('q-voice').value, updatedAt: Date.now() };
-  await window.api.writeCharacter(quickFile.replace(/\.json$/, ''), data);
+  await window.api.writeCharacter(quickFile.replace(/\.json$/, ''), data, 'update');
   characters = await window.api.listCharacters();
   renderCharList();
   $('modal-quick').classList.add('hidden');
@@ -235,21 +235,34 @@ async function saveQuickModal() {
   toast('已更新');
 }
 
-// ---------------- 聊天记录（按角色持久化到 localStorage） ----------------
+// ---------------- 聊天记录（按角色持久化到文件，避免 localStorage 容量截断/清缓存丢失） ----------------
 function chatKey(file) {
   return 'elysia.chat.' + file;
 }
 
-function saveChatFor(file) {
-  try { localStorage.setItem(chatKey(file), JSON.stringify(messages.slice(-60))); } catch { /* ignore */ }
+async function saveChatFor(file) {
+  if (!file) return;
+  try { await window.api.saveChat(file, messages); } catch { /* ignore */ }
 }
 
-function loadChatFor(file) {
+async function loadChatFor(file) {
   try {
-    const raw = localStorage.getItem(chatKey(file));
-    const arr = raw ? JSON.parse(raw) : null;
-    return Array.isArray(arr) && arr.length ? arr : null;
-  } catch { return null; }
+    const arr = await window.api.readChat(file);
+    if (Array.isArray(arr) && arr.length) return arr;
+  } catch { /* ignore */ }
+  // 兼容旧版本：localStorage 里的历史记录迁移一次到文件
+  try {
+    const legacy = localStorage.getItem(chatKey(file));
+    if (legacy) {
+      const arr = JSON.parse(legacy);
+      if (Array.isArray(arr) && arr.length) {
+        await window.api.saveChat(file, arr);
+        localStorage.removeItem(chatKey(file));
+        return arr;
+      }
+    }
+  } catch { /* ignore */ }
+  return null;
 }
 
 function updateChatHeader() {
@@ -269,11 +282,11 @@ function renderEmptyState() {
   scrollBottom();
 }
 
-function selectCharacter(file, opts = {}) {
+async function selectCharacter(file, opts = {}) {
   const found = characters.find((c) => c.file === file);
   if (!found) return;
   if (current && current.file !== file) {
-    saveChatFor(current.file);
+    await saveChatFor(current.file);
     tts.cancel();
     if (abortCtrl) abortCtrl.abort();
     if (busy) setBusy(false);
@@ -293,7 +306,7 @@ function selectCharacter(file, opts = {}) {
     updateStageModelName();
   }
 
-  const saved = loadChatFor(file);
+  const saved = await loadChatFor(file);
   if (saved && saved.length) {
     messages = saved;
     lastAssistantText = (saved.slice().reverse().find((m) => m.role === 'assistant') || {}).content || '';
@@ -789,8 +802,8 @@ function getLive2dModel() {
     return (oml2d && oml2d.models && oml2d.models.model) || null;
   } catch { return null; }
 }
-window.__AIRI_MODEL_READY = () => !!getLive2dModel();
-window.__AIRI_REFRESH = async () => { await refreshCharacters(); };
+window.__ELYSIA_MODEL_READY = () => !!getLive2dModel();
+window.__ELYSIA_REFRESH = async () => { await refreshCharacters(); };
 
 function refreshStageControls() {
   const model = getLive2dModel();
@@ -927,7 +940,7 @@ function saveCharModal() {
   if (!editorCard.createdAt) editorCard.createdAt = Date.now();
 
   const file = cardFileName(editorCard);
-  window.api.writeCharacter(file, editorCard).then((res) => {
+  window.api.writeCharacter(file, editorCard, editorFile ? 'update' : 'create').then((res) => {
     toast('角色卡已保存');
     closeCharModal();
     return refreshCharacters(res.file);
@@ -996,6 +1009,8 @@ function openTtsModal() {
   $('s-tts-key').value = s.tts.apiKey || '';
   $('s-tts-model').value = s.tts.model || '';
   $('s-tts-voice').value = s.tts.voice || '';
+  $('s-tts-rate').value = String(s.tts.rate ?? 1);
+  $('s-tts-rate-val').textContent = Number(s.tts.rate ?? 1).toFixed(1) + '×';
   $('s-tts-auto').checked = !!s.tts.autoPlay;
   $('modal-tts').classList.remove('hidden');
 }
@@ -1012,6 +1027,7 @@ function saveTtsModal() {
     apiKey: $('s-tts-key').value.trim(),
     model: $('s-tts-model').value.trim(),
     voice: $('s-tts-voice').value.trim(),
+    rate: parseFloat($('s-tts-rate').value) || 1,
     autoPlay: $('s-tts-auto').checked,
   };
   saveSettings(next).then(() => {
@@ -1314,6 +1330,9 @@ function bindEvents() {
     $('t-secondary').value = '#38b0de';
     applyTheme({ primary: '#ff7eb3', secondary: '#38b0de' });
   };
+  $('s-tts-rate').addEventListener('input', (e) => {
+    $('s-tts-rate-val').textContent = Number(e.target.value).toFixed(1) + '×';
+  });
   $('t-primary').addEventListener('input', (e) => applyTheme({ primary: e.target.value, secondary: $('t-secondary').value }));
   $('t-secondary').addEventListener('input', (e) => applyTheme({ primary: $('t-primary').value, secondary: e.target.value }));
 

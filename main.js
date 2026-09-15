@@ -8,20 +8,31 @@ const fs = require('fs');
 const http = require('http');
 const crypto = require('crypto');
 
+const { sanitizeFileName, deepMerge, isInsidePath, normalizeSettings } = require('./shared/util.cjs');
+
 const APP_ROOT = __dirname;
 const DIST_INDEX = path.join(APP_ROOT, 'dist', 'index.html');
 
 // 用户数据目录：使用 Electron userData，应用升级/重装/移动都不会丢失设置、角色卡、模型
 app.setName('Elysia');
 const DEFAULT_USER_DATA = app.getPath('userData');
-// 数据放 D 盘（可用环境变量 ELYSIA_DATA_DIR 覆盖）
-const CUSTOM_USER_DATA = process.env.ELYSIA_DATA_DIR || 'D:/ElysiaData';
-try { app.setPath('userData', CUSTOM_USER_DATA); } catch { /* 忽略 */ }
+
+// 数据目录优先级：环境变量 ELYSIA_DATA_DIR > D:\ElysiaData（仅当 D 盘存在）> 系统默认 userData
+function resolveUserDataDir() {
+  const envDir = process.env.ELYSIA_DATA_DIR;
+  if (typeof envDir === 'string' && envDir.trim()) return envDir.trim();
+  try {
+    if (fs.existsSync('D:\\')) return 'D:/ElysiaData';
+  } catch { /* 忽略 */ }
+  return DEFAULT_USER_DATA;
+}
+try { app.setPath('userData', resolveUserDataDir()); } catch { /* 忽略 */ }
 let USER_DATA_DIR = null;
 let MODELS_DIR = path.join(APP_ROOT, 'models');
 let CHARACTERS_DIR = path.join(APP_ROOT, 'characters');
 let AVATARS_DIR = path.join(CHARACTERS_DIR, 'avatars');
 let DATA_DIR = path.join(APP_ROOT, 'data');
+let CHATS_DIR = path.join(DATA_DIR, 'chats');
 let SETTINGS_FILE = path.join(DATA_DIR, 'settings.json');
 
 // ------------------------------------------------------------
@@ -67,38 +78,22 @@ const DEFAULT_SETTINGS = {
   },
 };
 
-function deepMerge(target, source) {
-  const out = { ...target };
-  for (const key of Object.keys(source || {})) {
-    if (
-      target[key] &&
-      typeof target[key] === 'object' &&
-      !Array.isArray(target[key]) &&
-      typeof source[key] === 'object' &&
-      !Array.isArray(source[key])
-    ) {
-      out[key] = deepMerge(target[key], source[key]);
-    } else {
-      out[key] = source[key];
-    }
-  }
-  return out;
-}
-
 function ensureDirs() {
-  for (const d of [MODELS_DIR, CHARACTERS_DIR, AVATARS_DIR, DATA_DIR]) {
+  for (const d of [MODELS_DIR, CHARACTERS_DIR, AVATARS_DIR, DATA_DIR, CHATS_DIR]) {
     if (!fs.existsSync(d)) fs.mkdirSync(d, { recursive: true });
   }
 }
 
 function readSettings() {
   ensureDirs();
+  let raw = {};
   try {
-    const raw = JSON.parse(fs.readFileSync(SETTINGS_FILE, 'utf8'));
-    return deepMerge(DEFAULT_SETTINGS, raw);
+    raw = JSON.parse(fs.readFileSync(SETTINGS_FILE, 'utf8'));
   } catch {
-    return deepMerge(DEFAULT_SETTINGS, {});
+    raw = {};
   }
+  // 白名单 + 类型/范围校验：未知字段丢弃，脏数据不会长期留存
+  return normalizeSettings(deepMerge(DEFAULT_SETTINGS, raw), DEFAULT_SETTINGS);
 }
 
 function copyDirRec(src, dst) {
@@ -157,9 +152,11 @@ function migrateLegacyData() {
 
 function writeSettings(settings) {
   ensureDirs();
-  const merged = deepMerge(DEFAULT_SETTINGS, settings || {});
-  fs.writeFileSync(SETTINGS_FILE, JSON.stringify(merged, null, 2), 'utf8');
-  return merged;
+  const current = readSettings();
+  // 与现有设置合并后统一规范化：数组整体替换、未知字段丢弃、越界值收敛
+  const next = normalizeSettings(deepMerge(current, settings || {}), DEFAULT_SETTINGS);
+  fs.writeFileSync(SETTINGS_FILE, JSON.stringify(next, null, 2), 'utf8');
+  return next;
 }
 
 // ------------------------------------------------------------
@@ -260,11 +257,6 @@ function scanModels(dir, prefix) {
 // ------------------------------------------------------------
 // 角色卡读写（characters/*.json）
 // ------------------------------------------------------------
-function sanitizeFileName(name) {
-  const cleaned = String(name || '').replace(/[^\w\u4e00-\u9fa5-]+/g, '_').replace(/^\.+$/, '');
-  return cleaned || 'character';
-}
-
 function listCharacters() {
   ensureDirs();
   const out = [];
@@ -305,8 +297,8 @@ function createWindow() {
     },
   });
 
-  if (process.env.AIRI_DEV_URL) {
-    win.loadURL(process.env.AIRI_DEV_URL);
+  if (process.env.ELYSIA_DEV_URL) {
+    win.loadURL(process.env.ELYSIA_DEV_URL);
   } else if (fs.existsSync(DIST_INDEX)) {
     win.loadFile(DIST_INDEX);
   } else {
@@ -315,8 +307,8 @@ function createWindow() {
     ));
   }
 
-  // 自检模式：AIRI_SHOT=1 时加载完成后截图 + 收集诊断信息并退出（用于无头验证）
-  if (process.env.AIRI_SHOT) {
+  // 自检模式：ELYSIA_SELFTEST=1 时加载完成后截图 + 收集诊断信息并退出（用于无头验证）
+  if (process.env.ELYSIA_SELFTEST) {
     const consoleLines = [];
     win.webContents.on('console-message', (event, ...args) => {
       const params = args[0];
@@ -326,12 +318,13 @@ function createWindow() {
     win.webContents.on('did-finish-load', () => {
       setTimeout(async () => {
         try {
-          fs.mkdirSync(path.join(APP_ROOT, 'data'), { recursive: true });
+          const SELFTEST_DIR = process.env.ELYSIA_SELFTEST_DIR || path.join(USER_DATA_DIR, 'selftest');
+          fs.mkdirSync(SELFTEST_DIR, { recursive: true });
           const img = await win.webContents.capturePage();
-          fs.writeFileSync(path.join(APP_ROOT, 'data', 'shot.png'), img.toPNG());
-          console.log('[airi-shot] saved data/shot.png');
+          fs.writeFileSync(path.join(SELFTEST_DIR, 'shot.png'), img.toPNG());
+          console.log('[selftest] saved shot.png to ' + SELFTEST_DIR);
         } catch (e) {
-          console.error('[airi-shot] capture failed:', e);
+          console.error('[selftest] capture failed:', e);
         }
         try {
           const diag = await win.webContents.executeJavaScript(`(async () => {
@@ -370,10 +363,11 @@ function createWindow() {
             let quickModalOk = false;
             let menuSubText = '';
             try {
-              await window.api.writeCharacter('_selftest', { name: '自检角色', description: '测试', personality: '', scenario: '', first_mes: '', mes_example: '', system_prompt: '', model: '', voice: '', createdAt: Date.now(), updatedAt: Date.now() });
-              if (typeof window.__AIRI_REFRESH === 'function') await window.__AIRI_REFRESH();
+              const writeRes = await window.api.writeCharacter('_selftest', { name: '自检角色', description: '测试', personality: '', scenario: '', first_mes: '', mes_example: '', system_prompt: '', model: '', voice: '', createdAt: Date.now(), updatedAt: Date.now() }, 'create');
+              const testFileName = (writeRes && writeRes.file) ? writeRes.file : '_selftest.json';
+              if (typeof window.__ELYSIA_REFRESH === 'function') await window.__ELYSIA_REFRESH();
               await new Promise((r) => setTimeout(r, 200));
-              const testItem = Array.from(document.querySelectorAll('#char-list .char-item')).find((it) => it.dataset.file === '_selftest.json');
+              const testItem = Array.from(document.querySelectorAll('#char-list .char-item')).find((it) => it.dataset.file === testFileName);
               if (testItem) {
                 const moreBtn = testItem.querySelector('.ci-more');
                 if (moreBtn) {
@@ -383,11 +377,11 @@ function createWindow() {
                   if (quickBtn) { quickBtn.click(); quickModalOk = !document.getElementById('modal-quick').classList.contains('hidden'); }
                 }
               }
-              await window.api.deleteCharacter('_selftest.json');
-              if (typeof window.__AIRI_REFRESH === 'function') await window.__AIRI_REFRESH();
+              await window.api.deleteCharacter(testFileName);
+              if (typeof window.__ELYSIA_REFRESH === 'function') await window.__ELYSIA_REFRESH();
               const subLlm = document.getElementById('menu-sub-llm');
               if (subLlm) menuSubText = subLlm.textContent.trim();
-            } catch (err) { window.__AIRI_ERRORS.push('charMenuTest: ' + String(err && err.message || err)); }
+            } catch (err) { window.__ELYSIA_ERRORS.push('charMenuTest: ' + String(err && err.message || err)); }
             // 设置持久化测试：写入 apiKey → 读回 → 还原
             let settingsPersist = false;
             try {
@@ -398,7 +392,7 @@ function createWindow() {
               const back = await window.api.getSettings();
               settingsPersist = !!(back && back.llm && back.llm.apiKey === testKey);
               await window.api.setSettings(cur);
-            } catch (err) { window.__AIRI_ERRORS.push('settingsTest: ' + String(err && err.message || err)); }
+            } catch (err) { window.__ELYSIA_ERRORS.push('settingsTest: ' + String(err && err.message || err)); }
             // Base URL 默认收起（未勾选自定义时输入框应隐藏）
             let llmBaseHidden = 'n/a';
             const wLlm = document.getElementById('wrap-llm-base');
@@ -461,17 +455,18 @@ function createWindow() {
               modalsExist,
               datalistLlm,
               screenSources,
-              errors: (window.__AIRI_ERRORS || []).slice(0, 10),
-              modelReady: typeof window.__AIRI_MODEL_READY === 'function' ? !!window.__AIRI_MODEL_READY() : 'n/a',
+              errors: (window.__ELYSIA_ERRORS || []).slice(0, 10),
+              modelReady: typeof window.__ELYSIA_MODEL_READY === 'function' ? !!window.__ELYSIA_MODEL_READY() : 'n/a',
             };
           })()`);
-          fs.writeFileSync(path.join(APP_ROOT, 'data', 'shot.json'), JSON.stringify(diag, null, 2));
-          fs.writeFileSync(path.join(APP_ROOT, 'data', 'console.log'), consoleLines.join('\n'));
+          const SELFTEST_DIR2 = process.env.ELYSIA_SELFTEST_DIR || path.join(USER_DATA_DIR, 'selftest');
+          fs.writeFileSync(path.join(SELFTEST_DIR2, 'shot.json'), JSON.stringify(diag, null, 2));
+          fs.writeFileSync(path.join(SELFTEST_DIR2, 'console.log'), consoleLines.join('\n'));
         } catch (e) {
-          console.error('[airi-shot] diag failed:', e);
+          console.error('[selftest] diag failed:', e);
         }
         app.quit();
-      }, Number(process.env.AIRI_SHOT_MS || 9000));
+      }, Number(process.env.ELYSIA_SELFTEST_MS || 9000));
     });
   }
   return win;
@@ -582,12 +577,23 @@ function registerIpc() {
     return JSON.parse(fs.readFileSync(full, 'utf8'));
   });
 
+  // 写入角色卡：mode='update' 覆盖指定文件；否则同名自动加序号，绝不静默覆盖
   ipcMain.handle('characters:write', (_e, payload) => {
-    const { file, data } = payload || {};
+    const { file, data, mode } = payload || {};
     const safe = sanitizeFileName(file);
-    const full = path.join(CHARACTERS_DIR, safe + '.json');
+    let target = safe;
+    if (mode !== 'update') {
+      let i = 1;
+      while (fs.existsSync(path.join(CHARACTERS_DIR, target + '.json'))) {
+        i += 1;
+        target = safe + '-' + i;
+        if (i > 999) throw new Error('同名角色卡过多');
+      }
+    }
+    const full = path.join(CHARACTERS_DIR, target + '.json');
+    if (!isInsidePath(full, CHARACTERS_DIR)) throw new Error('非法路径');
     fs.writeFileSync(full, JSON.stringify(data, null, 2), 'utf8');
-    return { file: safe + '.json' };
+    return { file: target + '.json' };
   });
 
   ipcMain.handle('characters:delete', (_e, file) => {
@@ -636,8 +642,16 @@ function registerIpc() {
     });
     if (result.canceled || !result.filePaths[0]) return null;
     const data = JSON.parse(fs.readFileSync(result.filePaths[0], 'utf8'));
-    const name = sanitizeFileName(data && data.name ? data.name : path.basename(result.filePaths[0], '.json'));
+    const baseName = sanitizeFileName(data && data.name ? data.name : path.basename(result.filePaths[0], '.json'));
+    let name = baseName;
+    let i = 1;
+    while (fs.existsSync(path.join(CHARACTERS_DIR, name + '.json'))) {
+      i += 1;
+      name = baseName + '-' + i;
+      if (i > 999) throw new Error('同名角色卡过多');
+    }
     const full = path.join(CHARACTERS_DIR, name + '.json');
+    if (!isInsidePath(full, CHARACTERS_DIR)) throw new Error('非法路径');
     fs.writeFileSync(full, JSON.stringify(data, null, 2), 'utf8');
     return { file: name + '.json', data };
   });
@@ -645,9 +659,42 @@ function registerIpc() {
   ipcMain.handle('settings:get', () => readSettings());
   ipcMain.handle('settings:set', (_e, settings) => writeSettings(settings));
 
+  // 仅允许打开用户数据目录内的路径（防止渲染层被利用打开任意程序/文件）
   ipcMain.handle('shell:openPath', async (_e, p) => {
-    if (typeof p !== 'string') return false;
-    return shell.openPath(p);
+    if (typeof p !== 'string' || !p) return false;
+    const target = path.resolve(p);
+    if (!isInsidePath(target, USER_DATA_DIR) && !isInsidePath(target, APP_ROOT)) return false;
+    return shell.openPath(target);
+  });
+
+  // 聊天记录持久化（按角色存文件，避免 localStorage 容量/清缓存丢失）
+  ipcMain.handle('chat:read', (_e, file) => {
+    const safe = sanitizeFileName(String(file || '').replace(/\.json$/, ''));
+    const full = path.join(CHATS_DIR, safe + '.json');
+    try {
+      const raw = JSON.parse(fs.readFileSync(full, 'utf8'));
+      return Array.isArray(raw) ? raw : [];
+    } catch {
+      return [];
+    }
+  });
+
+  ipcMain.handle('chat:write', (_e, payload) => {
+    const { file, messages } = payload || {};
+    const safe = sanitizeFileName(String(file || '').replace(/\.json$/, ''));
+    const full = path.join(CHATS_DIR, safe + '.json');
+    if (!isInsidePath(full, CHATS_DIR)) throw new Error('非法路径');
+    fs.mkdirSync(CHATS_DIR, { recursive: true });
+    const list = Array.isArray(messages) ? messages.slice(-2000) : [];
+    fs.writeFileSync(full, JSON.stringify(list), 'utf8');
+    return true;
+  });
+
+  ipcMain.handle('chat:clear', (_e, file) => {
+    const safe = sanitizeFileName(String(file || '').replace(/\.json$/, ''));
+    const full = path.join(CHATS_DIR, safe + '.json');
+    if (isInsidePath(full, CHATS_DIR) && fs.existsSync(full)) fs.unlinkSync(full);
+    return true;
   });
 }
 
@@ -660,6 +707,7 @@ app.whenReady().then(async () => {
   CHARACTERS_DIR = path.join(USER_DATA_DIR, 'characters');
   AVATARS_DIR = path.join(CHARACTERS_DIR, 'avatars');
   DATA_DIR = path.join(USER_DATA_DIR, 'data');
+  CHATS_DIR = path.join(DATA_DIR, 'chats');
   SETTINGS_FILE = path.join(DATA_DIR, 'settings.json');
   try {
     ensureDirs();
@@ -672,6 +720,7 @@ app.whenReady().then(async () => {
     CHARACTERS_DIR = path.join(USER_DATA_DIR, 'characters');
     AVATARS_DIR = path.join(CHARACTERS_DIR, 'avatars');
     DATA_DIR = path.join(USER_DATA_DIR, 'data');
+    CHATS_DIR = path.join(DATA_DIR, 'chats');
     SETTINGS_FILE = path.join(DATA_DIR, 'settings.json');
     ensureDirs();
   }

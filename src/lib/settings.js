@@ -1,42 +1,6 @@
-// 设置管理：与主进程 data/settings.json 同步
-export const DEFAULTS = {
-  llm: {
-    provider: 'deepseek',
-    baseUrl: 'https://api.deepseek.com',
-    customBaseUrl: false,
-    apiKey: '',
-    model: 'deepseek-chat',
-    temperature: 0.8,
-    maxTokens: 1024,
-  },
-  tts: {
-    provider: 'web',
-    baseUrl: 'https://api.openai.com/v1',
-    customBaseUrl: false,
-    apiKey: '',
-    model: 'tts-1',
-    voice: '',
-    language: 'zh',
-    rate: 1.0,
-    autoPlay: true,
-  },
-  stt: {
-    provider: 'openai',
-    baseUrl: 'https://api.openai.com/v1',
-    customBaseUrl: false,
-    apiKey: '',
-    model: 'whisper-1',
-    language: 'zh',
-  },
-  behavior: {
-    greetingOnLoad: true,
-    autoScroll: true,
-  },
-  theme: {
-    primary: '#ff7eb3',
-    secondary: '#38b0de',
-  },
-};
+// 设置管理：默认值只在主进程维护（shared/util.cjs + main.js DEFAULT_SETTINGS），
+// 渲染层从主进程读取，避免两份默认配置不一致。
+let settings = null;
 
 export function deepMerge(target, source) {
   const out = { ...target };
@@ -56,19 +20,16 @@ export function deepMerge(target, source) {
   return out;
 }
 
-let settings = deepMerge(DEFAULTS, {});
-
 export function getSettings() {
   return settings;
 }
 
 export async function loadSettings() {
-  settings = deepMerge(DEFAULTS, (await window.api.getSettings()) || {});
+  settings = await window.api.getSettings();
   return settings;
 }
 
 export async function saveSettings(next) {
-  settings = deepMerge(DEFAULTS, next || {});
-  await window.api.setSettings(settings);
+  settings = await window.api.setSettings(next);
   return settings;
 }

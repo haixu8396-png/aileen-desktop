@@ -151,7 +151,7 @@ export class TTS {
 
   // ---------- OpenAI 兼容 /audio/speech ----------
   async _speakOpenai(text, settings) {
-    const { baseUrl, apiKey, model, voice } = settings.tts;
+    const { baseUrl, apiKey, model, voice, rate } = settings.tts;
     if (!apiKey) throw new Error('TTS（OpenAI 兼容）未配置 API Key');
     const url = (baseUrl || '').replace(/\/+$/, '') + '/audio/speech';
     await this._fetchAudio(url, {
@@ -162,16 +162,18 @@ export class TTS {
         voice: voice || 'alloy',
         input: text,
         response_format: 'mp3',
+        speed: Math.min(4, Math.max(0.25, Number(rate) || 1)),
       }),
     }, text);
   }
 
   // ---------- Fish Audio（https://api.fish.audio/v1/tts）----------
   async _speakFish(text, settings) {
-    const { apiKey, voice, model } = settings.tts;
+    const { apiKey, voice, model, rate } = settings.tts;
     if (!apiKey) throw new Error('TTS（Fish Audio）未配置 API Key');
     const body = { text, format: 'mp3', latency: 'normal' };
     if (voice) body.reference_id = voice;
+    body.prosody = { speed: Math.min(2, Math.max(0.5, Number(rate) || 1)) };
     const headers = { 'Content-Type': 'application/json', ...this._bearer(apiKey) };
     // model 可选用 header 指定（s1 / s2-pro 等），留空则用平台默认
     if (model && model !== 'tts-1') headers['model'] = model;

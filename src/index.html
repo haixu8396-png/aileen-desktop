@@ -164,6 +164,8 @@
       <label>模型<input id="s-tts-model" list="dl-tts-models" placeholder="tts-1 / fishaudio/fish-speech-1.5" /><datalist id="dl-tts-models"></datalist></label>
       <label>语音<input id="s-tts-voice" list="dl-tts-voices" placeholder="OpenAI: alloy · Fish: reference_id · 小米: 冰糖/茉莉…" /><datalist id="dl-tts-voices"></datalist>
         <button id="btn-tts-fetch" class="ghost small-btn">🎵 获取可用音色</button></label>
+      <label>语速 <span id="s-tts-rate-val" class="hint">1.0×</span>
+        <input id="s-tts-rate" type="range" min="0.5" max="2" step="0.1" value="1" /></label>
       <label class="check"><input id="s-tts-auto" type="checkbox" /> 自动朗读助手的回复</label>
       <p class="hint">Fish Audio：语音填声音 ID（reference_id），「获取可用音色」会拉取你账号下的音色。小米内置音色：冰糖 / 茉莉 / 苏打 / 白桦 / Mia / Chloe / Milo / Dean。系统语音按所选语言自动挑选。</p>
     </div>

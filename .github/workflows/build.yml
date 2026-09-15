@@ -28,10 +28,31 @@ jobs:
         run: |
           node -v
           npm -v
-          npx electron-builder --version
+
+      - name: Unit tests
+        run: npm test
 
       - name: Build renderer
         run: npm run build
+
+      - name: Smoke test (自检门禁)
+        shell: pwsh
+        timeout-minutes: 5
+        env:
+          ELYSIA_SELFTEST: '1'
+          ELYSIA_SELFTEST_MS: '12000'
+          ELYSIA_DATA_DIR: '${{ github.workspace }}\.ci-data'
+          ELYSIA_SELFTEST_DIR: '${{ github.workspace }}\.ci-data\selftest'
+        run: |
+          npx electron .
+          $path = '${{ github.workspace }}\.ci-data\selftest\shot.json'
+          if (!(Test-Path $path)) { throw '自检未生成诊断文件（应用可能启动失败）' }
+          $diag = Get-Content $path -Raw | ConvertFrom-Json
+          $errs = @($diag.errors)
+          $fatal = @($errs | Where-Object { $_ -notmatch 'live2d|Live2D|WebGL|pixi' })
+          if ($fatal.Count -gt 0) { throw ('自检发现运行时错误: ' + ($fatal -join '; ')) }
+          if (-not $diag.modalOpens.llm) { throw '设置弹窗未能打开' }
+          Write-Host '自检通过：无运行时错误，弹窗交互正常'
 
       - name: Package (NSIS installer + portable)
         env:
