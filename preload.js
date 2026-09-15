@@ -9,7 +9,6 @@ contextBridge.exposeInMainWorld('api', {
   removeModelUrl: (url) => ipcRenderer.invoke('models:removeUrl', url),
   captureScreen: () => ipcRenderer.invoke('screen:capture'),
   listCharacters: () => ipcRenderer.invoke('characters:list'),
-  readCharacter: (file) => ipcRenderer.invoke('characters:read', file),
   writeCharacter: (file, data, mode) => ipcRenderer.invoke('characters:write', { file, data, mode }),
   deleteCharacter: (file) => ipcRenderer.invoke('characters:delete', file),
   chooseAvatar: () => ipcRenderer.invoke('characters:chooseAvatar'),

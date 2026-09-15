@@ -570,14 +570,6 @@ function registerIpc() {
 
   ipcMain.handle('characters:list', () => listCharacters());
 
-  ipcMain.handle('characters:read', (_e, file) => {
-    const safe = path.basename(String(file || ''));
-    const full = path.join(CHARACTERS_DIR, safe);
-    if (!full.startsWith(CHARACTERS_DIR + path.sep) || !fs.existsSync(full)) return null;
-    return JSON.parse(fs.readFileSync(full, 'utf8'));
-  });
-
-  // 写入角色卡：mode='update' 覆盖指定文件；否则同名自动加序号，绝不静默覆盖
   ipcMain.handle('characters:write', (_e, payload) => {
     const { file, data, mode } = payload || {};
     const safe = sanitizeFileName(file);
