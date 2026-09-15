@@ -24,10 +24,23 @@ jobs:
       - name: Install dependencies
         run: npm install
 
-      - name: Build & package (NSIS + portable)
+      - name: Diagnostics
+        run: |
+          node -v
+          npm -v
+          npx electron-builder --version
+
+      - name: Build renderer
+        run: npm run build
+
+      - name: Package (NSIS installer + portable)
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: 'false'
-        run: npm run dist
+        run: npx electron-builder --win --publish never
+
+      - name: List output
+        shell: pwsh
+        run: Get-ChildItem release | Select-Object Name,Length
 
       - name: Create complete source zip
         shell: pwsh
