@@ -6,6 +6,8 @@
 
 全部本地运行，数据私有 · 开源免费（MIT）
 
+[⬇️ 下载安装包](../../releases/latest) · [📋 更新日志](./CHANGELOG.md) · [🤝 参与贡献](./CONTRIBUTING.md) · [🔒 安全策略](./SECURITY.md)
+
 </div>
 
 ---
@@ -122,6 +124,21 @@ elysia/
 - [ ] 长期记忆
 - [ ] 更多 TTS/STT 供应商
 - [ ] i18n 国际化
+
+## 📋 更新日志
+
+完整版本历史见 **[CHANGELOG.md](./CHANGELOG.md)**，每个版本的安装包在 [Releases](../../releases) 页面。
+
+**最近更新（v0.1.4）**
+- 渲染层拆分为 7 个控制器（`state` / `dom` / `stage` / `chat` / `characters-ui` / `modals` / `voice`），`src/main.js` 由 1325 行降到约 330 行
+- CI 加入**单元测试**与**自检冒烟**双重门禁，不通过不发布
+
+**v0.1.3**
+- 安全：Markdown 输出统一经 DOMPurify 消毒；`shell:openPath` 收敛为白名单；设置写入走白名单校验
+- 修复：角色卡同名不再静默覆盖、日文名不再乱码、聊天记录改存文件（清缓存不丢）
+- 新增：TTS 语速贯通全部引擎、21 项单元测试
+
+**更早版本**：v0.1.2 GitHub Actions 自动构建与发布 · v0.1.1 一键安装包 + D 盘数据目录 · v0.1.0 首个公开版本
 
 ## 🤝 维护与贡献
 
