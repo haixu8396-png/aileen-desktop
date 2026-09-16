@@ -59,6 +59,24 @@ jobs:
           CSC_IDENTITY_AUTO_DISCOVERY: 'false'
         run: npx electron-builder --win --publish never
 
+      - name: Smoke test packaged app (打包产物自检)
+        shell: pwsh
+        timeout-minutes: 5
+        env:
+          ELYSIA_SELFTEST: '1'
+          ELYSIA_SELFTEST_MS: '10000'
+          ELYSIA_DATA_DIR: '${{ github.workspace }}\.ci-pack'
+          ELYSIA_SELFTEST_DIR: '${{ github.workspace }}\.ci-pack\selftest'
+        run: |
+          & "release\win-unpacked\Elysia.exe"
+          $path = '${{ github.workspace }}\.ci-pack\selftest\shot.json'
+          if (!(Test-Path $path)) { throw '打包产物无法启动（自检未生成诊断文件，通常是 files 白名单漏了文件）' }
+          $diag = Get-Content $path -Raw | ConvertFrom-Json
+          $fatal = @($diag.errors | Where-Object { $_ -notmatch 'live2d|Live2D|WebGL|pixi' })
+          if ($fatal.Count -gt 0) { throw ('打包产物运行时报错: ' + ($fatal -join '; ')) }
+          if (-not $diag.modalOpens.menu) { throw '打包产物弹窗交互异常' }
+          Write-Host '打包产物自检通过'
+
       - name: List output
         shell: pwsh
         run: Get-ChildItem release | Select-Object Name,Length
