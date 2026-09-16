@@ -68,8 +68,12 @@ jobs:
           ELYSIA_DATA_DIR: '${{ github.workspace }}\.ci-pack'
           ELYSIA_SELFTEST_DIR: '${{ github.workspace }}\.ci-pack\selftest'
         run: |
-          & "release\win-unpacked\Elysia.exe"
           $path = '${{ github.workspace }}\.ci-pack\selftest\shot.json'
+          # GUI 程序用 & 调用不会等待，改为启动后轮询等待自检产物
+          $proc = Start-Process -FilePath 'release\win-unpacked\Elysia.exe' -PassThru
+          $deadline = (Get-Date).AddSeconds(90)
+          while (-not (Test-Path $path) -and (Get-Date) -lt $deadline) { Start-Sleep -Seconds 2 }
+          if (-not $proc.HasExited) { $proc.Kill() }
           if (!(Test-Path $path)) { throw '打包产物无法启动（自检未生成诊断文件，通常是 files 白名单漏了文件）' }
           $diag = Get-Content $path -Raw | ConvertFrom-Json
           $fatal = @($diag.errors | Where-Object { $_ -notmatch 'live2d|Live2D|WebGL|pixi' })
