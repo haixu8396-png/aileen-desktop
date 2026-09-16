@@ -23,8 +23,10 @@
     "files": [
       "main.js",
       "preload.js",
+      "shared/**/*",
       "dist/**/*",
-      "package.json"
+      "package.json",
+      "!node_modules/**/*"
     ],
     "asar": true,
     "compression": "normal",
