@@ -10,6 +10,11 @@ import { $, toast, scrollBottom, autoGrowInput } from './dom.js';
 
 // ---------------- 聊天记录（按角色持久化到文件） ----------------
 export function chatKey(file) {
+  return 'aileen.chat.' + file;
+}
+
+/** 旧版本（Elysia 时期）的 localStorage 键，仅用于一次性迁移 */
+function legacyChatKey(file) {
   return 'elysia.chat.' + file;
 }
 
@@ -25,7 +30,7 @@ export async function loadChatFor(file) {
   } catch { /* ignore */ }
   // 兼容旧版本：localStorage 里的历史记录迁移一次到文件
   try {
-    const legacy = localStorage.getItem(chatKey(file));
+    const legacy = localStorage.getItem(legacyChatKey(file));
     if (legacy) {
       const arr = JSON.parse(legacy);
       if (Array.isArray(arr) && arr.length) {

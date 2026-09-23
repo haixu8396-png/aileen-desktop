@@ -1,4 +1,4 @@
-// Elysia — 预加载脚本（contextBridge 暴露安全 API）
+// AILEEN — 预加载脚本（contextBridge 暴露安全 API）
 const { contextBridge, ipcRenderer } = require('electron');
 
 contextBridge.exposeInMainWorld('api', {

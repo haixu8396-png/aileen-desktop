@@ -1,5 +1,5 @@
 // 角色卡：数据结构与提示词构建
-export const CARD_SPEC = 'elysia-card-v1';
+export const CARD_SPEC = 'aileen-card-v1';
 
 export function emptyCard() {
   const now = Date.now();

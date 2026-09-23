@@ -39,10 +39,10 @@ jobs:
         shell: pwsh
         timeout-minutes: 5
         env:
-          ELYSIA_SELFTEST: '1'
-          ELYSIA_SELFTEST_MS: '12000'
-          ELYSIA_DATA_DIR: '${{ github.workspace }}\.ci-data'
-          ELYSIA_SELFTEST_DIR: '${{ github.workspace }}\.ci-data\selftest'
+          AILEEN_SELFTEST: '1'
+          AILEEN_SELFTEST_MS: '12000'
+          AILEEN_DATA_DIR: '${{ github.workspace }}\.ci-data'
+          AILEEN_SELFTEST_DIR: '${{ github.workspace }}\.ci-data\selftest'
         run: |
           npx electron .
           $path = '${{ github.workspace }}\.ci-data\selftest\shot.json'
@@ -63,20 +63,20 @@ jobs:
         shell: pwsh
         timeout-minutes: 5
         env:
-          ELYSIA_SELFTEST: '1'
-          ELYSIA_SELFTEST_MS: '10000'
-          ELYSIA_DATA_DIR: '${{ github.workspace }}\.ci-pack'
-          ELYSIA_SELFTEST_DIR: '${{ github.workspace }}\.ci-pack\selftest'
+          AILEEN_SELFTEST: '1'
+          AILEEN_SELFTEST_MS: '10000'
+          AILEEN_DATA_DIR: '${{ github.workspace }}\.ci-pack'
+          AILEEN_SELFTEST_DIR: '${{ github.workspace }}\.ci-pack\selftest'
         run: |
           $path = '${{ github.workspace }}\.ci-pack\selftest\shot.json'
           # GUI 程序用 & 调用不会等待，改为启动后轮询等待自检产物
-          $proc = Start-Process -FilePath 'release\win-unpacked\Elysia.exe' -PassThru
+          $proc = Start-Process -FilePath 'release\win-unpacked\AILEEN.exe' -PassThru
           $deadline = (Get-Date).AddSeconds(90)
           while (-not (Test-Path $path) -and (Get-Date) -lt $deadline) { Start-Sleep -Seconds 2 }
           if (-not $proc.HasExited) { $proc.Kill() }
           if (!(Test-Path $path)) { throw '打包产物无法启动（自检未生成诊断文件，通常是 files 白名单漏了文件）' }
           $diag = Get-Content $path -Raw | ConvertFrom-Json
-          $fatal = @($diag.errors | Where-Object { $_ -notmatch 'live2d|Live2D|WebGL|pixi' })
+          $fatal = @($diag.errors | Where-Object { $_ -and $_.Trim() -ne '' -and $_ -notmatch 'live2d|Live2D|WebGL|pixi' })
           if ($fatal.Count -gt 0) { throw ('打包产物运行时报错: ' + ($fatal -join '; ')) }
           if (-not $diag.modalOpens.menu) { throw '打包产物弹窗交互异常' }
           Write-Host '打包产物自检通过'
@@ -88,12 +88,12 @@ jobs:
       - name: Create complete source zip
         shell: pwsh
         run: |
-          git archive --format=zip --output="release/Elysia-${{ github.ref_name }}-full-source.zip" HEAD
+          git archive --format=zip --output="release/AILEEN-${{ github.ref_name }}-full-source.zip" HEAD
 
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: elysia-build
+          name: aileen-build
           path: |
             release/*.exe
             release/*.zip

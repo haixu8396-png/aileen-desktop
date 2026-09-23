@@ -2,7 +2,7 @@
 chcp 65001 >nul
 cd /d "%~dp0"
 echo ============================================
-echo   Elysia - 一键打包安装包
+echo   AILEEN - 一键打包安装包
 echo ============================================
 set ELECTRON_BUILDER_BINARIES_MIRROR=https://npmmirror.com/mirrors/electron-builder-binaries/
 if not exist node_modules (

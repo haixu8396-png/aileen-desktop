@@ -1,5 +1,5 @@
 // ============================================================
-// Elysia — Electron 主进程
+// AILEEN — Electron 主进程
 // 职责: 窗口管理 / 本地静态文件服务(模型与头像) / 角色卡与设置持久化
 // ============================================================
 const { app, BrowserWindow, ipcMain, dialog, shell, desktopCapturer } = require('electron');
@@ -14,15 +14,15 @@ const APP_ROOT = __dirname;
 const DIST_INDEX = path.join(APP_ROOT, 'dist', 'index.html');
 
 // 用户数据目录：使用 Electron userData，应用升级/重装/移动都不会丢失设置、角色卡、模型
-app.setName('Elysia');
+app.setName('AILEEN');
 const DEFAULT_USER_DATA = app.getPath('userData');
 
-// 数据目录优先级：环境变量 ELYSIA_DATA_DIR > D:\ElysiaData（仅当 D 盘存在）> 系统默认 userData
+// 数据目录优先级：环境变量 AILEEN_DATA_DIR（旧名 ELYSIA_DATA_DIR 兼容）> D:/AileenData（仅当 D 盘存在）> 系统默认 userData（%APPDATA%\AILEEN）
 function resolveUserDataDir() {
-  const envDir = process.env.ELYSIA_DATA_DIR;
+  const envDir = process.env.AILEEN_DATA_DIR || process.env.ELYSIA_DATA_DIR;
   if (typeof envDir === 'string' && envDir.trim()) return envDir.trim();
   try {
-    if (fs.existsSync('D:\\')) return 'D:/ElysiaData';
+    if (fs.existsSync('D:\\')) return 'D:/AileenData';
   } catch { /* 忽略 */ }
   return DEFAULT_USER_DATA;
 }
@@ -110,40 +110,34 @@ function copyDirRec(src, dst) {
   }
 }
 
-// 首次启动时，把旧版（应用目录内）的数据迁移到 userData，之后以 userData 为准
+// 首次启动时，把历史版本的数据迁移到当前数据目录，之后以当前目录为准
 function migrateLegacyData() {
   try {
-    // 从旧版默认 userData（%APPDATA%\Elysia）迁移到当前目录（如 D:\ElysiaData）
-    const oldUserData = path.join(process.env.APPDATA || '', 'Elysia');
-    if (oldUserData !== USER_DATA_DIR && fs.existsSync(oldUserData)) {
-      const oldSettings = path.join(oldUserData, 'data', 'settings.json');
-      if (!fs.existsSync(SETTINGS_FILE) && fs.existsSync(oldSettings)) {
-        fs.copyFileSync(oldSettings, SETTINGS_FILE);
+    // 历史数据位置：旧版 D 盘目录、旧版 %APPDATA%\Elysia、旧版应用目录
+    const legacyRoots = [
+      'D:/ElysiaData',
+      path.join(process.env.APPDATA || '', 'Elysia'),
+      APP_ROOT,
+    ].filter((p) => p && p !== USER_DATA_DIR);
+
+    const hasSettings = () => fs.existsSync(SETTINGS_FILE);
+    const hasChars = () => fs.existsSync(CHARACTERS_DIR) && fs.readdirSync(CHARACTERS_DIR).some((n) => n.endsWith('.json'));
+    const hasModels = () => fs.existsSync(MODELS_DIR) && fs.readdirSync(MODELS_DIR).length > 0;
+
+    for (const root of legacyRoots) {
+      if (!fs.existsSync(root)) continue;
+      const legacySettings = path.join(root, 'data', 'settings.json');
+      if (!hasSettings() && fs.existsSync(legacySettings)) {
+        fs.copyFileSync(legacySettings, SETTINGS_FILE);
       }
-      const oldChars = path.join(oldUserData, 'characters');
-      const hasChars = fs.existsSync(CHARACTERS_DIR) && fs.readdirSync(CHARACTERS_DIR).some((n) => n.endsWith('.json'));
-      if (!hasChars && fs.existsSync(oldChars)) {
-        copyDirRec(oldChars, CHARACTERS_DIR);
+      const legacyChars = path.join(root, 'characters');
+      if (!hasChars() && fs.existsSync(legacyChars)) {
+        copyDirRec(legacyChars, CHARACTERS_DIR);
       }
-      const oldModels = path.join(oldUserData, 'models');
-      const hasModels = fs.existsSync(MODELS_DIR) && fs.readdirSync(MODELS_DIR).length > 0;
-      if (!hasModels && fs.existsSync(oldModels)) {
-        copyDirRec(oldModels, MODELS_DIR);
+      const legacyModels = path.join(root, 'models');
+      if (!hasModels() && fs.existsSync(legacyModels)) {
+        copyDirRec(legacyModels, MODELS_DIR);
       }
-    }
-    const legacySettings = path.join(APP_ROOT, 'data', 'settings.json');
-    if (!fs.existsSync(SETTINGS_FILE) && fs.existsSync(legacySettings)) {
-      fs.copyFileSync(legacySettings, SETTINGS_FILE);
-    }
-    const legacyChars = path.join(APP_ROOT, 'characters');
-    const hasChars = fs.existsSync(CHARACTERS_DIR) && fs.readdirSync(CHARACTERS_DIR).some((n) => n.endsWith('.json'));
-    if (!hasChars && fs.existsSync(legacyChars)) {
-      copyDirRec(legacyChars, CHARACTERS_DIR);
-    }
-    const legacyModels = path.join(APP_ROOT, 'models');
-    const hasModels = fs.existsSync(MODELS_DIR) && fs.readdirSync(MODELS_DIR).length > 0;
-    if (!hasModels && fs.existsSync(legacyModels)) {
-      copyDirRec(legacyModels, MODELS_DIR);
     }
   } catch (err) {
     console.error('[migrate]', err);
@@ -287,7 +281,7 @@ function createWindow() {
     height: 940,
     minWidth: 1080,
     minHeight: 700,
-    title: 'Elysia',
+    title: 'AILEEN',
     backgroundColor: '#14151a',
     autoHideMenuBar: true,
     webPreferences: {
@@ -297,8 +291,8 @@ function createWindow() {
     },
   });
 
-  if (process.env.ELYSIA_DEV_URL) {
-    win.loadURL(process.env.ELYSIA_DEV_URL);
+  if (process.env.AILEEN_DEV_URL) {
+    win.loadURL(process.env.AILEEN_DEV_URL);
   } else if (fs.existsSync(DIST_INDEX)) {
     win.loadFile(DIST_INDEX);
   } else {
@@ -307,8 +301,8 @@ function createWindow() {
     ));
   }
 
-  // 自检模式：ELYSIA_SELFTEST=1 时加载完成后截图 + 收集诊断信息并退出（用于无头验证）
-  if (process.env.ELYSIA_SELFTEST) {
+  // 自检模式：AILEEN_SELFTEST=1 时加载完成后截图 + 收集诊断信息并退出（用于无头验证）
+  if (process.env.AILEEN_SELFTEST) {
     const consoleLines = [];
     win.webContents.on('console-message', (event, ...args) => {
       const params = args[0];
@@ -318,7 +312,7 @@ function createWindow() {
     win.webContents.on('did-finish-load', () => {
       setTimeout(async () => {
         try {
-          const SELFTEST_DIR = process.env.ELYSIA_SELFTEST_DIR || path.join(USER_DATA_DIR, 'selftest');
+          const SELFTEST_DIR = process.env.AILEEN_SELFTEST_DIR || path.join(USER_DATA_DIR, 'selftest');
           fs.mkdirSync(SELFTEST_DIR, { recursive: true });
           const img = await win.webContents.capturePage();
           fs.writeFileSync(path.join(SELFTEST_DIR, 'shot.png'), img.toPNG());
@@ -365,7 +359,7 @@ function createWindow() {
             try {
               const writeRes = await window.api.writeCharacter('_selftest', { name: '自检角色', description: '测试', personality: '', scenario: '', first_mes: '', mes_example: '', system_prompt: '', model: '', voice: '', createdAt: Date.now(), updatedAt: Date.now() }, 'create');
               const testFileName = (writeRes && writeRes.file) ? writeRes.file : '_selftest.json';
-              if (typeof window.__ELYSIA_REFRESH === 'function') await window.__ELYSIA_REFRESH();
+              if (typeof window.__AILEEN_REFRESH === 'function') await window.__AILEEN_REFRESH();
               await new Promise((r) => setTimeout(r, 200));
               const testItem = Array.from(document.querySelectorAll('#char-list .char-item')).find((it) => it.dataset.file === testFileName);
               if (testItem) {
@@ -378,10 +372,10 @@ function createWindow() {
                 }
               }
               await window.api.deleteCharacter(testFileName);
-              if (typeof window.__ELYSIA_REFRESH === 'function') await window.__ELYSIA_REFRESH();
+              if (typeof window.__AILEEN_REFRESH === 'function') await window.__AILEEN_REFRESH();
               const subLlm = document.getElementById('menu-sub-llm');
               if (subLlm) menuSubText = subLlm.textContent.trim();
-            } catch (err) { window.__ELYSIA_ERRORS.push('charMenuTest: ' + String(err && err.message || err)); }
+            } catch (err) { window.__AILEEN_ERRORS.push('charMenuTest: ' + String(err && err.message || err)); }
             // 设置持久化测试：写入 apiKey → 读回 → 还原
             let settingsPersist = false;
             try {
@@ -392,7 +386,7 @@ function createWindow() {
               const back = await window.api.getSettings();
               settingsPersist = !!(back && back.llm && back.llm.apiKey === testKey);
               await window.api.setSettings(cur);
-            } catch (err) { window.__ELYSIA_ERRORS.push('settingsTest: ' + String(err && err.message || err)); }
+            } catch (err) { window.__AILEEN_ERRORS.push('settingsTest: ' + String(err && err.message || err)); }
             // Base URL 默认收起（未勾选自定义时输入框应隐藏）
             let llmBaseHidden = 'n/a';
             const wLlm = document.getElementById('wrap-llm-base');
@@ -455,18 +449,18 @@ function createWindow() {
               modalsExist,
               datalistLlm,
               screenSources,
-              errors: (window.__ELYSIA_ERRORS || []).slice(0, 10),
-              modelReady: typeof window.__ELYSIA_MODEL_READY === 'function' ? !!window.__ELYSIA_MODEL_READY() : 'n/a',
+              errors: (window.__AILEEN_ERRORS || []).slice(0, 10),
+              modelReady: typeof window.__AILEEN_MODEL_READY === 'function' ? !!window.__AILEEN_MODEL_READY() : 'n/a',
             };
           })()`);
-          const SELFTEST_DIR2 = process.env.ELYSIA_SELFTEST_DIR || path.join(USER_DATA_DIR, 'selftest');
+          const SELFTEST_DIR2 = process.env.AILEEN_SELFTEST_DIR || path.join(USER_DATA_DIR, 'selftest');
           fs.writeFileSync(path.join(SELFTEST_DIR2, 'shot.json'), JSON.stringify(diag, null, 2));
           fs.writeFileSync(path.join(SELFTEST_DIR2, 'console.log'), consoleLines.join('\n'));
         } catch (e) {
           console.error('[selftest] diag failed:', e);
         }
         app.quit();
-      }, Number(process.env.ELYSIA_SELFTEST_MS || 9000));
+      }, Number(process.env.AILEEN_SELFTEST_MS || 9000));
     });
   }
   return win;

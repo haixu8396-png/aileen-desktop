@@ -1,4 +1,4 @@
-# ✦ Elysia —— 开源桌面 AI 伴侣
+# ✦ AILEEN —— 开源桌面 AI 伴侣
 
 <div align="center">
 
@@ -14,7 +14,7 @@
 
 ## 📖 项目简介
 
-Elysia 是一款开源的桌面 AI 伴侣应用，把「会说话、会动、能看屏幕的二次元角色」带进你的电脑：
+AILEEN 是一款开源的桌面 AI 伴侣应用，把「会说话、会动、能看屏幕的二次元角色」带进你的电脑：
 
 - 💬 **多模型对话**：接入 DeepSeek、OpenAI、Moonshot、硅基流动、Groq、智谱、阿里百炼、小米 MiMo、OpenRouter、本地 Ollama 等 10+ 供应商，一键切换、流式输出。
 - 🎀 **Live2D 看板娘**：内置 Cubism 2/3/4 运行时，角色会说话、会做动作、会换表情，TTS 朗读时自动「对口型」。
@@ -37,15 +37,15 @@ Elysia 是一款开源的桌面 AI 伴侣应用，把「会说话、会动、能
 
 ### 📦 一键安装（推荐，Windows）
 
-到 [Releases](../../releases) 下载最新的 `Elysia Setup x.x.x.exe`（安装包），双击即完成安装（会自动创建桌面快捷方式）。
+到 [Releases](../../releases) 下载最新的 `AILEEN Setup x.x.x.exe`（安装包），双击即完成安装（会自动创建桌面快捷方式）。
 
-> 另有免安装的 `Elysia x.x.x.exe`（便携版），下载后双击直接运行。
+> 另有免安装的 `AILEEN x.x.x.exe`（便携版），下载后双击直接运行。
 
 ### 🔧 从源码运行
 
 ```bash
-git clone https://github.com/haixu8396-png/elysia-desktop.git
-cd elysia-desktop
+git clone https://github.com/haixu8396-png/aileen-desktop.git
+cd aileen-desktop
 npm install
 npm start
 ```
@@ -79,7 +79,7 @@ npm run dist        # 生成 NSIS 安装包 + 便携版，输出到 release/ 目
 
 ```json
 {
-  "spec": "elysia-card-v1",
+  "spec": "aileen-card-v1",
   "name": "角色名",
   "avatar": "avatars/xxx.png",
   "description": "一句话简介",
@@ -103,7 +103,7 @@ npm run dist        # 生成 NSIS 安装包 + 便携版，输出到 release/ 目
 ## 📁 目录结构
 
 ```
-elysia/
+aileen/
 ├─ main.js                 # Electron 主进程
 ├─ preload.js              # contextBridge 安全桥接
 ├─ src/                    # 渲染进程（Vite 构建）

@@ -54,10 +54,10 @@ export function renderEmptyState() {
   if (state.characters.length > 0) return;
   const av = $('chat-avatar');
   if (av) av.src = '';
-  $('chat-name').textContent = 'Elysia';
+  $('chat-name').textContent = 'AILEEN';
   $('chat-desc').textContent = '从零开始，搭建你的专属 AI 伴侣';
   const box = $('messages');
-  box.innerHTML = '<div class="msg assistant">欢迎使用 Elysia ✨<br><br>点击左侧「＋ 新建角色」创建你的第一位角色卡，<br>然后在 ⚙ 设置 中填入 DeepSeek API Key，就可以开始对话啦～</div>';
+  box.innerHTML = '<div class="msg assistant">欢迎使用 AILEEN ✨<br><br>点击左侧「＋ 新建角色」创建你的第一位角色卡，<br>然后在 ⚙ 设置 中填入 DeepSeek API Key，就可以开始对话啦～</div>';
   scrollBottom();
 }
 
@@ -78,7 +78,7 @@ export async function selectCharacter(file, opts = {}) {
     if (state.busy) setBusy(false);
   }
   state.current = found;
-  localStorage.setItem('elysia.currentChar', file);
+  localStorage.setItem('aileen.currentChar', file);
   renderCharList();
   updateChatHeader();
 

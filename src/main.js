@@ -1,5 +1,5 @@
 // ============================================================
-// Elysia — 渲染进程入口（启动 + 事件装配）
+// AILEEN — 渲染进程入口（启动 + 事件装配）
 // 职责边界：控制器分布在 lib/ 下
 //   state.js           共享状态与跨模块回调
 //   dom.js             DOM/交互工具
@@ -33,11 +33,15 @@ import {
 import { startVoiceLoop, stopVoiceLoop } from './lib/voice.js';
 
 // 错误收集（供自检诊断使用）
-window.__ELYSIA_ERRORS = [];
-window.addEventListener('error', (e) => window.__ELYSIA_ERRORS.push(String(e.message || e)));
+window.__AILEEN_ERRORS = [];
+window.addEventListener('error', (e) => {
+  const msg = String(e.message || e || '').trim();
+  if (msg) window.__AILEEN_ERRORS.push(msg);
+});
 window.addEventListener('unhandledrejection', (e) => {
   const r = e && e.reason;
-  window.__ELYSIA_ERRORS.push('rejection: ' + String((r && r.message) || r));
+  const msg = String((r && r.message) || r || '').trim();
+  if (msg) window.__AILEEN_ERRORS.push('rejection: ' + msg);
 });
 
 /** 把跨模块回调注入 hooks，避免模块间循环依赖 */
@@ -85,7 +89,7 @@ async function boot() {
   }
   renderEmptyState();
 
-  const lastFile = localStorage.getItem('elysia.currentChar');
+  const lastFile = localStorage.getItem('aileen.currentChar') || localStorage.getItem('elysia.currentChar');
   const first = state.characters.find((c) => c.file === lastFile) || state.characters[0] || null;
   if (first) await selectCharacter(first.file, { greet: true });
 
@@ -343,10 +347,10 @@ function bindEvents() {
 }
 
 // 自检钩子
-window.__ELYSIA_MODEL_READY = () => {
+window.__AILEEN_MODEL_READY = () => {
   try { return !!(state.oml2d && state.oml2d.models && state.oml2d.models.model); } catch { return false; }
 };
-window.__ELYSIA_REFRESH = async () => { await refreshCharacters(); };
+window.__AILEEN_REFRESH = async () => { await refreshCharacters(); };
 
 // 系统语音列表可能异步加载
 if ('speechSynthesis' in window) {

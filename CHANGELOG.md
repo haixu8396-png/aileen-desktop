@@ -2,6 +2,16 @@
 
 本项目所有重要改动都会记录在此，版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [0.2.0] - 2026-09-16
+
+### 变更
+- **项目改名为 AILEEN**（原 Elysia）：
+  - 应用名、窗口标题、界面 Logo、安装包名改为 AILEEN
+  - 数据目录改为 `D:/AileenData`（环境变量 `AILEEN_DATA_DIR`，兼容旧名 `ELYSIA_DATA_DIR`）
+  - 内部标识统一：`__AILEEN_*` 自检钩子、`AILEEN_SELFTEST*` 环境变量、`aileen-card-v1` 角色卡 spec、localStorage 键前缀 `aileen.`
+  - **旧数据自动迁移**：首次启动会依次从 `D:/ElysiaData`、`%APPDATA%\Elysia`、原应用目录查找并迁移设置、角色卡与模型，API Key 不会丢失
+  - 安装目录、桌面与开始菜单快捷方式名称变为 AILEEN（旧版可手动卸载）
+
 ## [0.1.4] - 2026-09-15
 
 ### 重构

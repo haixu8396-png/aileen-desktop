@@ -240,7 +240,7 @@ export async function fetchSttModels() {
 
 // ---------------- 外观调色 ----------------
 export const THEME_PRESETS = [
-  { name: 'Elysia 粉', primary: '#ff7eb3', secondary: '#38b0de' },
+  { name: 'AILEEN 粉', primary: '#ff7eb3', secondary: '#38b0de' },
   { name: '晴空蓝', primary: '#38b0de', secondary: '#7c9bff' },
   { name: '薄荷绿', primary: '#4ecdc4', secondary: '#a8e6a3' },
   { name: '星夜紫', primary: '#a78bfa', secondary: '#f472b6' },
