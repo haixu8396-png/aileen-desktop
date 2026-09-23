@@ -90,11 +90,15 @@ jobs:
           AILEEN_SELFTEST_DIR: '${{ github.workspace }}\.ci-pack\selftest'
         run: |
           $path = '${{ github.workspace }}\.ci-pack\selftest\shot.json'
-          # GUI 程序用 & 调用不会等待，改为启动后轮询等待自检产物
+          $opath = '${{ github.workspace }}\.ci-pack\selftest\overlay.json'
+          # GUI 程序用 & 调用不会等待，改为启动后轮询等待自检产物。
+          # 自检顺序是 shot.json → overlay.json（展台还要多等 5 秒），两个都等到才算跑完，
+          # 否则会在展台自检前就把进程杀掉，overlay.json 永远不生成。
           $proc = Start-Process -FilePath 'release\win-unpacked\AILEEN.exe' -PassThru
-          $deadline = (Get-Date).AddSeconds(90)
-          while (-not (Test-Path $path) -and (Get-Date) -lt $deadline) { Start-Sleep -Seconds 2 }
+          $deadline = (Get-Date).AddSeconds(180)
+          while ((-not (Test-Path $path) -or -not (Test-Path $opath)) -and (Get-Date) -lt $deadline) { Start-Sleep -Seconds 2 }
           if (-not $proc.HasExited) { $proc.Kill() }
+          Start-Sleep -Seconds 2
           if (!(Test-Path $path)) { throw '打包产物无法启动（自检未生成诊断文件，通常是 files 白名单漏了文件）' }
           $diag = Get-Content $path -Raw | ConvertFrom-Json
           $fatal = @($diag.errors | Where-Object { $_ -and $_.Trim() -ne '' -and $_ -notmatch 'live2d|Live2D|WebGL|pixi' })
