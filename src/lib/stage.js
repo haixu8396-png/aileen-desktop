@@ -54,7 +54,7 @@ export function initLive2D() {
     })),
   });
   state.oml2d.onLoad((status) => {
-    if (status === 'success') refreshStageControls();
+    if (status === 'success') { refreshStageControls(); syncOverlayModel(); }
   });
   if (state.oml2d && typeof state.oml2d.then === 'function') {
     state.oml2d.catch((err) => {
@@ -167,6 +167,28 @@ export function populateStageModelSelect() {
 export function setStageModelIndex(idx) {
   const sel = $('m-model');
   if (sel && !isNaN(idx) && idx >= 0) sel.value = String(idx);
+  syncOverlayModel();
+}
+
+/** 当前舞台应显示的模型（跟随舞台下拉框，退化到角色卡绑定，再退化到第一个） */
+export function currentStageModel() {
+  const sel = $('m-model');
+  const idx = sel ? parseInt(sel.value, 10) : -1;
+  if (!isNaN(idx) && idx >= 0 && state.models[idx]) return state.models[idx];
+  const cur = state.current;
+  if (cur && cur.data && cur.data.model) {
+    const found = state.models.find((m) => m.file === cur.data.model);
+    if (found) return found;
+  }
+  return state.models[0] || null;
+}
+
+/** 把当前模型同步给无边框悬浮展台（没开悬浮窗时是空操作） */
+export function syncOverlayModel() {
+  try {
+    const m = currentStageModel();
+    window.api.overlaySetModel(m ? { url: m.url, name: m.name } : null);
+  } catch (err) { /* 悬浮窗不可用不影响主流程 */ }
 }
 
 // ---------------- 模型管理（设置 → 模型设置） ----------------
@@ -248,6 +270,7 @@ export async function refreshModelsAfterAdd() {
   hooks.populateModelSelect();
   populateStageModelSelect();
   rebuildLive2D();
+  syncOverlayModel();
   const current = state.current;
   if (current && current.data.model) {
     const idx = state.models.findIndex((m) => m.file === current.data.model);

@@ -20,4 +20,33 @@ contextBridge.exposeInMainWorld('api', {
   clearChat: (file) => ipcRenderer.invoke('chat:clear', file),
   getSettings: () => ipcRenderer.invoke('settings:get'),
   setSettings: (settings) => ipcRenderer.invoke('settings:set', settings),
+
+  // ---- 无边框悬浮展台 ----
+  overlayStatus: () => ipcRenderer.invoke('overlay:status'),
+  overlayToggle: () => ipcRenderer.invoke('overlay:toggle'),
+  overlayHide: () => ipcRenderer.invoke('overlay:hide'),
+  overlaySetModel: (model) => ipcRenderer.invoke('overlay:setModel', model),
+  overlaySetHitArea: (rect) => ipcRenderer.invoke('overlay:hitArea', rect),
+  overlaySetIgnore: (ignore) => ipcRenderer.invoke('overlay:setIgnore', ignore),
+  overlaySetInteractive: (on) => ipcRenderer.invoke('overlay:interactive', on),
+  overlayResize: (payload) => ipcRenderer.invoke('overlay:resize', payload),
+  overlayGetState: () => ipcRenderer.invoke('overlay:getState'),
+  overlayDragStart: () => ipcRenderer.invoke('overlay:dragStart'),
+  overlayDragMove: () => ipcRenderer.invoke('overlay:dragMove'),
+  overlayDragEnd: () => ipcRenderer.invoke('overlay:dragEnd'),
+  overlayReset: () => ipcRenderer.invoke('overlay:reset'),
+  onMenuAction: (cb) => ipcRenderer.on('menu:action', (_e, action) => cb(action)),
+  // ---- Minecraft 伙伴 ----
+  mcConnect: (opts) => ipcRenderer.invoke('mc:connect', opts),
+  mcDisconnect: () => ipcRenderer.invoke('mc:disconnect'),
+  mcStatus: () => ipcRenderer.invoke('mc:status'),
+  mcSay: (text) => ipcRenderer.invoke('mc:say', text),
+  mcFollow: (name) => ipcRenderer.invoke('mc:follow', name),
+  mcStopFollow: () => ipcRenderer.invoke('mc:stopFollow'),
+  mcStep: (payload) => ipcRenderer.invoke('mc:step', payload),
+  mcJump: () => ipcRenderer.invoke('mc:jump'),
+  onMcEvent: (cb) => ipcRenderer.on('mc:event', (_e, ev) => cb(ev)),
+
+  onOverlayState: (cb) => ipcRenderer.on('overlay:state', (_e, st) => cb(st)),
+  onOverlayModel: (cb) => ipcRenderer.on('overlay:model', (_e, m) => cb(m)),
 });

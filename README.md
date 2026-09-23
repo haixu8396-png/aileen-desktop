@@ -24,6 +24,9 @@ AILEEN 是一款开源的桌面 AI 伴侣应用，把「会说话、会动、能
 - 📷 **屏幕视觉**：一键截图发给角色，让 AI「看」你的屏幕。
 - 🗂 **角色卡**：可视化的角色卡系统，新建 / 编辑 / 复制 / 导入 / 导出，绑定专属模型与音色。
 - 🎨 **主题调色**：多套配色预设 + 自定义主辅色。
+- 🪟 **无边框悬浮展台**：把角色放进一个无边框透明窗口浮在桌面上，**默认整窗鼠标穿透、绝不挡操作**；右下角手柄随用随现、静止自动隐藏，可拖动、缩放、调整透明度和可点击性，位置自动记忆。
+- 🧩 **中文应用菜单**：按 Alt 呼出原生菜单（角色 / 设置 / 展台 / 视图），`Ctrl+,` 直达设置。
+- 🎮 **Minecraft AI 伙伴**：基于 MIT 许可的 [mineflayer](https://github.com/PrismarineJS/mineflayer)，让角色真的进游戏陪你玩 —— 跟着你走（mineflayer-pathfinder，MIT）、方向键手动操控、聊天栏说话；开启「AI 自动回复」后，别人在服务器里跟它说话，它会用**你自己角色的性格** + 你的 LLM 现场回话。
 - 🔒 **数据私有**：API Key、聊天记录、角色卡、模型全部保存在本机，不经过任何第三方。
 
 > 灵感来自 [moeru-ai/Airi](https://github.com/moeru-ai/airi) 与 AI 主播 [Neuro-sama](https://www.youtube.com/channel/UCLHmLrj4pHHg3-iBJn_CqxA)。

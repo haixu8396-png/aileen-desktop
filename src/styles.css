@@ -301,6 +301,49 @@ button.icon-btn.small { width: 30px; height: 30px; font-size: 14px; }
 .char-item .ci-more:hover { color: var(--accent); background: var(--panel); }
 #char-menu.pop-menu { position: fixed; right: auto; top: auto; z-index: 70; min-width: 180px; }
 
+/* ---------- Minecraft 伙伴 ---------- */
+.mc-row { display: flex; gap: 10px; }
+.mc-row label { flex: 1; }
+.mc-row label.mc-narrow { flex: 0 0 96px; }
+.mc-status {
+  font-size: 12px; color: var(--muted); background: var(--panel2);
+  border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px;
+}
+.mc-status.on { color: #8ce99a; border-color: #2f6b3d; }
+.mc-status.err { color: #ffc9ce; border-color: var(--danger); }
+.mc-pad { display: flex; flex-direction: column; align-items: center; gap: 4px; }
+.mc-pad-mid { display: flex; gap: 4px; }
+.mc-pad button {
+  width: 46px; height: 30px; border-radius: 8px;
+  background: var(--panel2); color: var(--text); border: 1px solid var(--line);
+  font-size: 13px; cursor: pointer;
+}
+.mc-pad button:hover { border-color: var(--accent); }
+.mc-pad button:active { background: rgba(255, 126, 179, 0.25); }
+.mc-log {
+  height: 150px; overflow-y: auto; background: #101116;
+  border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px;
+  font-size: 12px; line-height: 1.65; font-family: Consolas, 'Courier New', monospace;
+}
+.mc-line { display: flex; gap: 8px; word-break: break-all; }
+.mc-ts { color: #5c6376; flex: none; }
+.mc-chat { color: #e8e8f2; }
+.mc-self { color: var(--accent); }
+.mc-info { color: var(--muted); }
+.mc-ok { color: #8ce99a; }
+.mc-warn { color: #ffd166; }
+.mc-error { color: #ff8a94; }
+
+/* ---------- 设置菜单分组 / 关于弹窗 ---------- */
+.menu-group-title {
+  font-size: 11px; color: var(--muted); letter-spacing: 0.08em;
+  margin: 6px 2px -2px; text-transform: uppercase;
+}
+.about-body { display: flex; flex-direction: column; gap: 8px; margin-bottom: 12px; }
+.about-row { display: flex; align-items: baseline; gap: 12px; font-size: 13px; }
+.about-k { color: var(--muted); min-width: 76px; flex: none; }
+.about-v { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
 /* ---------- 设置菜单副标题 ---------- */
 .menu-list button { display: flex; flex-direction: column; gap: 3px; }
 .menu-sub { font-size: 11px; color: var(--muted); font-weight: normal; }

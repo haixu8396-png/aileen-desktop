@@ -81,6 +81,13 @@ const asHex = (v, dflt) => (HEX_COLOR.test(String(v)) ? String(v) : dflt);
  * 设置规范化（白名单 + 类型/范围校验 + 显式替换语义）：
  * 未知字段一律丢弃，数组整体替换，数值越界自动收敛。
  */
+/** 可空数字：非法值返回 null（用于「跟随默认位置」的坐标） */
+function numOrNull(v, min, max) {
+  const n = typeof v === 'number' ? v : parseFloat(v);
+  if (!Number.isFinite(n)) return null;
+  return Math.min(max, Math.max(min, n));
+}
+
 function normalizeSettings(raw, defaults) {
   const base = (defaults && typeof defaults === 'object') ? defaults : {};
   const r = (raw && typeof raw === 'object') ? raw : {};
@@ -90,6 +97,8 @@ function normalizeSettings(raw, defaults) {
   const stt = pick('stt');
   const behavior = pick('behavior');
   const theme = pick('theme');
+  const overlay = pick('overlay');
+  const mc = pick('mc');
 
   const extraModels = Array.isArray(r.extraModels)
     ? r.extraModels
@@ -135,6 +144,24 @@ function normalizeSettings(raw, defaults) {
     theme: {
       primary: asHex(theme.primary, '#ff7eb3'),
       secondary: asHex(theme.secondary, '#38b0de'),
+    },
+    // 无边框 Live2D 悬浮展台
+    overlay: {
+      visible: asBool(overlay.visible, false),
+      x: numOrNull(overlay.x, -20000, 20000),
+      y: numOrNull(overlay.y, -20000, 20000),
+      width: Math.round(asNum(overlay.width, 180, 1400, 380)),
+      height: Math.round(asNum(overlay.height, 220, 1600, 640)),
+      scale: asNum(overlay.scale, 0.1, 3, 0.45),
+      opacity: asNum(overlay.opacity, 0.15, 1, 1),
+      interactive: asBool(overlay.interactive, false),
+    },
+    // Minecraft AI 伙伴（mineflayer, MIT）
+    mc: {
+      host: asStr(mc.host, 200),
+      port: Math.round(asNum(mc.port, 1, 65535, 25565)),
+      username: asStr(mc.username, 16) || 'AILEEN',
+      autoReply: asBool(mc.autoReply, false),
     },
   };
 }

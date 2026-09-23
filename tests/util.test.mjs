@@ -71,3 +71,52 @@ describe('normalizeSettings', () => {
     expect(normalizeSettings({ theme: { primary: '#123456' } }).theme.primary).toBe('#123456');
   });
 });
+
+describe('normalizeSettings · 无边框悬浮展台', () => {
+  it('缺省时给安全默认值：不自动显示、默认鼠标穿透', () => {
+    const o = normalizeSettings({}).overlay;
+    expect(o.visible).toBe(false);
+    expect(o.interactive).toBe(false);
+    expect(o.x).toBeNull();
+    expect(o.y).toBeNull();
+    expect(o.width).toBe(380);
+    expect(o.height).toBe(640);
+    expect(o.opacity).toBe(1);
+  });
+  it('坐标非法时回落到 null（下次自动摆到右下角）', () => {
+    const o = normalizeSettings({ overlay: { x: 'abc', y: NaN } }).overlay;
+    expect(o.x).toBeNull();
+    expect(o.y).toBeNull();
+  });
+  it('越界的尺寸/透明度/缩放被收敛而不是崩溃', () => {
+    const o = normalizeSettings({ overlay: { width: 99999, height: 1, opacity: 99, scale: -5 } }).overlay;
+    expect(o.width).toBe(1400);
+    expect(o.height).toBe(220);
+    expect(o.opacity).toBe(1);
+    expect(o.scale).toBe(0.1);
+  });
+  it('未知字段被丢弃、合法开关被保留', () => {
+    expect(normalizeSettings({ overlay: { evil: 1, visible: true } }).overlay.evil).toBeUndefined();
+    expect(normalizeSettings({ overlay: { visible: true, interactive: true } }).overlay.visible).toBe(true);
+    expect(normalizeSettings({ overlay: { interactive: true } }).overlay.interactive).toBe(true);
+  });
+});
+
+describe('normalizeSettings · Minecraft 伙伴', () => {
+  it('缺省时给安全默认值', () => {
+    const m = normalizeSettings({}).mc;
+    expect(m.host).toBe('');
+    expect(m.port).toBe(25565);
+    expect(m.username).toBe('AILEEN');
+    expect(m.autoReply).toBe(false);
+  });
+  it('端口越界收敛、角色名截断到 16 字符', () => {
+    expect(normalizeSettings({ mc: { port: 999999 } }).mc.port).toBe(65535);
+    expect(normalizeSettings({ mc: { port: 0 } }).mc.port).toBe(1);
+    expect(normalizeSettings({ mc: { username: 'abcdefghijklmnopqrstuvwxyz' } }).mc.username).toBe('abcdefghijklmnop');
+  });
+  it('未知字段被丢弃', () => {
+    expect(normalizeSettings({ mc: { evil: 'rm -rf', autoReply: true } }).mc.evil).toBeUndefined();
+    expect(normalizeSettings({ mc: { autoReply: true } }).mc.autoReply).toBe(true);
+  });
+});

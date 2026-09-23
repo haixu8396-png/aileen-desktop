@@ -1,0 +1,22 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta http-equiv="Content-Security-Policy" content="default-src 'self' 'unsafe-inline' 'unsafe-eval' data: blob: http://127.0.0.1:*; script-src 'self' 'unsafe-inline' 'unsafe-eval' blob:; img-src 'self' data: blob: http://127.0.0.1:*; connect-src 'self' http://127.0.0.1:* https:; media-src 'self' blob: http://127.0.0.1:*; style-src 'self' 'unsafe-inline'; font-src 'self' data:" />
+<title>AILEEN Stage</title>
+<link rel="stylesheet" href="./overlay.css" />
+</head>
+<body>
+<div id="ov-root">
+  <div id="ov-stage"></div>
+  <div id="ov-tools" title="鼠标移到这里 · 静止几秒会自动隐藏">
+    <button id="ov-smaller" title="缩小">−</button>
+    <button id="ov-bigger" title="放大">＋</button>
+    <button id="ov-lock" title="角色不挡鼠标（当前：穿透）">🖱</button>
+    <div id="ov-grip" title="按住拖动位置"><span></span><span></span><span></span></div>
+    <button id="ov-hide" title="收起展台">✕</button>
+  </div>
+</div>
+<script type="module" src="./overlay.js"></script>
+</body>
+</html>

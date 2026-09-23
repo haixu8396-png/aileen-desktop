@@ -7,7 +7,7 @@ import { escapeHtml } from './markdown.js';
 import { state, hooks, tts } from './state.js';
 import { $, toast, scrollBottom, avatarUrl } from './dom.js';
 import { renderMessages, saveChatFor, loadChatFor, clearChatFor, ttsSettingsForCharacter, setBusy } from './chat.js';
-import { setStageModelIndex, updateStageModelName } from './stage.js';
+import { setStageModelIndex, updateStageModelName, syncOverlayModel } from './stage.js';
 
 export function findChar(file) {
   return state.characters.find((c) => c.file === file);
@@ -91,6 +91,7 @@ export async function selectCharacter(file, opts = {}) {
     }
     updateStageModelName();
   }
+  syncOverlayModel();
 
   const saved = await loadChatFor(file);
   if (saved && saved.length) {
@@ -125,8 +126,11 @@ export function openCharMenuAt(file, x, y) {
   menu.style.left = '0px';
   menu.style.top = '0px';
   const r = menu.getBoundingClientRect();
-  menu.style.left = Math.min(x, window.innerWidth - r.width - 8) + 'px';
-  menu.style.top = Math.min(y, window.innerHeight - r.height - 8) + 'px';
+  // 贴边弹出时不能越出窗口；窗口极窄时也不能算出负坐标
+  const left = Math.max(8, Math.min(x, window.innerWidth - r.width - 8));
+  const top = Math.max(8, Math.min(y, window.innerHeight - r.height - 8));
+  menu.style.left = left + 'px';
+  menu.style.top = top + 'px';
 }
 
 export function closeCharMenu() {

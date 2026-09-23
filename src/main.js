@@ -14,7 +14,7 @@ import { LLM_PROVIDERS, presetLlmBase, state, hooks, tts, stt } from './lib/stat
 import { $, toast, autoGrowInput } from './lib/dom.js';
 import { escapeHtml } from './lib/markdown.js';
 import {
-  initLive2D, rebuildLive2D, updateStageModelName, populateStageModelSelect, setStageModelIndex,
+  initLive2D, rebuildLive2D, updateStageModelName, populateStageModelSelect, setStageModelIndex, syncOverlayModel,
   openModelModal, addModelFromFolder, showUrlForm, submitUrlForm, refreshModelsAfterAdd, bindTtsMotion,
 } from './lib/stage.js';
 import {
@@ -29,8 +29,10 @@ import {
   openLlmModal, saveLlmModal, openTtsModal, saveTtsModal, openSttModal, saveSttModal,
   refreshMenuSubtitles, fetchLlmModels, testLlmConnection, fetchTtsVoices, fetchSttModels,
   applyTheme, openThemeModal, saveThemeModal, setAttachUI, openScreenPicker,
+  openSettingsMenu, openFromMenu, closeSubModal, markActivePreset, setMenuSub,
 } from './lib/modals.js';
 import { startVoiceLoop, stopVoiceLoop } from './lib/voice.js';
+import { openMcModal, bindMc } from './lib/minecraft.js';
 
 // 错误收集（供自检诊断使用）
 window.__AILEEN_ERRORS = [];
@@ -94,6 +96,8 @@ async function boot() {
   if (first) await selectCharacter(first.file, { greet: true });
 
   bindEvents();
+  bindMc();
+  bindAppMenu();
   $('input').focus();
 }
 
@@ -143,11 +147,11 @@ function bindCharEditor() {
 }
 
 function bindSettingsModals() {
-  $('s-llm-cancel').onclick = () => $('modal-llm').classList.add('hidden');
+  $('s-llm-cancel').onclick = () => closeSubModal('modal-llm');
   $('s-llm-save').onclick = saveLlmModal;
-  $('s-tts-cancel').onclick = () => $('modal-tts').classList.add('hidden');
+  $('s-tts-cancel').onclick = () => closeSubModal('modal-tts');
   $('s-tts-save').onclick = saveTtsModal;
-  $('s-stt-cancel').onclick = () => $('modal-stt').classList.add('hidden');
+  $('s-stt-cancel').onclick = () => closeSubModal('modal-stt');
   $('s-stt-save').onclick = saveSttModal;
   $('btn-llm-fetch').onclick = fetchLlmModels;
   $('btn-llm-test').onclick = testLlmConnection;
@@ -197,11 +201,12 @@ function bindSettingsModals() {
 
 function bindThemeModal() {
   $('t-save').onclick = saveThemeModal;
-  $('t-cancel').onclick = () => $('modal-theme').classList.add('hidden');
+  $('t-cancel').onclick = () => closeSubModal('modal-theme');
   $('t-reset').onclick = () => {
     $('t-primary').value = '#ff7eb3';
     $('t-secondary').value = '#38b0de';
     applyTheme({ primary: '#ff7eb3', secondary: '#38b0de' });
+    markActivePreset();
   };
   $('t-primary').addEventListener('input', (e) => applyTheme({ primary: e.target.value, secondary: $('t-secondary').value }));
   $('t-secondary').addEventListener('input', (e) => applyTheme({ primary: $('t-primary').value, secondary: e.target.value }));
@@ -214,12 +219,36 @@ function bindModelModal() {
   $('m-url-ok').onclick = submitUrlForm;
   $('m-url-cancel').onclick = () => $('m-url-form').classList.add('hidden');
   $('m-url-input').addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.isComposing) submitUrlForm(); });
-  $('m-cancel').onclick = () => $('modal-model').classList.add('hidden');
+  $('m-cancel').onclick = () => closeSubModal('modal-model');
   $('m-model').onchange = (e) => {
     const idx = parseInt(e.target.value, 10);
     if (!isNaN(idx) && state.oml2d) state.oml2d.loadModelByIndex(idx);
     updateStageModelName();
+    syncOverlayModel();
   };
+}
+
+// 原生应用菜单 → 渲染层动作
+function bindAppMenu() {
+  window.api.onMenuAction((action) => {
+    const datadir = () => window.api.openPath(state.appInfo.userDataDir || state.appInfo.dataDir || state.appInfo.appRoot);
+    const table = {
+      settings: openSettingsMenu,
+      about: openAboutModal,
+      datadir,
+      'new-card': () => openCharModal(null, null),
+      'import-card': () => $('btn-import-card').click(),
+      'clear-chat': () => { clearMessages(); toast('对话已清空'); },
+      llm: openLlmModal,
+      tts: openTtsModal,
+      stt: openSttModal,
+      model: openModelModal,
+      theme: openThemeModal,
+      mc: openMcModal,
+    };
+    const fn = table[action];
+    if (fn) fn();
+  });
 }
 
 function bindMisc() {
@@ -237,16 +266,20 @@ function bindMisc() {
 
   // Esc 关闭弹窗/菜单（保留正在编辑的角色卡弹窗）
   document.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape') {
-      closeCharMenu();
-      document.querySelectorAll('.modal').forEach((m) => {
-        if (m.id !== 'modal-char') m.classList.add('hidden');
-      });
-    }
+    if (e.key !== 'Escape') return;
+    closeCharMenu();
+    // 设置子弹窗走 closeSubModal，保证主题预览被还原、且能退回设置菜单
+    ['modal-llm', 'modal-tts', 'modal-stt', 'modal-model', 'modal-theme'].forEach((id) => {
+      if (!$(id).classList.contains('hidden')) closeSubModal(id);
+    });
+    ['modal-screen', 'modal-quick', 'modal-menu'].forEach((id) => $(id).classList.add('hidden'));
   });
 
   // 点击遮罩关闭
-  ['modal-llm', 'modal-tts', 'modal-stt', 'modal-screen', 'modal-menu', 'modal-model', 'modal-theme', 'modal-quick'].forEach((id) => {
+  ['modal-llm', 'modal-tts', 'modal-stt', 'modal-model', 'modal-theme'].forEach((id) => {
+    $(id).addEventListener('click', (e) => { if (e.target === $(id)) closeSubModal(id); });
+  });
+  ['modal-screen', 'modal-menu', 'modal-quick'].forEach((id) => {
     $(id).addEventListener('click', (e) => { if (e.target === $(id)) $(id).classList.add('hidden'); });
   });
   $('modal-char').addEventListener('click', (e) => { if (e.target === $('modal-char')) closeCharModal(); });
@@ -306,15 +339,30 @@ function bindEvents() {
       toast('角色卡已导入');
     }
   };
-  $('btn-settings-menu').onclick = () => { refreshMenuSubtitles(); $('modal-menu').classList.remove('hidden'); };
+  $('btn-settings-menu').onclick = async () => {
+    openSettingsMenu();
+    const st = await window.api.overlayStatus();
+    setMenuSub('menu-sub-overlay', st && st.visible ? '已开启 · 角色浮在桌面' : '已关闭 · 点一下开启');
+  };
   $('btn-open-data').onclick = () => window.api.openPath(state.appInfo.userDataDir || state.appInfo.dataDir || state.appInfo.appRoot);
-  document.querySelectorAll('#modal-menu .menu-list button').forEach((btn) => {
-    btn.onclick = () => {
-      $('modal-menu').classList.add('hidden');
-      $(btn.dataset.target).classList.remove('hidden');
-    };
+  // 每个设置页都必须走它自己的 open 函数，否则表单不回填、主题预览无法回滚
+  const menuOpeners = {
+    'modal-llm': openLlmModal,
+    'modal-tts': openTtsModal,
+    'modal-stt': openSttModal,
+    'modal-model': openModelModal,
+    'modal-theme': openThemeModal,
+  };
+  document.querySelectorAll('#modal-menu .menu-list button[data-target]').forEach((btn) => {
+    btn.onclick = () => openFromMenu(btn.dataset.target, menuOpeners[btn.dataset.target]);
+  });
+  // 菜单里的「动作型」条目（开关类，不弹子页面）
+  document.querySelectorAll('#modal-menu .menu-list button[data-action]').forEach((btn) => {
+    btn.onclick = () => runMenuAction(btn.dataset.action);
   });
   $('menu-cancel').onclick = () => $('modal-menu').classList.add('hidden');
+  $('about-cancel').onclick = () => $('modal-about').classList.add('hidden');
+  window.api.onOverlayState((st) => setMenuSub('menu-sub-overlay', st && st.visible ? '已开启 · 角色浮在桌面' : '已关闭 · 点一下开启'));
 
   // 屏幕截图
   $('btn-screenshot').onclick = openScreenPicker;
@@ -344,6 +392,51 @@ function bindEvents() {
   bindThemeModal();
   bindModelModal();
   bindMisc();
+}
+
+// ---------------- 设置菜单里的「动作型」条目 ----------------
+function runMenuAction(action) {
+  $('modal-menu').classList.add('hidden');
+  if (action === 'overlay') toggleOverlayStage();
+  else if (action === 'mc') openMcModal();
+  else if (action === 'datadir') window.api.openPath(state.appInfo.userDataDir || state.appInfo.dataDir || state.appInfo.appRoot);
+  else if (action === 'about') openAboutModal();
+}
+
+async function toggleOverlayStage() {
+  const on = await window.api.overlayToggle();
+  toast(on ? '无边框展台已开启（右下角手柄可拖动）' : '无边框展台已关闭');
+  refreshMenuSubtitles();
+}
+
+function openAboutModal() {
+  const info = state.appInfo || {};
+  const box = $('about-body');
+  if (box) {
+    box.innerHTML = '';
+    const rows = [
+      ['应用', 'AILEEN ' + (info.version || '')],
+      ['Electron', info.electron || '-'],
+      ['Node', info.node || '-'],
+      ['数据目录', info.userDataDir || info.dataDir || '-'],
+      ['角色卡', String((state.characters || []).length) + ' 张'],
+      ['Live2D 模型', String((state.models || []).length) + ' 个'],
+    ];
+    for (const [k, v] of rows) {
+      const row = document.createElement('div');
+      row.className = 'about-row';
+      const kk = document.createElement('span');
+      kk.className = 'about-k';
+      kk.textContent = k;
+      const vv = document.createElement('span');
+      vv.className = 'about-v';
+      vv.textContent = v;
+      vv.title = v;
+      row.appendChild(kk); row.appendChild(vv);
+      box.appendChild(row);
+    }
+  }
+  $('modal-about').classList.remove('hidden');
 }
 
 // 自检钩子

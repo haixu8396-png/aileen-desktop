@@ -40,6 +40,7 @@ jobs:
         timeout-minutes: 5
         env:
           AILEEN_SELFTEST: '1'
+          AILEEN_SELFTEST_OVERLAY: '1'
           AILEEN_SELFTEST_MS: '12000'
           AILEEN_DATA_DIR: '${{ github.workspace }}\.ci-data'
           AILEEN_SELFTEST_DIR: '${{ github.workspace }}\.ci-data\selftest'
@@ -52,7 +53,26 @@ jobs:
           $fatal = @($errs | Where-Object { $_ -notmatch 'live2d|Live2D|WebGL|pixi' })
           if ($fatal.Count -gt 0) { throw ('自检发现运行时错误: ' + ($fatal -join '; ')) }
           if (-not $diag.modalOpens.llm) { throw '设置弹窗未能打开' }
-          Write-Host '自检通过：无运行时错误，弹窗交互正常'
+          if (-not $diag.subModalReturnsToMenu) { throw '设置菜单：关闭子页面后没有退回设置菜单' }
+          if (-not $diag.themeCancelRestores) { throw '外观调色：点取消后主题预览没有还原' }
+          if (-not $diag.mcStatusOk) { throw 'Minecraft 伙伴：主进程 IPC 不可用' }
+          if (-not $diag.mcModalOk) { throw 'Minecraft 伙伴：设置菜单里的入口打不开弹窗' }
+          $opath = '${{ github.workspace }}\.ci-data\selftest\overlay.json'
+          if (!(Test-Path $opath)) { throw '无边框悬浮展台自检未生成报告' }
+          $ovr = Get-Content $opath -Raw | ConvertFrom-Json
+          if (-not $ovr.opened) { throw '无边框悬浮展台没有创建窗口' }
+          if (-not $ovr.visible) { throw '无边框悬浮展台窗口不可见' }
+          if ($ovr.interactiveMode -eq $true) { throw '悬浮展台不应默认处于「角色可点击」模式' }
+          if (-not $ovr.hitAreaSizeOk) { throw '悬浮展台没有上报有效的交互热区（右下角手柄）' }
+          if ($ovr.cursorInHit -eq $false -and $ovr.ignoringByDefault -ne $true) { throw '光标不在手柄上时，悬浮展台必须鼠标穿透，否则会挡住桌面操作' }
+          if (-not $ovr.moved) { throw '悬浮展台无法移动' }
+          if (-not $ovr.toolsExists) { throw '悬浮展台缺少右下角工具栏' }
+          if ($ovr.mineflayer -ne $true) { throw ('打包产物里 mineflayer 不可用: ' + $ovr.mineflayer) }
+          if ($ovr.pathfinder -ne $true) { throw ('打包产物里 mineflayer-pathfinder 不可用: ' + $ovr.pathfinder) }
+          if (-not $ovr.gripExists) { throw '悬浮展台缺少拖拽手柄' }
+          $overrs = @($ovr.errors | Where-Object { $_ -and $_.Trim() -ne '' })
+          if ($overrs.Count -gt 0) { throw ('悬浮展台报错: ' + ($overrs -join '; ')) }
+          Write-Host '自检通过：无运行时错误，菜单行为与悬浮展台均正常'
 
       - name: Package (NSIS installer + portable)
         env:
@@ -64,6 +84,7 @@ jobs:
         timeout-minutes: 5
         env:
           AILEEN_SELFTEST: '1'
+          AILEEN_SELFTEST_OVERLAY: '1'
           AILEEN_SELFTEST_MS: '10000'
           AILEEN_DATA_DIR: '${{ github.workspace }}\.ci-pack'
           AILEEN_SELFTEST_DIR: '${{ github.workspace }}\.ci-pack\selftest'
@@ -79,7 +100,26 @@ jobs:
           $fatal = @($diag.errors | Where-Object { $_ -and $_.Trim() -ne '' -and $_ -notmatch 'live2d|Live2D|WebGL|pixi' })
           if ($fatal.Count -gt 0) { throw ('打包产物运行时报错: ' + ($fatal -join '; ')) }
           if (-not $diag.modalOpens.menu) { throw '打包产物弹窗交互异常' }
-          Write-Host '打包产物自检通过'
+          if (-not $diag.subModalReturnsToMenu) { throw '设置菜单：关闭子页面后没有退回设置菜单' }
+          if (-not $diag.themeCancelRestores) { throw '外观调色：点取消后主题预览没有还原' }
+          if (-not $diag.mcStatusOk) { throw 'Minecraft 伙伴：主进程 IPC 不可用' }
+          if (-not $diag.mcModalOk) { throw 'Minecraft 伙伴：设置菜单里的入口打不开弹窗' }
+          $opath = '${{ github.workspace }}\.ci-pack\selftest\overlay.json'
+          if (!(Test-Path $opath)) { throw '无边框悬浮展台自检未生成报告' }
+          $ovr = Get-Content $opath -Raw | ConvertFrom-Json
+          if (-not $ovr.opened) { throw '无边框悬浮展台没有创建窗口' }
+          if (-not $ovr.visible) { throw '无边框悬浮展台窗口不可见' }
+          if ($ovr.interactiveMode -eq $true) { throw '悬浮展台不应默认处于「角色可点击」模式' }
+          if (-not $ovr.hitAreaSizeOk) { throw '悬浮展台没有上报有效的交互热区（右下角手柄）' }
+          if ($ovr.cursorInHit -eq $false -and $ovr.ignoringByDefault -ne $true) { throw '光标不在手柄上时，悬浮展台必须鼠标穿透，否则会挡住桌面操作' }
+          if (-not $ovr.moved) { throw '悬浮展台无法移动' }
+          if (-not $ovr.toolsExists) { throw '悬浮展台缺少右下角工具栏' }
+          if ($ovr.mineflayer -ne $true) { throw ('打包产物里 mineflayer 不可用: ' + $ovr.mineflayer) }
+          if ($ovr.pathfinder -ne $true) { throw ('打包产物里 mineflayer-pathfinder 不可用: ' + $ovr.pathfinder) }
+          if (-not $ovr.gripExists) { throw '悬浮展台缺少拖拽手柄' }
+          $overrs = @($ovr.errors | Where-Object { $_ -and $_.Trim() -ne '' })
+          if ($overrs.Count -gt 0) { throw ('悬浮展台报错: ' + ($overrs -join '; ')) }
+          Write-Host '打包产物自检通过（含悬浮展台）'
 
       - name: List output
         shell: pwsh

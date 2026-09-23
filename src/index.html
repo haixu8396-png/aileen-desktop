@@ -237,11 +237,18 @@
   <div class="modal-box">
     <h3>⚙ 设置</h3>
     <div class="menu-list">
+      <div class="menu-group-title">对话与语音</div>
       <button data-target="modal-llm">💬 对话设置 (LLM)<span class="menu-sub" id="menu-sub-llm"></span></button>
       <button data-target="modal-tts">🔊 语音合成设置 (TTS)<span class="menu-sub" id="menu-sub-tts"></span></button>
       <button data-target="modal-stt">🎤 语音识别设置 (STT)<span class="menu-sub" id="menu-sub-stt"></span></button>
+      <div class="menu-group-title">形象与外观</div>
       <button data-target="modal-model">🎀 Live2D 模型设置<span class="menu-sub" id="menu-sub-model"></span></button>
       <button data-target="modal-theme">🎨 外观调色<span class="menu-sub" id="menu-sub-theme"></span></button>
+      <button data-action="overlay">🖼 无边框展台<span class="menu-sub" id="menu-sub-overlay">让角色浮在桌面上，不挡鼠标</span></button>
+      <button data-action="mc">🎮 Minecraft 伙伴<span class="menu-sub" id="menu-sub-mc">让 AI 陪你玩 MC · mineflayer (MIT)</span></button>
+      <div class="menu-group-title">其他</div>
+      <button data-action="datadir">📂 打开数据目录<span class="menu-sub">角色卡 / 聊天记录 / 设置</span></button>
+      <button data-action="about">ℹ️ 关于 AILEEN<span class="menu-sub" id="menu-sub-about"></span></button>
     </div>
     <div class="modal-actions">
       <button id="menu-cancel">关闭</button>
@@ -303,6 +310,55 @@
     <div id="screen-grid" class="screen-grid"></div>
     <div class="modal-actions">
       <button id="screen-cancel">取消</button>
+    </div>
+  </div>
+</div>
+
+<!-- 关于 -->
+<div id="modal-about" class="modal hidden">
+  <div class="modal-box">
+    <h3>ℹ️ 关于 AILEEN</h3>
+    <div id="about-body" class="about-body"></div>
+    <p class="hint">开源桌面 AI 伴侣 · 以 MIT License 发布</p>
+    <div class="modal-actions">
+      <button id="about-cancel">关闭</button>
+    </div>
+  </div>
+</div>
+
+<!-- Minecraft AI 伙伴 -->
+<div id="modal-mc" class="modal hidden">
+  <div class="modal-box wide">
+    <h3>🎮 Minecraft AI 伙伴</h3>
+    <div class="form-col">
+      <div class="mc-row">
+        <label>服务器地址<input id="mc-host" placeholder="127.0.0.1" /></label>
+        <label class="mc-narrow">端口<input id="mc-port" type="number" placeholder="25565" /></label>
+        <label>角色名<input id="mc-username" placeholder="AILEEN" /></label>
+      </div>
+      <label class="check"><input id="mc-autoreply" type="checkbox" /> AI 自动回复服务器聊天（用当前角色的性格 + 你的 LLM）</label>
+      <div class="row-btns">
+        <button id="mc-connect" class="primary">🔌 连接服务器</button>
+        <button id="mc-disconnect" class="ghost">断开</button>
+        <button id="mc-follow" class="ghost">🚶 跟着我走</button>
+        <button id="mc-stopfollow" class="ghost">停下</button>
+      </div>
+      <div id="mc-status" class="mc-status">未连接</div>
+      <div class="mc-pad">
+        <button data-mc-dir="forward" title="前进">↑</button>
+        <div class="mc-pad-mid">
+          <button data-mc-dir="left" title="左移">←</button>
+          <button data-mc-jump="1" title="跳">跳</button>
+          <button data-mc-dir="right" title="右移">→</button>
+        </div>
+        <button data-mc-dir="back" title="后退">↓</button>
+      </div>
+      <label>说话<input id="mc-say-input" placeholder="对服务器里的人说点什么…（Enter 发送）" /></label>
+      <div id="mc-log" class="mc-log"></div>
+      <p class="hint">基于 MIT 许可的 <b>mineflayer</b>。单人游戏里按 Esc → 「对局域网开放」→ 记下聊天栏里的端口号，填到上面即可（地址用 127.0.0.1）。角色名不能和你自己重名。</p>
+    </div>
+    <div class="modal-actions">
+      <button id="mc-close">关闭</button>
     </div>
   </div>
 </div>

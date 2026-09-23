@@ -2,13 +2,14 @@
 // AILEEN — Electron 主进程
 // 职责: 窗口管理 / 本地静态文件服务(模型与头像) / 角色卡与设置持久化
 // ============================================================
-const { app, BrowserWindow, ipcMain, dialog, shell, desktopCapturer } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, shell, desktopCapturer, screen, Menu } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const http = require('http');
 const crypto = require('crypto');
 
 const { sanitizeFileName, deepMerge, isInsidePath, normalizeSettings } = require('./shared/util.cjs');
+const mcBot = require('./mc-bot.cjs');
 
 const APP_ROOT = __dirname;
 const DIST_INDEX = path.join(APP_ROOT, 'dist', 'index.html');
@@ -76,6 +77,22 @@ const DEFAULT_SETTINGS = {
     primary: '#ff7eb3',
     secondary: '#38b0de',
   },
+  overlay: {         // 无边框 Live2D 悬浮展台
+    visible: false,
+    x: null,         // null = 自动放到右下角
+    y: null,
+    width: 380,
+    height: 640,
+    scale: 0.45,
+    opacity: 1,
+    interactive: false,  // true = 角色本体也可点击（默认整窗鼠标穿透）
+  },
+  mc: {              // Minecraft AI 伙伴
+    host: '127.0.0.1',
+    port: 25565,
+    username: 'AILEEN',
+    autoReply: false,
+  },
 };
 
 function ensureDirs() {
@@ -122,7 +139,9 @@ function migrateLegacyData() {
 
     const hasSettings = () => fs.existsSync(SETTINGS_FILE);
     const hasChars = () => fs.existsSync(CHARACTERS_DIR) && fs.readdirSync(CHARACTERS_DIR).some((n) => n.endsWith('.json'));
-    const hasModels = () => fs.existsSync(MODELS_DIR) && fs.readdirSync(MODELS_DIR).length > 0;
+    // 注意：models/ 里只有 README.txt 时不算「已有模型」，否则会挡住旧版本模型的迁移
+    const hasModels = () => fs.existsSync(MODELS_DIR) &&
+      fs.readdirSync(MODELS_DIR).some((n) => n !== 'README.txt' && !n.startsWith('.'));
 
     for (const root of legacyRoots) {
       if (!fs.existsSync(root)) continue;
@@ -275,6 +294,377 @@ function listCharacters() {
 // ------------------------------------------------------------
 // 窗口
 // ------------------------------------------------------------
+// ------------------------------------------------------------
+// 无边框 Live2D 悬浮展台（额外开一个窗口，角色浮在桌面上）
+// 设计要点：
+//   1) 透明 + 无边框 + 置顶 + 不抢焦点（focusable:false / showInactive）
+//   2) 默认整窗「鼠标穿透」：只有光标进入渲染层上报的交互热区（右下角手柄/工具栏）
+//      时才接收鼠标事件 —— 所以角色不会挡住底下的任何操作
+//   3) 主进程每 250ms 读一次真实光标位置做兜底判定，避免卡在「可接收」状态
+//   4) 拖拽走 IPC + screen.getCursorScreenPoint()，跨 DPI 稳定，且拖拽期间强制接收事件
+//   5) 位置 / 尺寸 / 透明度 / 可点击开关全部持久化到 settings.overlay
+// ------------------------------------------------------------
+let overlayWin = null;
+let overlayIgnoring = false;
+let overlayHit = null;        // 渲染层上报的交互热区（窗口内 CSS 像素）
+let overlayDrag = null;       // { dx, dy }
+let overlayWatch = null;
+let overlayInteractive = false;
+let overlayModel = null;      // 当前同步给悬浮窗的模型 { url, name }
+let overlayPersistTimer = null;
+let overlayIgnoreRequests = [];
+
+function overlaySettings() {
+  const s = readSettings();
+  return (s && s.overlay) || {};
+}
+
+function overlayBounds() {
+  const o = overlaySettings();
+  const width = Math.round(o.width || 380);
+  const height = Math.round(o.height || 640);
+  const area = screen.getPrimaryDisplay().workArea;
+  const defX = area.x + area.width - width - 28;
+  const defY = area.y + area.height - height - 28;
+  return {
+    x: Math.round(typeof o.x === 'number' ? o.x : defX),
+    y: Math.round(typeof o.y === 'number' ? o.y : defY),
+    width,
+    height,
+  };
+}
+
+function persistOverlayBounds() {
+  if (overlayPersistTimer) clearTimeout(overlayPersistTimer);
+  overlayPersistTimer = setTimeout(() => {
+    overlayPersistTimer = null;
+    if (!overlayWin || overlayWin.isDestroyed()) return;
+    const b = overlayWin.getBounds();
+    try { writeSettings({ overlay: { x: b.x, y: b.y, width: b.width, height: b.height } }); }
+    catch (err) { console.error('[overlay] persist failed:', err); }
+  }, 400);
+}
+
+function broadcastOverlayState() {
+  const visible = !!(overlayWin && !overlayWin.isDestroyed() && overlayWin.isVisible());
+  for (const w of BrowserWindow.getAllWindows()) {
+    if (!w.isDestroyed()) w.webContents.send('overlay:state', { visible, interactive: overlayInteractive });
+  }
+}
+
+function setOverlayIgnore(ignore) {
+  if (!overlayWin || overlayWin.isDestroyed()) return;
+  if (overlayIgnoring === ignore) return;
+  overlayIgnoring = ignore;
+  overlayWin.setIgnoreMouseEvents(ignore, { forward: true });
+}
+
+/** 光标是否落在渲染层上报的交互热区内（该热区在窗口内坐标下恒定，与鼠标当前位置无关） */
+function overlayCursorInHit() {
+  if (!overlayWin || overlayWin.isDestroyed()) return false;
+  if (!overlayHit || overlayHit.w <= 0 || overlayHit.h <= 0) return false;
+  const pt = screen.getCursorScreenPoint();
+  const b = overlayWin.getBounds();
+  const x = pt.x - b.x;
+  const y = pt.y - b.y;
+  return x >= overlayHit.x && x <= overlayHit.x + overlayHit.w &&
+         y >= overlayHit.y && y <= overlayHit.y + overlayHit.h;
+}
+
+/** 当前是否应该接收鼠标：拖拽中 / 主动开启可点击 / 光标落在交互热区内 */
+function overlayShouldCapture() {
+  if (!overlayWin || overlayWin.isDestroyed()) return false;
+  if (overlayDrag) return true;
+  if (overlayInteractive) return true;
+  return overlayCursorInHit();
+}
+
+function startOverlayWatch() {
+  if (overlayWatch) return;
+  overlayWatch = setInterval(() => {
+    if (!overlayWin || overlayWin.isDestroyed()) { stopOverlayWatch(); return; }
+    setOverlayIgnore(!overlayShouldCapture());
+  }, 250);
+}
+
+function stopOverlayWatch() {
+  if (overlayWatch) { clearInterval(overlayWatch); overlayWatch = null; }
+}
+
+function destroyOverlayWindow() {
+  stopOverlayWatch();
+  if (overlayWin && !overlayWin.isDestroyed()) overlayWin.destroy();
+  overlayWin = null;
+  overlayIgnoring = false;
+  overlayHit = null;
+  overlayDrag = null;
+  writeSettings({ overlay: { visible: false } });
+  broadcastOverlayState();
+}
+
+function createOverlayWindow() {
+  if (overlayWin && !overlayWin.isDestroyed()) return overlayWin;
+  overlayInteractive = !!overlaySettings().interactive;
+  const overlayPath = path.join(APP_ROOT, 'dist', 'overlay.html');
+  if (!process.env.AILEEN_DEV_URL && !fs.existsSync(overlayPath)) {
+    console.error('[overlay] 缺少构建产物 dist/overlay.html，请先 npm run build');
+    return null;
+  }
+  overlayWin = new BrowserWindow(Object.assign({}, overlayBounds(), {
+    title: 'AILEEN Stage',
+    frame: false,
+    transparent: true,
+    backgroundColor: '#00000000',
+    hasShadow: false,
+    resizable: true,
+    minimizable: false,
+    maximizable: false,
+    fullscreenable: false,
+    skipTaskbar: true,
+    alwaysOnTop: true,
+    focusable: false,
+    acceptFirstMouse: true,
+    show: false,
+    webPreferences: {
+      preload: path.join(APP_ROOT, 'preload.js'),
+      contextIsolation: true,
+      nodeIntegration: false,
+    },
+  }));
+  try {
+    overlayWin.setAlwaysOnTop(true, 'screen-saver');
+    overlayWin.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
+  } catch (err) { /* 某些平台不支持，忽略 */ }
+  overlayIgnoring = false;
+  setOverlayIgnore(true);
+  startOverlayWatch();
+  if (process.env.AILEEN_DEV_URL) {
+    overlayWin.loadURL(process.env.AILEEN_DEV_URL.replace(/\/+$/, '') + '/overlay.html');
+  } else {
+    overlayWin.loadFile(overlayPath);
+  }
+  overlayWin.once('ready-to-show', () => {
+    if (!overlayWin || overlayWin.isDestroyed()) return;
+    overlayWin.showInactive();
+    startOverlayWatch();
+    if (overlayModel) overlayWin.webContents.send('overlay:model', overlayModel);
+    broadcastOverlayState();
+  });
+  overlayWin.on('moved', persistOverlayBounds);
+  overlayWin.on('resized', persistOverlayBounds);
+  overlayWin.on('closed', () => { overlayWin = null; stopOverlayWatch(); });
+  return overlayWin;
+}
+
+function toggleOverlayWindow() {
+  if (overlayWin && !overlayWin.isDestroyed()) { destroyOverlayWindow(); return false; }
+  const w = createOverlayWindow();
+  if (!w) return false;
+  writeSettings({ overlay: { visible: true } });
+  return true;
+}
+
+function registerOverlayIpc() {
+  ipcMain.handle('overlay:status', () => ({
+    visible: !!(overlayWin && !overlayWin.isDestroyed() && overlayWin.isVisible()),
+    interactive: overlayInteractive,
+  }));
+  ipcMain.handle('overlay:toggle', () => toggleOverlayWindow());
+  ipcMain.handle('overlay:hide', () => { destroyOverlayWindow(); return false; });
+  ipcMain.handle('overlay:hitArea', (_e, rect) => {
+    if (!rect || typeof rect !== 'object') { overlayHit = null; return null; }
+    overlayHit = {
+      x: Number(rect.x) || 0,
+      y: Number(rect.y) || 0,
+      w: Math.max(0, Number(rect.w) || 0),
+      h: Math.max(0, Number(rect.h) || 0),
+    };
+    return overlayHit;
+  });
+  ipcMain.handle('overlay:setIgnore', (_e, ignore) => {
+    overlayIgnoreRequests.push({ at: Date.now(), ignore: !!ignore, inHit: overlayCursorInHit() });
+    if (overlayIgnoreRequests.length > 40) overlayIgnoreRequests.shift();
+    // 渲染层要求「接收鼠标」时，主进程用真实光标位置复核一遍：
+    // 渲染层刚加载完时 #ov-tools 可能还没排版（getBoundingClientRect 全 0），
+    // 那会被误判成「光标在把手上」，导致整窗突然不穿透、挡住桌面操作。
+    if (ignore === false && !overlayInteractive && !overlayDrag && !overlayCursorInHit()) {
+      return overlayIgnoring;
+    }
+    setOverlayIgnore(!!ignore);
+    return overlayIgnoring;
+  });
+  ipcMain.handle('overlay:interactive', (_e, on) => {
+    overlayInteractive = !!on;
+    writeSettings({ overlay: { interactive: overlayInteractive } });
+    setOverlayIgnore(!overlayShouldCapture());
+    broadcastOverlayState();
+    return overlayInteractive;
+  });
+  ipcMain.handle('overlay:setModel', (_e, model) => {
+    overlayModel = model && model.url ? { url: String(model.url), name: String(model.name || '') } : null;
+    if (overlayWin && !overlayWin.isDestroyed()) overlayWin.webContents.send('overlay:model', overlayModel);
+    return true;
+  });
+  ipcMain.handle('overlay:getState', () => ({
+    model: overlayModel,
+    overlay: overlaySettings(),
+    theme: readSettings().theme || {},
+  }));
+  ipcMain.handle('overlay:resize', (_e, payload) => {
+    if (!overlayWin || overlayWin.isDestroyed()) return null;
+    const b = overlayWin.getBounds();
+    const dw = Math.round((payload && payload.dw) || 0);
+    const dh = Math.round((payload && payload.dh) || 0);
+    const width = Math.min(1400, Math.max(180, b.width + dw));
+    const height = Math.min(1600, Math.max(220, b.height + dh));
+    // 以右下角为锚点缩放，视觉上不会跑偏
+    overlayWin.setBounds({ x: b.x + (b.width - width), y: b.y + (b.height - height), width, height });
+    persistOverlayBounds();
+    return overlayWin.getBounds();
+  });
+  ipcMain.handle('overlay:reset', () => {
+    if (!overlayWin || overlayWin.isDestroyed()) return null;
+    const width = 380;
+    const height = 640;
+    const area = screen.getPrimaryDisplay().workArea;
+    const x = area.x + area.width - width - 28;
+    const y = area.y + area.height - height - 28;
+    writeSettings({ overlay: { x: null, y: null, width, height } });
+    overlayWin.setBounds({ x, y, width, height });
+    return overlayWin.getBounds();
+  });
+  ipcMain.handle('overlay:dragStart', () => {
+    if (!overlayWin || overlayWin.isDestroyed()) return false;
+    const pt = screen.getCursorScreenPoint();
+    const b = overlayWin.getBounds();
+    overlayDrag = { dx: pt.x - b.x, dy: pt.y - b.y };
+    setOverlayIgnore(false);
+    return true;
+  });
+  ipcMain.handle('overlay:dragMove', () => {
+    if (!overlayDrag || !overlayWin || overlayWin.isDestroyed()) return false;
+    const pt = screen.getCursorScreenPoint();
+    overlayWin.setPosition(Math.round(pt.x - overlayDrag.dx), Math.round(pt.y - overlayDrag.dy));
+    return true;
+  });
+  ipcMain.handle('overlay:dragEnd', () => {
+    overlayDrag = null;
+    persistOverlayBounds();
+    setOverlayIgnore(!overlayShouldCapture());
+    return true;
+  });
+}
+
+let mainWin = null;
+
+/** 给主窗口发菜单动作（渲染层执行） */
+function sendMenuAction(action) {
+  if (mainWin && !mainWin.isDestroyed()) mainWin.webContents.send('menu:action', action);
+}
+
+// ------------------------------------------------------------
+// 原生应用菜单（中文）：默认 autoHideMenuBar 隐藏，按 Alt 才出现。
+// 旧版这里露出的是 Electron 默认英文菜单，属于明显的「菜单问题」。
+// ------------------------------------------------------------
+function buildAppMenu() {
+  const template = [
+    {
+      label: 'AILEEN',
+      submenu: [
+        { label: '关于 AILEEN', click: () => sendMenuAction('about') },
+        { label: '打开数据目录', click: () => sendMenuAction('datadir') },
+        { type: 'separator' },
+        { role: 'quit', label: '退出 AILEEN' },
+      ],
+    },
+    {
+      label: '编辑',
+      submenu: [
+        { role: 'undo', label: '撤销' },
+        { role: 'redo', label: '重做' },
+        { type: 'separator' },
+        { role: 'cut', label: '剪切' },
+        { role: 'copy', label: '复制' },
+        { role: 'paste', label: '粘贴' },
+        { role: 'selectAll', label: '全选' },
+      ],
+    },
+    {
+      label: '角色',
+      submenu: [
+        { label: '新建角色卡', accelerator: 'CmdOrCtrl+N', click: () => sendMenuAction('new-card') },
+        { label: '导入角色卡', accelerator: 'CmdOrCtrl+O', click: () => sendMenuAction('import-card') },
+        { type: 'separator' },
+        { label: '清空当前对话', click: () => sendMenuAction('clear-chat') },
+      ],
+    },
+    {
+      label: '设置',
+      submenu: [
+        { label: '设置…', accelerator: 'CmdOrCtrl+,', click: () => sendMenuAction('settings') },
+        { label: '对话设置 (LLM)', click: () => sendMenuAction('llm') },
+        { label: '语音合成 (TTS)', click: () => sendMenuAction('tts') },
+        { label: '语音识别 (STT)', click: () => sendMenuAction('stt') },
+        { label: 'Live2D 模型设置', click: () => sendMenuAction('model') },
+        { label: '外观调色', click: () => sendMenuAction('theme') },
+      ],
+    },
+    {
+      label: '展台',
+      submenu: [
+        { label: '显示 / 隐藏无边框展台', accelerator: 'CmdOrCtrl+Shift+S', click: () => toggleOverlayWindow() },
+        { label: '🎮 Minecraft 伙伴…', click: () => sendMenuAction('mc') },
+        { label: '把展台复位到右下角', click: () => {
+          if (!overlayWin || overlayWin.isDestroyed()) { createOverlayWindow(); }
+          setTimeout(() => {
+            if (!overlayWin || overlayWin.isDestroyed()) return;
+            const width = 380, height = 640;
+            const area = screen.getPrimaryDisplay().workArea;
+            overlayWin.setBounds({ x: area.x + area.width - width - 28, y: area.y + area.height - height - 28, width, height });
+            writeSettings({ overlay: { x: null, y: null, width, height } });
+          }, 600);
+        } },
+      ],
+    },
+    {
+      label: '视图',
+      submenu: [
+        { role: 'reload', label: '重新加载' },
+        { role: 'forceReload', label: '强制重新加载' },
+        { role: 'toggleDevTools', label: '开发者工具' },
+        { type: 'separator' },
+        { role: 'resetZoom', label: '实际大小' },
+        { role: 'zoomIn', label: '放大' },
+        { role: 'zoomOut', label: '缩小' },
+        { type: 'separator' },
+        { role: 'togglefullscreen', label: '全屏' },
+      ],
+    },
+    {
+      label: '帮助',
+      submenu: [
+        { label: '项目主页 (GitHub)', click: () => shell.openExternal('https://github.com/haixu8396-png/aileen-desktop') },
+        { label: '快捷键说明', click: () => sendMenuAction('about') },
+      ],
+    },
+  ];
+  Menu.setApplicationMenu(Menu.buildFromTemplate(template));
+}
+
+// ------------------------------------------------------------
+// Minecraft AI 伙伴（mineflayer, MIT）IPC
+// ------------------------------------------------------------
+function registerMcIpc() {
+  ipcMain.handle('mc:connect', (_e, opts) => mcBot.connect(opts));
+  ipcMain.handle('mc:disconnect', () => mcBot.disconnect());
+  ipcMain.handle('mc:status', () => mcBot.status());
+  ipcMain.handle('mc:say', (_e, text) => mcBot.say(text));
+  ipcMain.handle('mc:follow', (_e, name) => mcBot.follow(name));
+  ipcMain.handle('mc:stopFollow', () => mcBot.stopFollow());
+  ipcMain.handle('mc:step', (_e, payload) => mcBot.step(payload && payload.dir, payload && payload.ms));
+  ipcMain.handle('mc:jump', () => mcBot.jump());
+}
+
 function createWindow() {
   const win = new BrowserWindow({
     width: 1480,
@@ -290,6 +680,9 @@ function createWindow() {
       nodeIntegration: false,
     },
   });
+
+  mainWin = win;
+  mcBot.init((channel, payload) => { if (mainWin && !mainWin.isDestroyed()) mainWin.webContents.send(channel, payload); });
 
   if (process.env.AILEEN_DEV_URL) {
     win.loadURL(process.env.AILEEN_DEV_URL);
@@ -342,12 +735,53 @@ function createWindow() {
               menuBtn.click();
               modalOpens.menu = !document.getElementById('modal-menu').classList.contains('hidden');
             }
-            document.querySelectorAll('#modal-menu .menu-list button').forEach((btn) => {
+            document.querySelectorAll('#modal-menu .menu-list button[data-target]').forEach((btn) => {
               const target = btn.dataset.target;
               btn.click();
               if (target) modalOpens[target.replace('modal-', '')] = !document.getElementById(target).classList.contains('hidden');
             });
-            ['menu-cancel', 'm-cancel', 't-cancel'].forEach((id) => {
+            // 收尾：强制关掉被点开的弹窗，回到干净状态再做行为断言
+            ['modal-about', 'modal-llm', 'modal-tts', 'modal-stt', 'modal-model', 'modal-theme', 'modal-menu'].forEach((id) => {
+              const el = document.getElementById(id);
+              if (el) el.classList.add('hidden');
+            });
+            // 行为断言①：从设置菜单进子页面，关闭后应退回菜单（旧版会直接甩回聊天界面）
+            let subModalReturnsToMenu = false;
+            const llmEntry = document.querySelector('#modal-menu .menu-list button[data-target="modal-llm"]');
+            if (llmEntry) {
+              llmEntry.click();
+              const llmWasOpen = !document.getElementById('modal-llm').classList.contains('hidden');
+              document.getElementById('s-llm-cancel').click();
+              subModalReturnsToMenu = llmWasOpen && !document.getElementById('modal-menu').classList.contains('hidden');
+            }
+            // 行为断言②：外观调色是即时预览，「取消」必须把颜色还原（旧版取消后颜色不回滚）
+            let themeCancelRestores = false;
+            const themeEntry = document.querySelector('#modal-menu .menu-list button[data-target="modal-theme"]');
+            if (themeEntry) {
+              const accentBefore = getComputedStyle(document.documentElement).getPropertyValue('--accent').trim();
+              themeEntry.click();
+              const pIn = document.getElementById('t-primary');
+              pIn.value = '#00ff00';
+              pIn.dispatchEvent(new Event('input', { bubbles: true }));
+              const preview = getComputedStyle(document.documentElement).getPropertyValue('--accent').trim();
+              document.getElementById('t-cancel').click();
+              const accentAfter = getComputedStyle(document.documentElement).getPropertyValue('--accent').trim();
+              themeCancelRestores = preview !== accentBefore && accentAfter === accentBefore;
+            }
+            // 行为断言③：Minecraft 伙伴弹窗能打开，主进程 IPC 可用
+            let mcStatusOk = false;
+            let mcModalOk = false;
+            try {
+              const mst = await window.api.mcStatus();
+              mcStatusOk = !!mst && typeof mst.connected === 'boolean';
+              const mcEntry = document.querySelector('#modal-menu .menu-list button[data-action="mc"]');
+              if (mcEntry) {
+                mcEntry.click();
+                mcModalOk = !document.getElementById('modal-mc').classList.contains('hidden');
+                document.getElementById('mc-close').click();
+              }
+            } catch (err) { window.__AILEEN_ERRORS.push('mcTest: ' + String((err && err.message) || err)); }
+            ['t-cancel', 'm-cancel', 'menu-cancel'].forEach((id) => {
               const el = document.getElementById(id);
               if (el) el.click();
             });
@@ -434,6 +868,10 @@ function createWindow() {
               emptyHint: (q('#messages .msg')[0] || {}).textContent || '',
               modalOpensOnNewCard,
               modalOpens,
+              subModalReturnsToMenu,
+              themeCancelRestores,
+              mcStatusOk,
+              mcModalOk,
               themeVar,
               llmBaseHidden,
               charMenuOk,
@@ -458,6 +896,58 @@ function createWindow() {
           fs.writeFileSync(path.join(SELFTEST_DIR2, 'console.log'), consoleLines.join('\n'));
         } catch (e) {
           console.error('[selftest] diag failed:', e);
+        }
+        // 无边框悬浮展台自检：真的开一个窗口，验证可见性、热区上报、穿透状态、可移动、可截图
+        try {
+          const DIR3 = process.env.AILEEN_SELFTEST_DIR || path.join(USER_DATA_DIR, 'selftest');
+          const rep = {
+            opened: false, visible: false, title: '', bounds: null, hitArea: null,
+            ignoringByDefault: null, toolsExists: false, gripExists: false,
+            canvasCount: 0, moved: false, modelSynced: false, errors: [],
+            // 打包门禁：证明运行期依赖真的被塞进 asar 且能在 Electron 里 require 成功
+            mineflayer: (function () { try { require('mineflayer'); return true; } catch (e) { return String((e && e.message) || e); } })(),
+            pathfinder: (function () { try { require('mineflayer-pathfinder'); return true; } catch (e) { return String((e && e.message) || e); } })(),
+          };
+          if (process.env.AILEEN_SELFTEST_OVERLAY) {
+            const w = createOverlayWindow();
+            rep.opened = !!w;
+            if (w) {
+              await new Promise((r) => setTimeout(r, 5000));
+              rep.visible = w.isVisible();
+              rep.title = w.getTitle();
+              rep.bounds = w.getBounds();
+              rep.hitArea = overlayHit;
+              rep.ignoringByDefault = overlayIgnoring;
+              rep.interactiveMode = overlayInteractive;
+              rep.cursorInHit = overlayCursorInHit();
+              rep.hitAreaSizeOk = !!(overlayHit && overlayHit.w > 20 && overlayHit.h > 10);
+              rep.watchRunning = !!overlayWatch;
+              rep.shouldCapture = overlayShouldCapture();
+              rep.rendererIgnoreRequests = overlayIgnoreRequests;
+              rep.modelSynced = !!overlayModel;
+              try {
+                rep.toolsExists = await w.webContents.executeJavaScript('!!document.getElementById("ov-tools")');
+                rep.gripExists = await w.webContents.executeJavaScript('!!document.getElementById("ov-grip")');
+                rep.canvasCount = await w.webContents.executeJavaScript('document.querySelectorAll("#ov-stage canvas").length');
+                rep.bodyPointerEvents = await w.webContents.executeJavaScript('getComputedStyle(document.body).pointerEvents');
+              } catch (err) { rep.errors.push(String((err && err.message) || err)); }
+              const before = w.getBounds();
+              overlayDrag = { dx: 10, dy: 10 };
+              w.setPosition(before.x - 60, before.y - 40);
+              const after = w.getBounds();
+              rep.moved = after.x !== before.x || after.y !== before.y;
+              overlayDrag = null;
+              try {
+                const shot = await w.webContents.capturePage();
+                fs.writeFileSync(path.join(DIR3, 'overlay.png'), shot.toPNG());
+              } catch (err) { rep.errors.push('capture: ' + String((err && err.message) || err)); }
+              destroyOverlayWindow();
+            }
+          }
+          fs.writeFileSync(path.join(DIR3, 'overlay.json'), JSON.stringify(rep, null, 2));
+          console.log('[selftest] overlay report: ' + JSON.stringify(rep));
+        } catch (e) {
+          console.error('[selftest] overlay failed:', e);
         }
         app.quit();
       }, Number(process.env.AILEEN_SELFTEST_MS || 9000));
@@ -645,6 +1135,9 @@ function registerIpc() {
   ipcMain.handle('settings:get', () => readSettings());
   ipcMain.handle('settings:set', (_e, settings) => writeSettings(settings));
 
+  registerOverlayIpc();
+  registerMcIpc();
+
   // 仅允许打开用户数据目录内的路径（防止渲染层被利用打开任意程序/文件）
   ipcMain.handle('shell:openPath', async (_e, p) => {
     if (typeof p !== 'string' || !p) return false;
@@ -713,6 +1206,7 @@ app.whenReady().then(async () => {
   migrateLegacyData();
   await startModelServer();
   registerIpc();
+  buildAppMenu();
 
   // 授予麦克风权限
   const { session } = require('electron');
@@ -722,6 +1216,11 @@ app.whenReady().then(async () => {
   session.defaultSession.setPermissionCheckHandler((_wc, permission) => permission === 'media');
 
   createWindow();
+
+  // 上次退出时展台是开着的，就自动恢复（位置/尺寸沿用保存值）
+  if (overlaySettings().visible) {
+    setTimeout(() => { try { createOverlayWindow(); } catch (err) { console.error('[overlay] 自动恢复失败:', err); } }, 400);
+  }
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
@@ -733,5 +1232,6 @@ app.on('window-all-closed', () => {
 });
 
 app.on('quit', () => {
+  stopOverlayWatch();
   if (modelServer) modelServer.close();
 });

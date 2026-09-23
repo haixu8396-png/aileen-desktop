@@ -38,7 +38,7 @@ export function saveLlmModal() {
   };
   saveSettings(next).then(() => {
     toast('对话设置已保存');
-    $('modal-llm').classList.add('hidden');
+    closeSubModal('modal-llm');
   });
 }
 
@@ -80,7 +80,7 @@ export function saveTtsModal() {
   };
   saveSettings(next).then(() => {
     toast('TTS 设置已保存');
-    $('modal-tts').classList.add('hidden');
+    closeSubModal('modal-tts');
   });
 }
 
@@ -115,8 +115,41 @@ export function saveSttModal() {
   };
   saveSettings(next).then(() => {
     toast('STT 设置已保存');
-    $('modal-stt').classList.add('hidden');
+    closeSubModal('modal-stt');
   });
+}
+
+// ---------------- 设置菜单导航 ----------------
+// 从设置菜单打开子页面时记住来源，关闭子页面后回到菜单，而不是直接甩回聊天界面。
+let openedFromMenu = false;
+
+export function openSettingsMenu() {
+  refreshMenuSubtitles();
+  openedFromMenu = false;
+  $('modal-menu').classList.remove('hidden');
+}
+
+/**
+ * 从设置菜单打开子页面。
+ * 必须调用各页面自己的 open 函数（回填表单 / 建立主题快照 / 刷新模型列表），
+ * 只把弹窗 remove('hidden') 是不够的 —— 那会导致表单空白、主题「取消」回滚失效。
+ */
+export function openFromMenu(targetId, opener) {
+  $('modal-menu').classList.add('hidden');
+  openedFromMenu = true;
+  if (typeof opener === 'function') opener();
+  else $(targetId).classList.remove('hidden');
+}
+
+/** 关闭子弹窗；若它是由设置菜单打开的，则退回设置菜单 */
+export function closeSubModal(id) {
+  if (id === 'modal-theme') cancelThemePreview();
+  $(id).classList.add('hidden');
+  if (openedFromMenu) {
+    openedFromMenu = false;
+    refreshMenuSubtitles();
+    $('modal-menu').classList.remove('hidden');
+  }
 }
 
 // ---------------- 设置菜单副标题 ----------------
@@ -131,6 +164,12 @@ export function refreshMenuSubtitles() {
   $('menu-sub-stt').textContent = sttLabel + ' · ' + String(s.stt.language || 'zh').toUpperCase();
   $('menu-sub-model').textContent = state.models.length ? state.models.length + ' 个模型' : '暂无模型';
   $('menu-sub-theme').textContent = '主色 ' + ((s.theme && s.theme.primary) || '#ff7eb3');
+}
+
+/** 供其他模块写入菜单副标题（如无边框展台开关状态） */
+export function setMenuSub(id, text) {
+  const el = $(id);
+  if (el) el.textContent = text;
 }
 
 // ---------------- 获取模型 / 音色列表 ----------------
@@ -262,24 +301,53 @@ export function renderThemePresets() {
   for (const pre of THEME_PRESETS) {
     const sw = document.createElement('div');
     sw.className = 'theme-swatch';
+    sw.dataset.primary = pre.primary;
+    sw.dataset.secondary = pre.secondary;
     sw.style.background = 'linear-gradient(135deg, ' + pre.primary + ', ' + pre.secondary + ')';
     sw.textContent = pre.name;
+    sw.title = pre.name + '（点击即时预览，保存后生效）';
     sw.onclick = () => {
       $('t-primary').value = pre.primary;
       $('t-secondary').value = pre.secondary;
       applyTheme(pre);
-      document.querySelectorAll('.theme-swatch').forEach((x) => x.classList.remove('on'));
-      sw.classList.add('on');
+      markActivePreset();
     };
     box.appendChild(sw);
   }
 }
 
+/** 高亮与当前所选颜色一致的预设色块 */
+export function markActivePreset() {
+  const p = $('t-primary');
+  const s2 = $('t-secondary');
+  if (!p || !s2) return;
+  const cur = (p.value || '').toLowerCase() + '|' + (s2.value || '').toLowerCase();
+  document.querySelectorAll('.theme-swatch').forEach((x) => {
+    x.classList.toggle('on', (x.dataset.primary + '|' + x.dataset.secondary) === cur);
+  });
+}
+
+// 主题是「即时预览」的，所以打开时先记下原配色；取消/Esc/点遮罩时还原，
+// 否则用户点了预览又取消，界面颜色变了但设置没存，重启后又变回去（旧版 bug）。
+let themeSnapshot = null;
+
+function cancelThemePreview() {
+  if (!themeSnapshot) return;
+  applyTheme(themeSnapshot);
+  themeSnapshot = null;
+  const t = getSettings().theme || {};
+  if ($('t-primary')) $('t-primary').value = t.primary || '#ff7eb3';
+  if ($('t-secondary')) $('t-secondary').value = t.secondary || '#38b0de';
+  markActivePreset();
+}
+
 export function openThemeModal() {
   const t = getSettings().theme || {};
-  $('t-primary').value = t.primary || '#ff7eb3';
-  $('t-secondary').value = t.secondary || '#38b0de';
+  themeSnapshot = { primary: t.primary || '#ff7eb3', secondary: t.secondary || '#38b0de' };
+  $('t-primary').value = themeSnapshot.primary;
+  $('t-secondary').value = themeSnapshot.secondary;
   renderThemePresets();
+  markActivePreset();
   $('modal-theme').classList.remove('hidden');
 }
 
@@ -290,9 +358,10 @@ export function saveThemeModal() {
     secondary: $('t-secondary').value,
   };
   saveSettings(next).then(() => {
+    themeSnapshot = null; // 已保存，取消时不再还原
     applyTheme(getSettings().theme);
     toast('外观已保存');
-    $('modal-theme').classList.add('hidden');
+    closeSubModal('modal-theme');
   });
 }
 
