@@ -321,6 +321,8 @@ let overlayInteractive = false;
 let overlayModel = null;      // 当前同步给悬浮窗的模型 { url, name }
 let overlayPersistTimer = null;
 let overlayIgnoreRequests = [];
+let overlayExpectedSize = null;   // 程序化设定的尺寸（唯一合法尺寸）
+let overlayProgrammaticUntil = 0; // 这段时间内的 resize 事件视为程序化行为
 
 function overlaySettings() {
   const s = readSettings();
@@ -343,6 +345,15 @@ function overlayBounds() {
     width,
     height,
   };
+}
+
+/** 唯一合法的改尺寸入口：先登记期望尺寸，再 setBounds，避免被兜底逻辑弹回 */
+function applyOverlayBounds(next) {
+  if (!overlayWin || overlayWin.isDestroyed()) return null;
+  overlayExpectedSize = { width: next.width, height: next.height };
+  overlayProgrammaticUntil = Date.now() + 500;
+  overlayWin.setBounds(next);
+  return overlayWin.getBounds();
 }
 
 function persistOverlayBounds() {
@@ -427,9 +438,13 @@ function createOverlayWindow() {
     transparent: true,
     backgroundColor: '#00000000',
     hasShadow: false,
-    // 拖动「越拖越大」的根因：手柄贴在窗口右下角，正好压在 Windows 无边框窗口的
-    // 缩放手柄上，按住它系统就当缩放处理。解决办法不是禁用缩放（那样 setBounds 也会失效，
-    // −/＋ 按钮就废了），而是把工具条从边缘内缩 20px，彻底避开缩放边框（见 overlay.css）。
+    // 「拖动自己变大」的元凶：frameless 窗口仍带 WS_THICKFRAME，
+    // ① 拖到屏幕边缘触发 Windows 的 Aero Snap（半屏 / 最大化）
+    // ② 按住右下角被当成缩放。
+    // 试过 thickFrame:false / resizable:false —— 两者都会连带废掉 setBounds，
+    // −/＋ 按钮就失效了（实测 programmaticResizeOk=false）。
+    // 最终方案：保留缩放能力，只拦「用户发起的缩放」（will-resize），
+    // 再加一层尺寸兜底（resize 事件发现尺寸不是程序化设定的值就立刻弹回）。
     resizable: true,
     minimizable: false,
     maximizable: false,
@@ -449,6 +464,7 @@ function createOverlayWindow() {
     overlayWin.setAlwaysOnTop(true, 'screen-saver');
     overlayWin.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
   } catch (err) { /* 某些平台不支持，忽略 */ }
+  overlayExpectedSize = { width: overlayWin.getBounds().width, height: overlayWin.getBounds().height };
   overlayIgnoring = false;
   setOverlayIgnore(true);
   startOverlayWatch();
@@ -463,6 +479,19 @@ function createOverlayWindow() {
     startOverlayWatch();
     if (overlayModel) overlayWin.webContents.send('overlay:model', overlayModel);
     broadcastOverlayState();
+  });
+  // 兜底：即使用户缩放被系统绕过了，也不允许尺寸变成非程序化的值（直接弹回）
+  overlayWin.on('will-resize', (e) => { e.preventDefault(); });
+  overlayWin.on('maximize', () => { try { overlayWin.unmaximize(); } catch (err) { /* ignore */ } });
+  overlayWin.on('resize', () => {
+    if (!overlayWin || overlayWin.isDestroyed()) return;
+    if (Date.now() < overlayProgrammaticUntil) return;
+    const b = overlayWin.getBounds();
+    const exp = overlayExpectedSize;
+    if (exp && (Math.abs(b.width - exp.width) > 4 || Math.abs(b.height - exp.height) > 4)) {
+      overlayProgrammaticUntil = Date.now() + 400;
+      overlayWin.setBounds({ x: b.x, y: b.y, width: exp.width, height: exp.height });
+    }
   });
   overlayWin.on('moved', persistOverlayBounds);
   overlayWin.on('resized', persistOverlayBounds);
@@ -534,7 +563,7 @@ function registerOverlayIpc() {
     const height = Math.min(1600, Math.max(260, b.height + dh));
     // 以右下角为锚点缩放
     const next = { x: b.x + (b.width - width), y: b.y + (b.height - height), width, height };
-    overlayWin.setBounds(next);
+    applyOverlayBounds(next);
     persistOverlayBounds();
     return overlayWin.getBounds();
   });
@@ -546,8 +575,7 @@ function registerOverlayIpc() {
     const x = area.x + area.width - width - 28;
     const y = area.y + area.height - height - 28;
     writeSettings({ overlay: { x: null, y: null, width, height } });
-    overlayWin.setBounds({ x, y, width, height });
-    return overlayWin.getBounds();
+    return applyOverlayBounds({ x, y, width, height });
   });
   ipcMain.handle('overlay:dragStart', () => {
     if (!overlayWin || overlayWin.isDestroyed()) return false;
@@ -1010,17 +1038,25 @@ function createWindow() {
                 rep.canvasCount = await w.webContents.executeJavaScript('document.querySelectorAll("#ov-stage canvas").length');
                 rep.bodyPointerEvents = await w.webContents.executeJavaScript('getComputedStyle(document.body).pointerEvents');
               } catch (err) { rep.errors.push(String((err && err.message) || err)); }
-              // resizable:false 之后 −/＋ 仍必须能改尺寸（走 setBounds）
+              // ① −/＋ 走的程序化缩放通道必须有效（applyOverlayBounds 就是按钮的入口）
               try {
                 const b0 = w.getBounds();
-                w.setBounds({ x: b0.x, y: b0.y, width: b0.width + 40, height: b0.height + 64 });
+                applyOverlayBounds({ x: b0.x, y: b0.y, width: b0.width + 40, height: b0.height + 64 });
+                await new Promise((r) => setTimeout(r, 300));
                 const b1 = w.getBounds();
                 rep.programmaticResizeOk = (b1.width === b0.width + 40 && b1.height === b0.height + 64);
                 rep.userResizable = w.isResizable();
-                // 关键不变量：交互热区必须离窗口边缘足够远，否则会压到系统的缩放手柄上
+                // 关键不变量：交互热区必须离窗口边缘足够远
                 rep.hitMarginRight = overlayHit ? Math.round(b1.width - (overlayHit.x + overlayHit.w)) : -1;
                 rep.hitMarginBottom = overlayHit ? Math.round(b1.height - (overlayHit.y + overlayHit.h)) : -1;
-                w.setBounds(b0);
+                // ② 模拟系统把窗口意外放大（Aero Snap / 拖动越界），兜底必须把它弹回去
+                const beforeGuard = w.getBounds();
+                overlayProgrammaticUntil = 0;
+                w.setBounds({ x: beforeGuard.x, y: beforeGuard.y, width: beforeGuard.width + 300, height: beforeGuard.height + 200 });
+                await new Promise((r) => setTimeout(r, 800));
+                const afterGuard = w.getBounds();
+                rep.snapBackOk = (afterGuard.width === beforeGuard.width && afterGuard.height === beforeGuard.height);
+                applyOverlayBounds(b0);
               } catch (err) { rep.errors.push('resize: ' + String((err && err.message) || err)); }
               const before = w.getBounds();
               overlayDrag = { dx: 10, dy: 10 };

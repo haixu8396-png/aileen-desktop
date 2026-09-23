@@ -6,6 +6,7 @@ import { getSettings, saveSettings } from './settings.js';
 import { state } from './state.js';
 import { $, toast } from './dom.js';
 import { streamChat } from './llm.js';
+import { buildSystemPrompt } from './characters.js';
 import { t } from './i18n.js';
 
 let autoReply = false;
@@ -76,16 +77,15 @@ async function replyTo(player, message) {
   replying = true;
   appendLog({ type: 'info', text: t('mc.thinking', { name: player }) });
   try {
+    // 直接复用主对话那套完整人设（简介 / 性格 / 场景 / 示例 / 自定义系统提示词），
+    // 再叠加「正在玩 MC」这一层上下文 —— 这样游戏里的它就是角色卡里的它，不是软件的它。
     const card = state.current && state.current.data ? state.current.data : null;
-    const who = card && card.name ? card.name : 'AILEEN';
-    const persona = card && card.personality ? card.personality : '';
     const myName = getSettings().mc.username || 'AILEEN';
     const sys = [
-      '你正在和朋友一起玩 Minecraft，你的游戏角色名是 ' + myName + '。',
-      '你的人设：' + who + '。' + persona,
-      '别人在游戏里跟你说话，你要用一句中文口语回他。',
-      '要求：不超过 40 个字，不加引号、括号、动作描写或任何解释，直接说台词。',
-    ].join('\n');
+      buildSystemPrompt(card),
+      t('prompt.mcIntro', { bot: myName }),
+      t('prompt.mcRule'),
+    ].join('\n\n');
     let out = '';
     await streamChat({
       messages: [
@@ -114,6 +114,12 @@ export async function openMcModal() {
   el('mc-username').value = mc.username || 'AILEEN';
   autoReply = !!mc.autoReply;
   el('mc-autoreply').checked = autoReply;
+  const personaBox = el('mc-persona');
+  if (personaBox) {
+    const nm = state.current && state.current.data ? state.current.data.name : '';
+    personaBox.textContent = nm ? t('mc.personaActive', { name: nm }) : t('mc.personaNone');
+    personaBox.className = 'mc-persona' + (nm ? ' on' : '');
+  }
   el('modal-mc').classList.remove('hidden');
   renderStatus(await window.api.mcStatus());
 }

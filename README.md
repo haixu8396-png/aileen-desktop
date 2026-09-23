@@ -7,7 +7,7 @@
 [![License](https://img.shields.io/badge/license-MIT-ff7eb3.svg)](./LICENSE)
 [![Platform](https://img.shields.io/badge/platform-Windows-38b0de.svg)](#install)
 [![Electron](https://img.shields.io/badge/electron-44-9aa0b4.svg)](https://www.electronjs.org/)
-[![Tests](https://img.shields.io/badge/tests-33%20passing-4ecdc4.svg)](./tests)
+[![Tests](https://img.shields.io/badge/tests-39%20passing-4ecdc4.svg)](./tests)
 [![Languages](https://img.shields.io/badge/languages-EN%20%7C%20JA%20%7C%20ZH-a78bfa.svg)](#interface-languages)
 
 [Download](../../releases/latest) · [Changelog](./CHANGELOG.md) · [Contributing](./CONTRIBUTING.md) · [Security](./SECURITY.md)
@@ -73,7 +73,7 @@ On Windows you can also just double-click `install.bat`.
 
 ```bash
 npm run dist      # NSIS installer + portable exe into release/
-npm test          # 33 unit tests
+npm test          # 39 unit tests
 ```
 
 On Windows, `build-installer.bat` does the same thing.
@@ -101,7 +101,7 @@ tests/                  vitest unit tests
 
 Nothing gets released until CI passes. Every tag runs:
 
-1. **33 unit tests.**
+1. **39 unit tests** — including persona-prompt regression tests that prove Minecraft and chess use *your* character card, and that prompts follow the interface language.
 2. **Dev smoke test** — no runtime errors; every settings modal opens; closing a sub-page returns to the parent menu; cancelling the theme editor rolls the preview back; Minecraft IPC answers; the chess board renders 64 squares; **zero untranslated strings**; switching language actually changes the UI; the “thinking” indicator is hidden.
 3. **Packaged-app smoke test** — all of the above against the built `.exe`, plus: the floating stage must be **click-through by default**, its handle must sit clear of the window resize border, and `mineflayer` / `mineflayer-pathfinder` must load from inside the asar.
 

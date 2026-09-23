@@ -8,56 +8,6 @@
 // ============================================================
 import jaDict from './i18n.ja.json';
 import zhDict from './i18n.zh.json';
-
-export const LANGS = [
-  { id: 'en', label: 'English' },
-  { id: 'ja', label: '日本語' },
-  { id: 'zh', label: '简体中文' },
-];
-
-const DICTS = { en: EN, ja: jaDict, zh: zhDict };
-let lang = 'en';
-
-export function getLang() { return lang; }
-
-export function setLang(next) {
-  lang = DICTS[next] ? next : 'en';
-  applyI18n();
-  return lang;
-}
-
-export function t(key, vars) {
-  const table = DICTS[lang] || EN;
-  let s = table[key];
-  if (s == null) s = EN[key];
-  if (s == null) return key;
-  if (!vars) return s;
-  return String(s).replace(/\{(\w+)\}/g, (m, k) => (vars[k] == null ? m : String(vars[k])));
-}
-
-/** 把当前语言写进 DOM。带 data-i18n 的元素会被整段替换，
- *  所以只放在「纯文本」元素上；含子元素的用 data-i18n-html 或把 key 放到子元素上。 */
-export function applyI18n(root) {
-  const scope = root || document;
-  scope.querySelectorAll('[data-i18n]').forEach((el) => {
-    const v = t(el.getAttribute('data-i18n'));
-    if (v != null) el.textContent = v;
-  });
-  scope.querySelectorAll('[data-i18n-html]').forEach((el) => {
-    const v = t(el.getAttribute('data-i18n-html'));
-    if (v != null) el.innerHTML = v;
-  });
-  scope.querySelectorAll('[data-i18n-ph]').forEach((el) => {
-    const v = t(el.getAttribute('data-i18n-ph'));
-    if (v != null) el.setAttribute('placeholder', v);
-  });
-  scope.querySelectorAll('[data-i18n-title]').forEach((el) => {
-    const v = t(el.getAttribute('data-i18n-title'));
-    if (v != null) el.setAttribute('title', v);
-  });
-  const htmlLang = lang === 'zh' ? 'zh-CN' : lang;
-  document.documentElement.setAttribute('lang', htmlLang);
-}
 export const EN = {
   "app.name": "AILEEN",
   "app.tagline": "Open-source desktop AI companion",
@@ -361,7 +311,71 @@ export const EN = {
   "overlay.lockOff": "Character does not block the mouse (click-through)",
   "overlay.drag": "Drag to move",
   "overlay.hide": "Hide the stage",
-  "overlay.toolsTitle": "Hover here · hides itself when idle"
+  "overlay.toolsTitle": "Hover here · hides itself when idle",
+  "prompt.intro": "You are \"{name}\", talking one-on-one with the user. Always answer as this character — its identity, tone and personality — and never mention that you are an AI or a language model.",
+  "prompt.desc": "Character overview: {v}",
+  "prompt.persona": "Personality and way of speaking: {v}",
+  "prompt.scenario": "Current scenario: {v}",
+  "prompt.example": "Reference examples (imitate the tone and style):\n{v}",
+  "prompt.outro": "Replies should feel natural and conversational, fit the character, stay a sensible length, and avoid complex formatting beyond Markdown.",
+  "prompt.noCard": "You are AILEEN, a friendly desktop AI companion. No character card is selected, so keep a warm, neutral personality.",
+  "prompt.mcIntro": "You are playing Minecraft right now. Your in-game name is \"{bot}\".",
+  "prompt.mcRule": "Someone speaks to you in the game chat. Answer with ONE short spoken line in the same language the player used (under 40 characters where possible). No quotes, brackets, action descriptions or explanations — just the line.",
+  "prompt.chessRule": "You are playing chess with the user. Comment on the position in ONE short spoken line in the user's language (under 30 characters). No quotes and no explanations.",
+  "mc.personaActive": "Persona: {name}",
+  "mc.personaNone": "Persona: none selected — create a character card first"
 };
+
+export const LANGS = [
+  { id: 'en', label: 'English' },
+  { id: 'ja', label: '日本語' },
+  { id: 'zh', label: '简体中文' },
+];
+
+const DICTS = { en: EN, ja: jaDict, zh: zhDict };
+let lang = 'en';
+
+export function getLang() { return lang; }
+
+export function setLang(next) {
+  lang = DICTS[next] ? next : 'en';
+  applyI18n();
+  return lang;
+}
+
+export function t(key, vars) {
+  const table = DICTS[lang] || EN;
+  let s = table[key];
+  if (s == null) s = EN[key];
+  if (s == null) return key;
+  if (!vars) return s;
+  return String(s).replace(/\{(\w+)\}/g, (m, k) => (vars[k] == null ? m : String(vars[k])));
+}
+
+/** 把当前语言写进 DOM。带 data-i18n 的元素会被整段替换，
+ *  所以只放在「纯文本」元素上；含子元素的用 data-i18n-html 或把 key 放到子元素上。 */
+export function applyI18n(root) {
+  // 单测等无 DOM 环境直接跳过，别让纯逻辑模块依赖浏览器
+  if (typeof document === 'undefined') return;
+  const scope = root || document;
+  scope.querySelectorAll('[data-i18n]').forEach((el) => {
+    const v = t(el.getAttribute('data-i18n'));
+    if (v != null) el.textContent = v;
+  });
+  scope.querySelectorAll('[data-i18n-html]').forEach((el) => {
+    const v = t(el.getAttribute('data-i18n-html'));
+    if (v != null) el.innerHTML = v;
+  });
+  scope.querySelectorAll('[data-i18n-ph]').forEach((el) => {
+    const v = t(el.getAttribute('data-i18n-ph'));
+    if (v != null) el.setAttribute('placeholder', v);
+  });
+  scope.querySelectorAll('[data-i18n-title]').forEach((el) => {
+    const v = t(el.getAttribute('data-i18n-title'));
+    if (v != null) el.setAttribute('title', v);
+  });
+  const htmlLang = lang === 'zh' ? 'zh-CN' : lang;
+  document.documentElement.setAttribute('lang', htmlLang);
+}
 
 export default { t, setLang, getLang, applyI18n, LANGS, EN };

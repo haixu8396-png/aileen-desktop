@@ -304,6 +304,13 @@ button.icon-btn.small { width: 30px; height: 30px; font-size: 14px; }
 #char-menu.pop-menu { position: fixed; right: auto; top: auto; z-index: 70; min-width: 180px; }
 
 /* ---------- Minecraft 伙伴 ---------- */
+.mc-persona {
+  font-size: 12px; color: var(--muted);
+  background: var(--panel2); border: 1px dashed var(--line);
+  border-radius: 8px; padding: 7px 10px;
+}
+.mc-persona.on { color: var(--accent); border-style: solid; border-color: var(--accent); }
+
 .mc-row { display: flex; gap: 10px; }
 .mc-row label { flex: 1; }
 .mc-row label.mc-narrow { flex: 0 0 96px; }

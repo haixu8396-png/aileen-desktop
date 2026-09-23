@@ -1,4 +1,6 @@
 // 角色卡：数据结构与提示词构建
+import { t } from './i18n.js';
+
 export const CARD_SPEC = 'aileen-card-v1';
 
 export function emptyCard() {
@@ -20,16 +22,22 @@ export function emptyCard() {
   };
 }
 
+/**
+ * 角色人设系统提示词。
+ * 关键：文案跟随界面语言（英文 / 日文 / 中文），否则切了语言角色仍被要求说中文。
+ * 卡片自带 system_prompt 时优先整段使用。
+ */
 export function buildSystemPrompt(card) {
+  if (!card) return t('prompt.noCard');
   if (card.system_prompt && card.system_prompt.trim()) return card.system_prompt.trim();
   const lines = [];
-  const name = card.name || 'AI 角色';
-  lines.push('你是「' + name + '」，正在与用户进行一对一的中文对话。请始终以该角色的身份、语气和性格回应，不要提及自己是一个 AI 模型或语言模型。');
-  if (card.description) lines.push('角色简介：' + card.description);
-  if (card.personality) lines.push('性格与说话方式：' + card.personality);
-  if (card.scenario) lines.push('当前场景：' + card.scenario);
-  if (card.mes_example) lines.push('参考示例（模仿其中的语气与风格）：\n' + card.mes_example);
-  lines.push('回复应当自然、口语化、贴合角色设定，长度适中，不要使用 Markdown 以外的复杂格式。');
+  const name = card.name || 'AILEEN';
+  lines.push(t('prompt.intro', { name }));
+  if (card.description) lines.push(t('prompt.desc', { v: card.description }));
+  if (card.personality) lines.push(t('prompt.persona', { v: card.personality }));
+  if (card.scenario) lines.push(t('prompt.scenario', { v: card.scenario }));
+  if (card.mes_example) lines.push(t('prompt.example', { v: card.mes_example }));
+  lines.push(t('prompt.outro'));
   return lines.join('\n\n');
 }
 

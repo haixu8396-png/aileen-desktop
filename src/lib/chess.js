@@ -9,6 +9,7 @@ import { state } from './state.js';
 import { t } from './i18n.js';
 import { $, toast } from './dom.js';
 import { streamChat } from './llm.js';
+import { buildSystemPrompt } from './characters.js';
 
 const GLYPH = { K: '♔', Q: '♕', R: '♖', B: '♗', N: '♘', P: '♙', k: '♚', q: '♛', r: '♜', b: '♝', n: '♞', p: '♟' };
 const FILES = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H'];
@@ -183,7 +184,6 @@ async function comment() {
   if (!box) return;
   if (!getSettings().llm.apiKey) return;
   const card = state.current && state.current.data ? state.current.data : null;
-  const who = card && card.name ? card.name : 'AILEEN';
   let fen = '';
   try { fen = game.exportFEN(); } catch (err) { fen = ''; }
   const hist = (() => { try { return game.getHistory() || []; } catch (err) { return []; } })();
@@ -195,7 +195,7 @@ async function comment() {
     let out = '';
     await streamChat({
       messages: [
-        { role: 'system', content: '你是 ' + who + '，正在和用户下国际象棋。' + (card && card.personality ? card.personality : '') + ' 用一句话中文口语点评当前局面（不超过 30 字），不要加引号和解释。' },
+        { role: 'system', content: buildSystemPrompt(card) + '\n\n' + t('prompt.chessRule') },
         { role: 'user', content: 'FEN: ' + fen + '\n刚走的一步: ' + lastTxt },
       ],
       settings: getSettings(),

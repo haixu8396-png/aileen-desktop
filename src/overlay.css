@@ -21,8 +21,8 @@ html, body {
 
 /* 右下角工具条：不动就隐藏，鼠标移上去才浮现 */
 #ov-tools {
-  /* 内缩 20px：Windows 无边框窗口边缘 ~8px 是系统缩放手柄，贴上会被当成缩放（越拖越大） */
-  position: fixed; right: 20px; bottom: 20px;
+  /* 内缩 26px：Windows 无边框窗口边缘是系统缩放手柄区，贴上会被当成缩放（越拖越大） */
+  position: fixed; right: 26px; bottom: 26px;
   display: flex; align-items: center; gap: 6px;
   padding: 6px; border-radius: 999px;
   background: rgba(28, 30, 39, 0.88); border: 1px solid #2c3040;

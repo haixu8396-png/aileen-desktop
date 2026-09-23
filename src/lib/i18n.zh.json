@@ -301,5 +301,17 @@
   "overlay.lockOff": "角色不阻挡鼠标（点击穿透）",
   "overlay.drag": "拖动以移动",
   "overlay.hide": "隐藏舞台",
-  "overlay.toolsTitle": "将鼠标悬停在此处 · 闲置时自动隐藏"
+  "overlay.toolsTitle": "将鼠标悬停在此处 · 闲置时自动隐藏",
+  "prompt.intro": "你是「{name}」，正在与用户进行一对一的对话。请始终以该角色的身份、语气和性格回应，不要提及自己是一个 AI 模型或语言模型。",
+  "prompt.desc": "角色简介：{v}",
+  "prompt.persona": "性格与说话方式：{v}",
+  "prompt.scenario": "当前场景：{v}",
+  "prompt.example": "参考示例（模仿其中的语气与风格）：\n{v}",
+  "prompt.outro": "回复应当自然、口语化、贴合角色设定，长度适中，不要使用 Markdown 以外的复杂格式。",
+  "prompt.noCard": "你是 AILEEN，一个友好的桌面 AI 伴侣。当前没有选中任何角色卡，请保持温和、中性的性格。",
+  "prompt.mcIntro": "你正在玩 Minecraft，你的游戏角色名是「{bot}」。",
+  "prompt.mcRule": "有人在游戏聊天栏跟你说话。请用和对方相同的语言，回一句简短的口语台词（尽量不超过 40 字）。不要加引号、括号、动作描写或任何解释，直接说台词。",
+  "prompt.chessRule": "你正在和用户下国际象棋。请用用户的语言，用一句简短的口语（不超过 30 字）点评当前局面。不要加引号和解释。",
+  "mc.personaActive": "当前人格：{name}",
+  "mc.personaNone": "当前人格：未选择 —— 请先创建角色卡"
 }

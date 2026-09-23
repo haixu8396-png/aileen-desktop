@@ -7,7 +7,7 @@
 [![License](https://img.shields.io/badge/license-MIT-ff7eb3.svg)](./LICENSE)
 [![Platform](https://img.shields.io/badge/platform-Windows-38b0de.svg)](#安装)
 [![Electron](https://img.shields.io/badge/electron-44-9aa0b4.svg)](https://www.electronjs.org/)
-[![Tests](https://img.shields.io/badge/tests-33%20passing-4ecdc4.svg)](./tests)
+[![Tests](https://img.shields.io/badge/tests-39%20passing-4ecdc4.svg)](./tests)
 [![Languages](https://img.shields.io/badge/languages-EN%20%7C%20JA%20%7C%20ZH-a78bfa.svg)](#界面语言)
 
 [下载最新版](../../releases/latest) · [更新日志](./CHANGELOG.md) · [参与贡献](./CONTRIBUTING.md) · [安全策略](./SECURITY.md)
@@ -73,7 +73,7 @@ Windows 用户也可以直接双击 `install.bat`。
 
 ```bash
 npm run dist      # 生成 NSIS 安装包 + 便携版到 release/
-npm test          # 33 项单元测试
+npm test          # 39 项单元测试
 ```
 
 Windows 上双击 `build-installer.bat` 效果相同。
@@ -101,7 +101,7 @@ tests/                  vitest 单元测试
 
 CI 不过就不发版。每次打 tag 都会跑：
 
-1. **33 项单元测试。**
+1. **39 项单元测试** —— 其中包含人格提示词回归测试：验证 Minecraft 与象棋用的是**你的角色卡**而不是软件自带人格，并且提示词跟随界面语言。
 2. **开发版自检** —— 无运行时错误；所有设置弹窗都能打开；关闭子页面会退回上级菜单；外观调色点取消会还原预览；Minecraft IPC 有响应；棋盘渲染出 64 格；**零漏翻**；切换语言确实改变了界面；「正在思考」指示器处于隐藏状态。
 3. **打包产物自检** —— 对着构建好的 `.exe` 重跑以上全部检查，另外还要求：悬浮展台**默认鼠标穿透**、交互手柄避开窗口的缩放边界、`mineflayer` / `mineflayer-pathfinder` 能从 asar 内成功加载。
 

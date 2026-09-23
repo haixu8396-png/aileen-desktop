@@ -72,6 +72,7 @@ jobs:
           if (-not $ovr.hitAreaSizeOk) { throw '悬浮展台没有上报有效的交互热区（右下角手柄）' }
           if ($ovr.hitMarginRight -lt 14 -or $ovr.hitMarginBottom -lt 14) { throw ('悬浮展台的交互热区离窗口边缘太近（右 ' + $ovr.hitMarginRight + 'px / 下 ' + $ovr.hitMarginBottom + 'px），会压到系统缩放手柄上导致拖动变成缩放') }
           if (-not $ovr.programmaticResizeOk) { throw '悬浮展台无法通过 −/＋ 调整尺寸' }
+          if (-not $ovr.snapBackOk) { throw '悬浮展台尺寸被系统意外放大后没有弹回（Aero Snap 防护失效）' }
           if ($ovr.cursorInHit -eq $false -and $ovr.ignoringByDefault -ne $true) { throw '光标不在手柄上时，悬浮展台必须鼠标穿透，否则会挡住桌面操作' }
           if (-not $ovr.moved) { throw '悬浮展台无法移动' }
           if (-not $ovr.toolsExists) { throw '悬浮展台缺少右下角工具栏' }
@@ -131,6 +132,7 @@ jobs:
           if (-not $ovr.hitAreaSizeOk) { throw '悬浮展台没有上报有效的交互热区（右下角手柄）' }
           if ($ovr.hitMarginRight -lt 14 -or $ovr.hitMarginBottom -lt 14) { throw ('悬浮展台的交互热区离窗口边缘太近（右 ' + $ovr.hitMarginRight + 'px / 下 ' + $ovr.hitMarginBottom + 'px），会压到系统缩放手柄上导致拖动变成缩放') }
           if (-not $ovr.programmaticResizeOk) { throw '悬浮展台无法通过 −/＋ 调整尺寸' }
+          if (-not $ovr.snapBackOk) { throw '悬浮展台尺寸被系统意外放大后没有弹回（Aero Snap 防护失效）' }
           if ($ovr.cursorInHit -eq $false -and $ovr.ignoringByDefault -ne $true) { throw '光标不在手柄上时，悬浮展台必须鼠标穿透，否则会挡住桌面操作' }
           if (-not $ovr.moved) { throw '悬浮展台无法移动' }
           if (-not $ovr.toolsExists) { throw '悬浮展台缺少右下角工具栏' }

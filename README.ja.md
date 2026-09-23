@@ -7,7 +7,7 @@
 [![License](https://img.shields.io/badge/license-MIT-ff7eb3.svg)](./LICENSE)
 [![Platform](https://img.shields.io/badge/platform-Windows-38b0de.svg)](#インストール)
 [![Electron](https://img.shields.io/badge/electron-44-9aa0b4.svg)](https://www.electronjs.org/)
-[![Tests](https://img.shields.io/badge/tests-33%20passing-4ecdc4.svg)](./tests)
+[![Tests](https://img.shields.io/badge/tests-39%20passing-4ecdc4.svg)](./tests)
 [![Languages](https://img.shields.io/badge/languages-EN%20%7C%20JA%20%7C%20ZH-a78bfa.svg)](#インターフェース言語)
 
 [ダウンロード](../../releases/latest) · [変更履歴](./CHANGELOG.md) · [コントリビュート](./CONTRIBUTING.md) · [セキュリティ](./SECURITY.md)
@@ -73,7 +73,7 @@ Windows なら `install.bat` をダブルクリックするだけでも構いま
 
 ```bash
 npm run dist      # NSIS インストーラー + ポータブル版を release/ に出力
-npm test          # ユニットテスト 33 件
+npm test          # ユニットテスト 39 件
 ```
 
 Windows では `build-installer.bat` でも同じことができます。
@@ -101,7 +101,7 @@ tests/                  vitest によるユニットテスト
 
 CI が通るまでリリースされません。タグを打つたびに以下を実行します。
 
-1. **ユニットテスト 33 件。**
+1. **ユニットテスト 39 件** —— Minecraft とチェスが「あなたのキャラクターカード」を使っていること、プロンプトがインターフェース言語に追従することを検証する回帰テストを含みます。
 2. **開発版スモークテスト** — 実行時エラーなし／すべての設定モーダルが開く／サブページを閉じると親メニューに戻る／テーマ編集をキャンセルするとプレビューが元に戻る／Minecraft の IPC が応答する／チェス盤が 64 マス描画される／**未翻訳の文字列がゼロ**／言語切替が実際に UI を変える／「考え中」インジケーターが非表示になる。
 3. **パッケージ版スモークテスト** — 上記すべてをビルド済み `.exe` に対して実行。さらに、フローティングステージが**既定でマウス透過**であること、ハンドルがウィンドウのリサイズ境界から離れていること、`mineflayer` / `mineflayer-pathfinder` が asar 内から読み込めることを確認します。
 
