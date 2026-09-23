@@ -1,7 +1,7 @@
 {
   "name": "aileen",
   "productName": "AILEEN",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "开源桌面 AI 伴侣：多模型 LLM 对话 + Live2D 看板娘 + TTS/STT + 角色卡，本地运行、数据私有",
   "license": "MIT",
   "author": "AILEEN Contributors",
@@ -61,6 +61,7 @@
   },
   "dependencies": {
     "dompurify": "^3.4.15",
+    "js-chess-engine": "^2.4.6",
     "mineflayer": "^4.39.0",
     "mineflayer-pathfinder": "^2.4.5",
     "oh-my-live2d": "^0.19.3"

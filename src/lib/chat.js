@@ -5,6 +5,7 @@ import { getSettings, deepMerge } from './settings.js';
 import { streamChat } from './llm.js';
 import { buildSystemPrompt } from './characters.js';
 import { renderMarkdown, escapeHtml } from './markdown.js';
+import { t } from './i18n.js';
 import { state, hooks, tts } from './state.js';
 import { $, toast, scrollBottom, autoGrowInput } from './dom.js';
 
@@ -64,8 +65,8 @@ export function renderMessages() {
 
 export function copyText(text) {
   navigator.clipboard.writeText(String(text || ''))
-    .then(() => toast('已复制'))
-    .catch(() => toast('复制失败', true));
+    .then(() => toast(t('chat.copied')))
+    .catch(() => toast(t('chat.copyFailed'), true));
 }
 
 export function speakText(text) {
@@ -82,13 +83,13 @@ export function makeMsgEl(role, content) {
   if (role === 'assistant') {
     const sp = document.createElement('button');
     sp.textContent = '🔊';
-    sp.title = '朗读';
+    sp.title = t('chat.readAloud');
     sp.onclick = () => speakText(content);
     acts.appendChild(sp);
   }
   const cp = document.createElement('button');
   cp.textContent = '⧉';
-  cp.title = '复制';
+  cp.title = t('chat.copy');
   cp.onclick = () => copyText(content);
   acts.appendChild(cp);
   div.appendChild(acts);
@@ -126,9 +127,9 @@ export function setBusy(b) {
 // ---------------- 对话 ----------------
 export async function runAssistantReply(userContent, forceSpeak, image) {
   const cur = state.current;
-  if (!cur) throw new Error('请先创建并选择一个角色卡');
+  if (!cur) throw new Error(t('chat.needChar'));
   const s = getSettings();
-  if (!s.llm.apiKey) throw new Error('未配置 LLM API Key');
+  if (!s.llm.apiKey) throw new Error(t('chat.noApiKey'));
   pushMsg('user', userContent);
   const history = state.messages.slice(-12).map((m) => ({ role: m.role, content: m.content }));
   const msgs = [{ role: 'system', content: buildSystemPrompt(cur.data) }, ...history];
@@ -184,7 +185,7 @@ export async function send(text) {
   if ((!content && !image) || state.busy) return;
   const s = getSettings();
   if (!s.llm.apiKey) {
-    toast('请先在 💬 对话设置 中填写 API Key');
+    toast(t('chat.needKeyHint'));
     hooks.openLlmModal();
     return;
   }
@@ -194,7 +195,7 @@ export async function send(text) {
   state.pendingImage = null;
   hooks.setAttachUI();
   try {
-    await runAssistantReply(content || '请看看这张截图，告诉我你看到了什么。', false, image);
+    await runAssistantReply(content || t('chat.visionPrompt'), false, image);
   } catch (err) {
     toast(String(err && err.message ? err.message : err), true);
   }

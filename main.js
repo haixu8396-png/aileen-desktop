@@ -10,6 +10,7 @@ const crypto = require('crypto');
 
 const { sanitizeFileName, deepMerge, isInsidePath, normalizeSettings } = require('./shared/util.cjs');
 const mcBot = require('./mc-bot.cjs');
+const { menuText } = require('./shared/menu-i18n.cjs');
 
 const APP_ROOT = __dirname;
 const DIST_INDEX = path.join(APP_ROOT, 'dist', 'index.html');
@@ -92,6 +93,13 @@ const DEFAULT_SETTINGS = {
     port: 25565,
     username: 'AILEEN',
     autoReply: false,
+  },
+  language: 'en',    // 界面语言：en（默认）/ ja / zh
+  chess: {           // 国际象棋
+    level: 3,
+    playerColor: 'white',
+    banter: false,
+    fenStack: [],
   },
 };
 
@@ -321,14 +329,17 @@ function overlaySettings() {
 
 function overlayBounds() {
   const o = overlaySettings();
-  const width = Math.round(o.width || 380);
-  const height = Math.round(o.height || 640);
   const area = screen.getPrimaryDisplay().workArea;
+  // 尺寸/坐标都要钳制：历史版本被拖大过，或换了更小的显示器，都不能让窗口跑到屏幕外或撑爆
+  const width = Math.min(Math.max(Math.round(o.width || 380), 220), Math.min(1400, area.width));
+  const height = Math.min(Math.max(Math.round(o.height || 640), 260), Math.min(1600, area.height));
   const defX = area.x + area.width - width - 28;
   const defY = area.y + area.height - height - 28;
+  const rawX = typeof o.x === 'number' ? o.x : defX;
+  const rawY = typeof o.y === 'number' ? o.y : defY;
   return {
-    x: Math.round(typeof o.x === 'number' ? o.x : defX),
-    y: Math.round(typeof o.y === 'number' ? o.y : defY),
+    x: Math.round(Math.min(Math.max(rawX, area.x - width + 80), area.x + area.width - 80)),
+    y: Math.round(Math.min(Math.max(rawY, area.y), area.y + area.height - 60)),
     width,
     height,
   };
@@ -416,6 +427,9 @@ function createOverlayWindow() {
     transparent: true,
     backgroundColor: '#00000000',
     hasShadow: false,
+    // 拖动「越拖越大」的根因：手柄贴在窗口右下角，正好压在 Windows 无边框窗口的
+    // 缩放手柄上，按住它系统就当缩放处理。解决办法不是禁用缩放（那样 setBounds 也会失效，
+    // −/＋ 按钮就废了），而是把工具条从边缘内缩 20px，彻底避开缩放边框（见 overlay.css）。
     resizable: true,
     minimizable: false,
     maximizable: false,
@@ -509,16 +523,18 @@ function registerOverlayIpc() {
     model: overlayModel,
     overlay: overlaySettings(),
     theme: readSettings().theme || {},
+    language: readSettings().language || 'en',
   }));
   ipcMain.handle('overlay:resize', (_e, payload) => {
     if (!overlayWin || overlayWin.isDestroyed()) return null;
     const b = overlayWin.getBounds();
     const dw = Math.round((payload && payload.dw) || 0);
     const dh = Math.round((payload && payload.dh) || 0);
-    const width = Math.min(1400, Math.max(180, b.width + dw));
-    const height = Math.min(1600, Math.max(220, b.height + dh));
-    // 以右下角为锚点缩放，视觉上不会跑偏
-    overlayWin.setBounds({ x: b.x + (b.width - width), y: b.y + (b.height - height), width, height });
+    const width = Math.min(1400, Math.max(220, b.width + dw));
+    const height = Math.min(1600, Math.max(260, b.height + dh));
+    // 以右下角为锚点缩放
+    const next = { x: b.x + (b.width - width), y: b.y + (b.height - height), width, height };
+    overlayWin.setBounds(next);
     persistOverlayBounds();
     return overlayWin.getBounds();
   });
@@ -556,6 +572,7 @@ function registerOverlayIpc() {
 }
 
 let mainWin = null;
+let appMenuLang = '';
 
 /** 给主窗口发菜单动作（渲染层执行） */
 function sendMenuAction(action) {
@@ -566,55 +583,56 @@ function sendMenuAction(action) {
 // 原生应用菜单（中文）：默认 autoHideMenuBar 隐藏，按 Alt 才出现。
 // 旧版这里露出的是 Electron 默认英文菜单，属于明显的「菜单问题」。
 // ------------------------------------------------------------
-function buildAppMenu() {
+/** 原生菜单随界面语言重建；lang 省略时读设置 */
+function buildAppMenu(lang) {
+  const M = menuText(lang || readSettings().language || 'en');
   const template = [
     {
-      label: 'AILEEN',
+      label: M.app,
       submenu: [
-        { label: '关于 AILEEN', click: () => sendMenuAction('about') },
-        { label: '打开数据目录', click: () => sendMenuAction('datadir') },
+        { label: M.about, click: () => sendMenuAction('about') },
+        { label: M.datadir, click: () => sendMenuAction('datadir') },
         { type: 'separator' },
-        { role: 'quit', label: '退出 AILEEN' },
+        { role: 'quit', label: M.quit },
       ],
     },
     {
-      label: '编辑',
+      label: M.edit,
       submenu: [
-        { role: 'undo', label: '撤销' },
-        { role: 'redo', label: '重做' },
+        { role: 'undo', label: M.undo },
+        { role: 'redo', label: M.redo },
         { type: 'separator' },
-        { role: 'cut', label: '剪切' },
-        { role: 'copy', label: '复制' },
-        { role: 'paste', label: '粘贴' },
-        { role: 'selectAll', label: '全选' },
+        { role: 'cut', label: M.cut },
+        { role: 'copy', label: M.copy },
+        { role: 'paste', label: M.paste },
+        { role: 'selectAll', label: M.selectAll },
       ],
     },
     {
-      label: '角色',
+      label: M.character,
       submenu: [
-        { label: '新建角色卡', accelerator: 'CmdOrCtrl+N', click: () => sendMenuAction('new-card') },
-        { label: '导入角色卡', accelerator: 'CmdOrCtrl+O', click: () => sendMenuAction('import-card') },
+        { label: M.newCard, accelerator: 'CmdOrCtrl+N', click: () => sendMenuAction('new-card') },
+        { label: M.importCard, accelerator: 'CmdOrCtrl+O', click: () => sendMenuAction('import-card') },
         { type: 'separator' },
-        { label: '清空当前对话', click: () => sendMenuAction('clear-chat') },
+        { label: M.clearChat, click: () => sendMenuAction('clear-chat') },
       ],
     },
     {
-      label: '设置',
+      label: M.settingsGroup,
       submenu: [
-        { label: '设置…', accelerator: 'CmdOrCtrl+,', click: () => sendMenuAction('settings') },
-        { label: '对话设置 (LLM)', click: () => sendMenuAction('llm') },
-        { label: '语音合成 (TTS)', click: () => sendMenuAction('tts') },
-        { label: '语音识别 (STT)', click: () => sendMenuAction('stt') },
-        { label: 'Live2D 模型设置', click: () => sendMenuAction('model') },
-        { label: '外观调色', click: () => sendMenuAction('theme') },
+        { label: M.settings, accelerator: 'CmdOrCtrl+,', click: () => sendMenuAction('settings') },
+        { label: M.llm, click: () => sendMenuAction('llm') },
+        { label: M.tts, click: () => sendMenuAction('tts') },
+        { label: M.stt, click: () => sendMenuAction('stt') },
+        { label: M.model, click: () => sendMenuAction('model') },
+        { label: M.theme, click: () => sendMenuAction('theme') },
       ],
     },
     {
-      label: '展台',
+      label: M.stageGroup,
       submenu: [
-        { label: '显示 / 隐藏无边框展台', accelerator: 'CmdOrCtrl+Shift+S', click: () => toggleOverlayWindow() },
-        { label: '🎮 Minecraft 伙伴…', click: () => sendMenuAction('mc') },
-        { label: '把展台复位到右下角', click: () => {
+        { label: M.toggleStage, accelerator: 'CmdOrCtrl+Shift+S', click: () => toggleOverlayWindow() },
+        { label: M.resetStage, click: () => {
           if (!overlayWin || overlayWin.isDestroyed()) { createOverlayWindow(); }
           setTimeout(() => {
             if (!overlayWin || overlayWin.isDestroyed()) return;
@@ -627,24 +645,31 @@ function buildAppMenu() {
       ],
     },
     {
-      label: '视图',
+      label: M.funGroup,
       submenu: [
-        { role: 'reload', label: '重新加载' },
-        { role: 'forceReload', label: '强制重新加载' },
-        { role: 'toggleDevTools', label: '开发者工具' },
-        { type: 'separator' },
-        { role: 'resetZoom', label: '实际大小' },
-        { role: 'zoomIn', label: '放大' },
-        { role: 'zoomOut', label: '缩小' },
-        { type: 'separator' },
-        { role: 'togglefullscreen', label: '全屏' },
+        { label: M.mc, click: () => sendMenuAction('mc') },
+        { label: M.chess, click: () => sendMenuAction('chess') },
       ],
     },
     {
-      label: '帮助',
+      label: M.view,
       submenu: [
-        { label: '项目主页 (GitHub)', click: () => shell.openExternal('https://github.com/haixu8396-png/aileen-desktop') },
-        { label: '快捷键说明', click: () => sendMenuAction('about') },
+        { role: 'reload', label: M.reload },
+        { role: 'forceReload', label: M.forceReload },
+        { role: 'toggleDevTools', label: M.devtools },
+        { type: 'separator' },
+        { role: 'resetZoom', label: M.resetZoom },
+        { role: 'zoomIn', label: M.zoomIn },
+        { role: 'zoomOut', label: M.zoomOut },
+        { type: 'separator' },
+        { role: 'togglefullscreen', label: M.fullscreen },
+      ],
+    },
+    {
+      label: M.help,
+      submenu: [
+        { label: M.homepage, click: () => shell.openExternal('https://github.com/haixu8396-png/aileen-desktop') },
+        { label: M.shortcuts, click: () => sendMenuAction('about') },
       ],
     },
   ];
@@ -781,6 +806,50 @@ function createWindow() {
                 document.getElementById('mc-close').click();
               }
             } catch (err) { window.__AILEEN_ERRORS.push('mcTest: ' + String((err && err.message) || err)); }
+            // 行为断言④：i18n 与象棋 —— 默认英文、语言切换器在、没有漏翻的 key、棋盘 64 格
+            // 行为断言⑥：加载完 #typing（正在思考…）必须是隐藏的
+            const typingHidden = document.getElementById('typing').classList.contains('hidden');
+            let langOk = false;
+            let i18nMissing = 0;
+            let langSwitchCount = 0;
+            let chessModalOk = false;
+            let chessSquares = 0;
+            try {
+              const lsBox = document.getElementById('lang-switch');
+              langSwitchCount = lsBox ? lsBox.children.length : 0;
+              document.querySelectorAll('[data-i18n]').forEach((el) => {
+                if (el.textContent.trim() === el.getAttribute('data-i18n')) i18nMissing += 1;
+              });
+              const chessEntry = document.querySelector('#modal-menu .menu-list button[data-action="chess"]');
+              if (chessEntry) {
+                chessEntry.click();
+                chessSquares = document.querySelectorAll('#chess-board .csq').length;
+                chessModalOk = !document.getElementById('modal-chess').classList.contains('hidden') && chessSquares === 64;
+                document.getElementById('chess-close').click();
+              }
+              langOk = document.documentElement.lang === 'en';
+            } catch (err) { window.__AILEEN_ERRORS.push('i18nTest: ' + String((err && err.message) || err)); }
+            // 行为断言⑤：语言切换真的生效（日文 / 中文 / 英文各点一遍，并检查有无回退到 key）
+            let langSwitchWorks = false;
+            let jaText = '';
+            let zhText = '';
+            let jaMissingKeys = -1;
+            try {
+              const pickBtn = (i) => document.querySelectorAll('#lang-switch button')[i];
+              const probe = () => document.querySelector('[data-i18n="menu.mc"]');
+              if (pickBtn(0) && pickBtn(1) && pickBtn(2)) {
+                pickBtn(1).click();
+                await new Promise((r) => setTimeout(r, 500));
+                jaText = probe() ? probe().textContent : '';
+                jaMissingKeys = Array.from(document.querySelectorAll('[data-i18n]')).filter((el) => el.textContent.trim() === el.getAttribute('data-i18n')).length;
+                pickBtn(2).click();
+                await new Promise((r) => setTimeout(r, 500));
+                zhText = probe() ? probe().textContent : '';
+                pickBtn(0).click();
+                await new Promise((r) => setTimeout(r, 500));
+                langSwitchWorks = !!jaText && !!zhText && jaText !== zhText && jaMissingKeys === 0;
+              }
+            } catch (err) { window.__AILEEN_ERRORS.push('langTest: ' + String((err && err.message) || err)); }
             ['t-cancel', 'm-cancel', 'menu-cancel'].forEach((id) => {
               const el = document.getElementById(id);
               if (el) el.click();
@@ -872,6 +941,16 @@ function createWindow() {
               themeCancelRestores,
               mcStatusOk,
               mcModalOk,
+              typingHidden,
+              langOk,
+              i18nMissing,
+              langSwitchCount,
+              chessModalOk,
+              chessSquares,
+              langSwitchWorks,
+              jaText,
+              zhText,
+              jaMissingKeys,
               themeVar,
               llmBaseHidden,
               charMenuOk,
@@ -931,6 +1010,18 @@ function createWindow() {
                 rep.canvasCount = await w.webContents.executeJavaScript('document.querySelectorAll("#ov-stage canvas").length');
                 rep.bodyPointerEvents = await w.webContents.executeJavaScript('getComputedStyle(document.body).pointerEvents');
               } catch (err) { rep.errors.push(String((err && err.message) || err)); }
+              // resizable:false 之后 −/＋ 仍必须能改尺寸（走 setBounds）
+              try {
+                const b0 = w.getBounds();
+                w.setBounds({ x: b0.x, y: b0.y, width: b0.width + 40, height: b0.height + 64 });
+                const b1 = w.getBounds();
+                rep.programmaticResizeOk = (b1.width === b0.width + 40 && b1.height === b0.height + 64);
+                rep.userResizable = w.isResizable();
+                // 关键不变量：交互热区必须离窗口边缘足够远，否则会压到系统的缩放手柄上
+                rep.hitMarginRight = overlayHit ? Math.round(b1.width - (overlayHit.x + overlayHit.w)) : -1;
+                rep.hitMarginBottom = overlayHit ? Math.round(b1.height - (overlayHit.y + overlayHit.h)) : -1;
+                w.setBounds(b0);
+              } catch (err) { rep.errors.push('resize: ' + String((err && err.message) || err)); }
               const before = w.getBounds();
               overlayDrag = { dx: 10, dy: 10 };
               w.setPosition(before.x - 60, before.y - 40);
@@ -1133,7 +1224,12 @@ function registerIpc() {
   });
 
   ipcMain.handle('settings:get', () => readSettings());
-  ipcMain.handle('settings:set', (_e, settings) => writeSettings(settings));
+  ipcMain.handle('settings:set', (_e, settings) => {
+    const next = writeSettings(settings);
+    // 语言变了要重建原生菜单
+    if (next && next.language !== appMenuLang) { appMenuLang = next.language; buildAppMenu(appMenuLang); }
+    return next;
+  });
 
   registerOverlayIpc();
   registerMcIpc();
@@ -1206,7 +1302,8 @@ app.whenReady().then(async () => {
   migrateLegacyData();
   await startModelServer();
   registerIpc();
-  buildAppMenu();
+  appMenuLang = readSettings().language || 'en';
+  buildAppMenu(appMenuLang);
 
   // 授予麦克风权限
   const { session } = require('electron');

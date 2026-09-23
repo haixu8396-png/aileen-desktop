@@ -4,6 +4,7 @@
 import { getSettings } from './settings.js';
 import { state, hooks, tts, stt } from './state.js';
 import { $, toast } from './dom.js';
+import { t } from './i18n.js';
 import { runAssistantReply } from './chat.js';
 
 export function setVoiceLoopUI() {
@@ -12,13 +13,13 @@ export function setVoiceLoopUI() {
   const typing = $('typing');
   if (state.voiceLoop) {
     typing.className = 'typing';
-    typing.textContent = '实时对话中：请说话…（再次点击按钮停止）';
+    typing.textContent = t('voice.talking');
   }
 }
 
 export function startVoiceLoop() {
   if (!state.current) {
-    toast('请先创建并选择一个角色卡', true);
+    toast(t('chat.needChar'), true);
     hooks.openCharModal(null, null);
     return;
   }
@@ -40,15 +41,15 @@ export async function voiceListen() {
     if (!state.voiceLoop) return;
     const t = String(text || '').trim();
     if (!t) { setTimeout(voiceListen, 300); return; }
-    $('typing').textContent = '实时对话中：思考中…';
+    $('typing').textContent = t('voice.thinking');
     runAssistantReply(t, true)
       .catch((err) => toast(String(err && err.message ? err.message : err), true))
       .then(() => {
         if (!state.voiceLoop) return;
-        $('typing').textContent = '实时对话中：回复中…';
+        $('typing').textContent = t('voice.replying');
         waitTtsIdle().then(() => {
           if (!state.voiceLoop) return;
-          $('typing').textContent = '实时对话中：请说话…';
+          $('typing').textContent = t('voice.talking');
           setTimeout(voiceListen, 250);
         });
       });

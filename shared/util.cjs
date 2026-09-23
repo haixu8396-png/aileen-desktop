@@ -62,6 +62,8 @@ const TTS_PROVIDERS = ['web', 'openai', 'fish', 'xiaomi'];
 const STT_PROVIDERS = ['openai', 'xiaomi', 'web'];
 const TTS_LANGS = ['zh', 'en', 'ja', 'es'];
 const STT_LANGS = ['auto', 'zh', 'en', 'ja', 'es'];
+const UI_LANGS = ['en', 'ja', 'zh'];
+const CHESS_SIDES = ['white', 'black'];
 const HEX_COLOR = /^#[0-9a-fA-F]{6}$/;
 
 const asStr = (v, max = 500) => (typeof v === 'string' ? v.slice(0, max) : '');
@@ -99,6 +101,7 @@ function normalizeSettings(raw, defaults) {
   const theme = pick('theme');
   const overlay = pick('overlay');
   const mc = pick('mc');
+  const chess = pick('chess');
 
   const extraModels = Array.isArray(r.extraModels)
     ? r.extraModels
@@ -108,6 +111,8 @@ function normalizeSettings(raw, defaults) {
     : [];
 
   return {
+    // 界面语言：默认英文，另有日文与简体中文
+    language: asOneOf(r.language, UI_LANGS, 'en'),
     llm: {
       provider: asOneOf(llm.provider, LLM_PROVIDERS, 'deepseek'),
       baseUrl: asUrl(llm.baseUrl),
@@ -162,6 +167,17 @@ function normalizeSettings(raw, defaults) {
       port: Math.round(asNum(mc.port, 1, 65535, 25565)),
       username: asStr(mc.username, 16) || 'AILEEN',
       autoReply: asBool(mc.autoReply, false),
+    },
+    // 国际象棋（js-chess-engine, MIT）
+    chess: {
+      level: Math.round(asNum(chess.level, 1, 5, 3)),
+      playerColor: asOneOf(chess.playerColor, CHESS_SIDES, 'white'),
+      banter: asBool(chess.banter, false),
+      fenStack: Array.isArray(chess.fenStack)
+        ? chess.fenStack
+            .filter((f) => typeof f === 'string' && f.length > 0 && f.length <= 120)
+            .slice(-200)
+        : [],
     },
   };
 }

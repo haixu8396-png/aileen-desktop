@@ -5,6 +5,7 @@ import { getSettings, saveSettings } from './settings.js';
 import { state, presetLlmBase } from './state.js';
 import { $, toast } from './dom.js';
 import { escapeHtml } from './markdown.js';
+import { t } from './i18n.js';
 
 // ---------------- 对话设置 ----------------
 export function openLlmModal() {
@@ -37,7 +38,7 @@ export function saveLlmModal() {
     maxTokens: parseInt($('s-llm-max').value, 10) || 1024,
   };
   saveSettings(next).then(() => {
-    toast('对话设置已保存');
+    toast(t('llm.saved'));
     closeSubModal('modal-llm');
   });
 }
@@ -79,7 +80,7 @@ export function saveTtsModal() {
     autoPlay: $('s-tts-auto').checked,
   };
   saveSettings(next).then(() => {
-    toast('TTS 设置已保存');
+    toast(t('tts.saved'));
     closeSubModal('modal-tts');
   });
 }
@@ -114,7 +115,7 @@ export function saveSttModal() {
     model: $('s-stt-model').value.trim(),
   };
   saveSettings(next).then(() => {
-    toast('STT 设置已保存');
+    toast(t('stt.saved'));
     closeSubModal('modal-stt');
   });
 }
@@ -153,17 +154,23 @@ export function closeSubModal(id) {
 }
 
 // ---------------- 设置菜单副标题 ----------------
+/** 副标题：元素不存在时静默跳过（菜单结构改动不该让整个菜单炸掉） */
+function sub(id, text) {
+  const el = $(id);
+  if (el) el.textContent = text;
+}
+
 export function refreshMenuSubtitles() {
   const s = getSettings();
   const llm = s.llm;
-  const prov = s.llm.provider === 'custom' ? '自定义' : (llm.provider || '自定义');
-  $('menu-sub-llm').textContent = prov + ' · ' + (llm.model || '未设置模型');
-  const ttsLabel = { web: '系统语音', openai: 'OpenAI 兼容', fish: 'Fish Audio', xiaomi: '小米 MiMo' }[s.tts.provider] || '';
-  $('menu-sub-tts').textContent = ttsLabel + ' · ' + String(s.tts.language || 'zh').toUpperCase();
-  const sttLabel = { openai: 'Whisper 兼容', xiaomi: '小米 ASR', web: '浏览器' }[s.stt.provider] || '';
-  $('menu-sub-stt').textContent = sttLabel + ' · ' + String(s.stt.language || 'zh').toUpperCase();
-  $('menu-sub-model').textContent = state.models.length ? state.models.length + ' 个模型' : '暂无模型';
-  $('menu-sub-theme').textContent = '主色 ' + ((s.theme && s.theme.primary) || '#ff7eb3');
+  const prov = s.llm.provider === 'custom' ? t('provider.custom') : t('provider.' + (llm.provider || 'custom'));
+  sub('menu-sub-llm', prov + ' · ' + (llm.model || '—'));
+  const ttsLabel = t('tts.provider.' + (s.tts.provider || 'web'));
+  sub('menu-sub-tts', ttsLabel + ' · ' + String(s.tts.language || 'zh').toUpperCase());
+  const sttLabel = t('stt.provider.' + (s.stt.provider || 'openai'));
+  sub('menu-sub-stt', sttLabel + ' · ' + String(s.stt.language || 'zh').toUpperCase());
+  sub('menu-sub-model', state.models.length ? t('menu.subModels', { n: state.models.length }) : t('menu.subNoModels'));
+  sub('menu-sub-theme', ((s.theme && s.theme.primary) || '#ff7eb3'));
 }
 
 /** 供其他模块写入菜单副标题（如无边框展台开关状态） */
@@ -186,7 +193,7 @@ function effectiveLlmBase() {
 export async function fetchLlmModels() {
   const baseUrl = effectiveLlmBase();
   const apiKey = $('s-llm-key').value.trim();
-  if (!baseUrl) { toast('请先填写接口地址', true); return; }
+  if (!baseUrl) { toast(t('llm.needBaseUrl'), true); return; }
   try {
     const headers = { 'Content-Type': 'application/json' };
     if (apiKey) headers.Authorization = 'Bearer ' + apiKey;
@@ -194,27 +201,27 @@ export async function fetchLlmModels() {
     if (!res.ok) throw new Error('HTTP ' + res.status);
     const j = await res.json();
     const ids = (j.data || []).map((m) => m.id || m).filter(Boolean);
-    if (!ids.length) throw new Error('接口未返回模型列表');
+    if (!ids.length) throw new Error('no models');
     fillDatalist('dl-llm-models', ids);
-    toast('获取到 ' + ids.length + ' 个模型，点击输入框即可下拉选择');
+    toast(t('llm.fetched', { n: ids.length }));
   } catch (err) {
-    toast('获取模型失败: ' + (err && err.message ? err.message : err), true);
+    toast(t('llm.fetchFailed', { msg: (err && err.message ? err.message : err) }), true);
   }
 }
 
 export async function testLlmConnection() {
   const baseUrl = effectiveLlmBase();
   const apiKey = $('s-llm-key').value.trim();
-  if (!baseUrl) { toast('缺少接口地址', true); return; }
-  toast('正在测试连接…');
+  if (!baseUrl) { toast(t('llm.missingBaseUrl'), true); return; }
+  toast(t('llm.testing'));
   try {
     const headers = { 'Content-Type': 'application/json' };
     if (apiKey) headers.Authorization = 'Bearer ' + apiKey;
     const res = await fetch(baseUrl.replace(/\/+$/, '') + '/models', { headers });
     if (!res.ok) throw new Error('HTTP ' + res.status);
-    toast('连接成功 ✅');
+    toast(t('llm.testOk'));
   } catch (err) {
-    toast('连接失败: ' + (err && err.message ? err.message : err), true);
+    toast(t('llm.testFailed', { msg: (err && err.message ? err.message : err) }), true);
   }
 }
 
@@ -223,12 +230,12 @@ export async function fetchTtsVoices() {
   const apiKey = $('s-tts-key').value.trim();
   if (provider === 'web') {
     const voices = window.speechSynthesis.getVoices();
-    if (voices.length) { fillDatalist('dl-tts-voices', voices.map((v) => v.name)); toast('已加载系统语音'); return; }
-    toast('暂无系统语音', true);
+    if (voices.length) { fillDatalist('dl-tts-voices', voices.map((v) => v.name)); toast(t('tts.voicesLoaded')); return; }
+    toast(t('tts.noVoices'), true);
     return;
   }
   if (provider === 'fish') {
-    if (!apiKey) { toast('请先填写 Fish Audio API Key', true); return; }
+    if (!apiKey) { toast(t('tts.needFishKey'), true); return; }
     try {
       const res = await fetch('https://api.fish.audio/v1/voices', { headers: { Authorization: 'Bearer ' + apiKey } });
       if (!res.ok) throw new Error('HTTP ' + res.status);
@@ -236,32 +243,32 @@ export async function fetchTtsVoices() {
       const items = (j.data || j.voices || []).map((v) => (v._id || v.id || '') + ' · ' + (v.title || v.name || '')).filter(Boolean);
       if (!items.length) throw new Error('账号下没有可用音色');
       fillDatalist('dl-tts-voices', items);
-      toast('获取到 ' + items.length + ' 个音色');
+      toast(t('tts.gotVoices', { n: items.length }));
     } catch (err) {
-      toast('获取音色失败: ' + (err && err.message ? err.message : err), true);
+      toast(t('tts.voiceFailed', { msg: (err && err.message ? err.message : err) }), true);
     }
     return;
   }
   if (provider === 'xiaomi') {
     fillDatalist('dl-tts-voices', ['mimo_default', '冰糖', '茉莉', '苏打', '白桦', 'Mia', 'Chloe', 'Milo', 'Dean']);
-    toast('小米内置音色已填入');
+    toast(t('tts.builtinXiaomi'));
     return;
   }
   if (provider === 'openai') {
     fillDatalist('dl-tts-voices', ['alloy', 'echo', 'fable', 'onyx', 'nova', 'shimmer']);
-    toast('OpenAI 内置音色已填入');
+    toast(t('tts.builtinOpenai'));
     return;
   }
 }
 
 export async function fetchSttModels() {
   const provider = $('s-stt-provider').value;
-  if (provider === 'xiaomi') { fillDatalist('dl-stt-models', ['mimo-v2.5-asr']); toast('小米 ASR 模型已填入'); return; }
-  if (provider === 'web') { toast('浏览器识别无需模型'); return; }
+  if (provider === 'xiaomi') { fillDatalist('dl-stt-models', ['mimo-v2.5-asr']); toast(t('stt.builtinXiaomi')); return; }
+  if (provider === 'web') { toast(t('stt.webNoModel')); return; }
   const custom = $('s-stt-custom-url').checked;
   const baseUrl = custom ? $('s-stt-base').value.trim() : 'https://api.openai.com/v1';
   const apiKey = $('s-stt-key').value.trim();
-  if (!baseUrl) { toast('请先填写接口地址', true); return; }
+  if (!baseUrl) { toast(t('llm.needBaseUrl'), true); return; }
   try {
     const headers = { 'Content-Type': 'application/json' };
     if (apiKey) headers.Authorization = 'Bearer ' + apiKey;
@@ -269,22 +276,22 @@ export async function fetchSttModels() {
     if (!res.ok) throw new Error('HTTP ' + res.status);
     const j = await res.json();
     const ids = (j.data || []).map((m) => m.id || m).filter(Boolean);
-    if (!ids.length) throw new Error('接口未返回模型列表');
+    if (!ids.length) throw new Error('no models');
     fillDatalist('dl-stt-models', ids);
-    toast('获取到 ' + ids.length + ' 个模型');
+    toast(t('stt.gotModels', { n: ids.length }));
   } catch (err) {
-    toast('获取模型失败: ' + (err && err.message ? err.message : err), true);
+    toast(t('llm.fetchFailed', { msg: (err && err.message ? err.message : err) }), true);
   }
 }
 
 // ---------------- 外观调色 ----------------
 export const THEME_PRESETS = [
-  { name: 'AILEEN 粉', primary: '#ff7eb3', secondary: '#38b0de' },
-  { name: '晴空蓝', primary: '#38b0de', secondary: '#7c9bff' },
-  { name: '薄荷绿', primary: '#4ecdc4', secondary: '#a8e6a3' },
-  { name: '星夜紫', primary: '#a78bfa', secondary: '#f472b6' },
-  { name: '熔岩橙', primary: '#ff8c5a', secondary: '#ffd166' },
-  { name: '蜜桃甜', primary: '#ff6f91', secondary: '#ffc75f' },
+  { key: 'theme.preset.aileen', primary: '#ff7eb3', secondary: '#38b0de' },
+  { key: 'theme.preset.sky', primary: '#38b0de', secondary: '#7c9bff' },
+  { key: 'theme.preset.mint', primary: '#4ecdc4', secondary: '#a8e6a3' },
+  { key: 'theme.preset.night', primary: '#a78bfa', secondary: '#f472b6' },
+  { key: 'theme.preset.lava', primary: '#ff8c5a', secondary: '#ffd166' },
+  { key: 'theme.preset.peach', primary: '#ff6f91', secondary: '#ffc75f' },
 ];
 
 export function applyTheme(t) {
@@ -304,8 +311,9 @@ export function renderThemePresets() {
     sw.dataset.primary = pre.primary;
     sw.dataset.secondary = pre.secondary;
     sw.style.background = 'linear-gradient(135deg, ' + pre.primary + ', ' + pre.secondary + ')';
-    sw.textContent = pre.name;
-    sw.title = pre.name + '（点击即时预览，保存后生效）';
+    const pname = t(pre.key);
+    sw.textContent = pname;
+    sw.title = t('theme.previewTip', { name: pname });
     sw.onclick = () => {
       $('t-primary').value = pre.primary;
       $('t-secondary').value = pre.secondary;
@@ -360,7 +368,7 @@ export function saveThemeModal() {
   saveSettings(next).then(() => {
     themeSnapshot = null; // 已保存，取消时不再还原
     applyTheme(getSettings().theme);
-    toast('外观已保存');
+    toast(t('theme.saved'));
     closeSubModal('modal-theme');
   });
 }
@@ -378,14 +386,14 @@ export function setAttachUI() {
 }
 
 export async function openScreenPicker() {
-  toast('正在捕获屏幕…');
+  toast(t('screen.capturing'));
   const res = await window.api.captureScreen();
   if (!res) return;
-  if (res.error) { toast('屏幕捕获失败: ' + res.error, true); return; }
+  if (res.error) { toast(t('screen.captureFailed', { msg: res.error }), true); return; }
   const grid = $('screen-grid');
   grid.innerHTML = '';
   if (!res.length) {
-    grid.innerHTML = '<div class="empty">没有可捕获的画面</div>';
+    grid.innerHTML = '<div class="empty">' + t('screen.empty') + '</div>';
     $('modal-screen').classList.remove('hidden');
     return;
   }
@@ -402,7 +410,7 @@ export async function openScreenPicker() {
       state.pendingImage = { dataURL: src.thumbnail, name: src.name };
       setAttachUI();
       $('modal-screen').classList.add('hidden');
-      toast('已附加截图，输入问题后发送（需多模态模型）');
+      toast(t('chat.attached'));
     };
     grid.appendChild(item);
   }

@@ -120,3 +120,37 @@ describe('normalizeSettings · Minecraft 伙伴', () => {
     expect(normalizeSettings({ mc: { autoReply: true } }).mc.autoReply).toBe(true);
   });
 });
+
+describe('normalizeSettings · 界面语言', () => {
+  it('默认英文，非法值回退英文', () => {
+    expect(normalizeSettings({}).language).toBe('en');
+    expect(normalizeSettings({ language: 'fr' }).language).toBe('en');
+    expect(normalizeSettings({ language: 42 }).language).toBe('en');
+  });
+  it('接受 ja / zh', () => {
+    expect(normalizeSettings({ language: 'ja' }).language).toBe('ja');
+    expect(normalizeSettings({ language: 'zh' }).language).toBe('zh');
+  });
+});
+
+describe('normalizeSettings · 国际象棋', () => {
+  it('缺省时给安全默认值', () => {
+    const c = normalizeSettings({}).chess;
+    expect(c.level).toBe(3);
+    expect(c.playerColor).toBe('white');
+    expect(c.banter).toBe(false);
+    expect(c.fenStack).toEqual([]);
+  });
+  it('等级越界收敛、执子颜色非法回退', () => {
+    expect(normalizeSettings({ chess: { level: 99 } }).chess.level).toBe(5);
+    expect(normalizeSettings({ chess: { level: 0 } }).chess.level).toBe(1);
+    expect(normalizeSettings({ chess: { playerColor: 'green' } }).chess.playerColor).toBe('white');
+    expect(normalizeSettings({ chess: { playerColor: 'black' } }).chess.playerColor).toBe('black');
+  });
+  it('fenStack 过滤非法项并限制长度', () => {
+    const c = normalizeSettings({ chess: { fenStack: ['abc', 123, null, 'd'.repeat(200), 'ok'] } }).chess;
+    expect(c.fenStack).toEqual(['abc', 'ok']);
+    const many = Array.from({ length: 400 }, () => 'x');
+    expect(normalizeSettings({ chess: { fenStack: many } }).chess.fenStack.length).toBe(200);
+  });
+});

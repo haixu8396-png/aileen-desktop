@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="zh-CN">
+<html lang="en">
 <head>
 <meta charset="UTF-8" />
 <meta http-equiv="Content-Security-Policy" content="default-src 'self' 'unsafe-inline' 'unsafe-eval' data: blob: http://127.0.0.1:*; script-src 'self' 'unsafe-inline' 'unsafe-eval' blob:; img-src 'self' data: blob: http://127.0.0.1:*; connect-src 'self' http://127.0.0.1:* https:; media-src 'self' blob: http://127.0.0.1:*; style-src 'self' 'unsafe-inline'; font-src 'self' data:" />
@@ -9,23 +9,23 @@
 </head>
 <body>
 <div id="app">
-  <!-- 左侧：角色列表 -->
+  <!-- Left: character list -->
   <aside id="sidebar">
     <div class="logo"><span class="logo-heart">✦</span> AILEEN</div>
     <div class="sidebar-actions">
-      <button id="btn-new-card" class="primary block">＋ 新建角色</button>
-      <button id="btn-import-card" class="ghost block">导入角色卡</button>
+      <button id="btn-new-card" class="primary block" data-i18n="nav.newChar">＋ New Character</button>
+      <button id="btn-import-card" class="ghost block" data-i18n="nav.importCard">Import Card</button>
     </div>
-    <div class="list-label">角色卡</div>
+    <div class="list-label" data-i18n="nav.characters">Characters</div>
     <div id="char-list" class="char-list"></div>
-    <div class="list-label">配置</div>
+    <div class="list-label" data-i18n="nav.config">Config</div>
     <div class="sidebar-foot-col">
-      <button id="btn-settings-menu" class="ghost block">⚙ 设置</button>
-      <button id="btn-open-data" class="ghost block">📂 数据目录</button>
+      <button id="btn-settings-menu" class="ghost block" data-i18n="nav.settings">⚙ Settings</button>
+      <button id="btn-open-data" class="ghost block" data-i18n="nav.dataDir">📂 Data Folder</button>
     </div>
   </aside>
 
-  <!-- 中间：聊天 -->
+  <!-- Center: chat -->
   <main id="chat-panel">
     <header id="chat-header">
       <img id="chat-avatar" class="chat-avatar" alt="" />
@@ -34,331 +34,380 @@
         <span id="chat-desc"></span>
       </div>
       <div class="chat-actions">
-        <button id="btn-speak" class="icon-btn" title="朗读最后一条回复">🔊</button>
-        <button id="btn-stop" class="icon-btn" title="停止生成/朗读" disabled>⏹</button>
-        <button id="btn-clear" class="icon-btn" title="清空对话">🗑</button>
-        <button id="btn-char-actions" class="icon-btn" title="角色卡菜单">⋯</button>
+        <button id="btn-speak" class="icon-btn" data-i18n-title="chat.speakTitle" title="Read the last reply aloud">🔊</button>
+        <button id="btn-stop" class="icon-btn" data-i18n-title="chat.stopTitle" title="Stop" disabled>⏹</button>
+        <button id="btn-clear" class="icon-btn" data-i18n-title="chat.clearTitle" title="Clear conversation">🗑</button>
+        <button id="btn-char-actions" class="icon-btn" data-i18n-title="chat.menuTitle" title="Character menu">⋯</button>
       </div>
     </header>
     <div id="messages" class="messages"></div>
-    <button id="btn-scroll-down" class="scroll-down hidden" title="滚动到底部">↓</button>
-    <div id="typing" class="typing hidden">正在思考…</div>
+    <button id="btn-scroll-down" class="scroll-down hidden" data-i18n-title="chat.scrollDown" title="Scroll to bottom">↓</button>
+    <div id="typing" class="typing hidden" data-i18n="chat.thinking">Thinking…</div>
     <div id="attach-bar" class="attach-bar hidden">
       <div class="attach-item">
-        <img id="attach-preview" alt="截图预览" />
+        <img id="attach-preview" alt="" />
         <span id="attach-name"></span>
-        <button id="attach-remove" title="移除">✕</button>
+        <button id="attach-remove" data-i18n-title="chat.attachRemove" title="Remove">✕</button>
       </div>
     </div>
     <footer id="input-bar">
-      <button id="btn-screenshot" class="icon-btn" title="屏幕截图，发给角色看（需多模态模型）">📷</button>
-      <button id="btn-realtime" class="realtime-btn" title="实时语音对话：说话→回复→继续听">🎙 实时对话</button>
-      <button id="btn-mic" class="icon-btn mic" title="语音输入（STT）">🎤</button>
-      <textarea id="input" rows="1" placeholder="说点什么…（Enter 发送 / Shift+Enter 换行）"></textarea>
-      <button id="btn-send" class="primary">发送</button>
+      <button id="btn-screenshot" class="icon-btn" data-i18n-title="chat.screenshotTitle" title="Screenshot">📷</button>
+      <button id="btn-realtime" class="realtime-btn" data-i18n-title="chat.realtimeTitle" data-i18n="chat.realtime">🎙 Live voice</button>
+      <button id="btn-mic" class="icon-btn mic" data-i18n-title="chat.micTitle" title="Voice input">🎤</button>
+      <textarea id="input" rows="1" data-i18n-ph="chat.inputPlaceholder" placeholder="Say something…"></textarea>
+      <button id="btn-send" class="primary" data-i18n="chat.send">Send</button>
     </footer>
   </main>
 
-  <!-- 右侧：Live2D 舞台 -->
+  <!-- Right: Live2D stage -->
   <aside id="stage-panel">
     <div class="stage-head">
-      <span>Live2D 舞台</span>
-      <span class="stage-hint" id="stage-model-name">未加载模型</span>
+      <span data-i18n="stage.title">Live2D Stage</span>
+      <span class="stage-hint" id="stage-model-name">No model loaded</span>
     </div>
     <div id="stage-container" class="stage-container"></div>
     <div class="stage-controls">
-      <div class="ctl-row"><label>动作</label><div id="motion-chips" class="chips"></div></div>
-      <div class="ctl-row"><label>表情</label><div id="expr-chips" class="chips"></div></div>
+      <div class="ctl-row"><label data-i18n="stage.motion">Motion</label><div id="motion-chips" class="chips"></div></div>
+      <div class="ctl-row"><label data-i18n="stage.expression">Expression</label><div id="expr-chips" class="chips"></div></div>
+      <div class="ctl-row">
+        <div class="chips">
+          <button id="btn-float-stage" class="chip" data-i18n-title="menu.overlaySub" data-i18n="menu.overlay">🖼 Borderless Stage</button>
+        </div>
+      </div>
     </div>
   </aside>
 </div>
-
-<!-- 角色编辑弹窗 -->
+<!-- Character editor -->
 <div id="modal-char" class="modal hidden">
   <div class="modal-box wide">
-    <h3 id="char-modal-title">新建角色卡</h3>
+    <h3 id="char-modal-title" data-i18n="char.new">New Character</h3>
     <div class="form-grid">
-      <label>名称 *<input id="f-name" placeholder="角色的名字" /></label>
-      <label>头像
+      <label><span data-i18n="char.name">Name *</span><input id="f-name" data-i18n-ph="char.namePlaceholder" placeholder="Character name" /></label>
+      <label><span data-i18n="char.avatar">Avatar</span>
         <div class="avatar-row">
           <img id="f-avatar-preview" class="avatar-preview" alt="" />
-          <button id="f-avatar-btn" class="ghost">选择图片</button>
+          <button id="f-avatar-btn" class="ghost" data-i18n="char.chooseImage">Choose image</button>
         </div>
       </label>
-      <label>一句话简介<input id="f-desc" placeholder="如：元气满满的高中 AI 助手" /></label>
-      <label>Live2D 模型<select id="f-model"></select></label>
-      <label>语音（系统 TTS）<select id="f-voice"></select></label>
-      <label class="full">性格 / 详细人设<textarea id="f-personality" rows="4" placeholder="角色的性格、喜好、说话方式…"></textarea></label>
-      <label class="full">场景<textarea id="f-scenario" rows="2" placeholder="故事发生的场景…"></textarea></label>
-      <label class="full">开场白（首次对话时自动出现）<textarea id="f-first" rows="3"></textarea></label>
-      <label class="full">示例对话<textarea id="f-example" rows="3" placeholder="角色：…&#10;用户：…（示例语气）"></textarea></label>
-      <label class="full">系统提示词（可选，留空则按人设自动生成）<textarea id="f-system" rows="3"></textarea></label>
+      <label><span data-i18n="char.desc">One-line intro</span><input id="f-desc" data-i18n-ph="char.descPlaceholder" placeholder="e.g. A cheerful AI assistant" /></label>
+      <label><span data-i18n="char.model">Live2D model</span><select id="f-model"></select></label>
+      <label><span data-i18n="char.voice">Voice (system TTS)</span><select id="f-voice"></select></label>
+      <label class="full"><span data-i18n="char.personality">Personality / detailed profile</span><textarea id="f-personality" rows="4" data-i18n-ph="char.personalityPlaceholder"></textarea></label>
+      <label class="full"><span data-i18n="char.scenario">Scenario</span><textarea id="f-scenario" rows="2" data-i18n-ph="char.scenarioPlaceholder"></textarea></label>
+      <label class="full"><span data-i18n="char.firstMes">Greeting</span><textarea id="f-first" rows="3"></textarea></label>
+      <label class="full"><span data-i18n="char.example">Example dialogue</span><textarea id="f-example" rows="3" data-i18n-ph="char.examplePlaceholder"></textarea></label>
+      <label class="full"><span data-i18n="char.systemPrompt">System prompt</span><textarea id="f-system" rows="3"></textarea></label>
     </div>
     <div class="modal-actions">
-      <button id="f-export" class="ghost">导出</button>
-      <button id="f-delete" class="danger hidden">删除</button>
+      <button id="f-export" class="ghost" data-i18n="char.export">Export</button>
+      <button id="f-delete" class="danger hidden" data-i18n="char.delete">Delete</button>
       <span class="spacer"></span>
-      <button id="f-cancel">取消</button>
-      <button id="f-save" class="primary">保存</button>
+      <button id="f-cancel" data-i18n="char.cancel">Cancel</button>
+      <button id="f-save" class="primary" data-i18n="char.save">Save</button>
     </div>
   </div>
 </div>
 
-<!-- 对话设置（独立弹窗） -->
+<!-- LLM settings -->
 <div id="modal-llm" class="modal hidden">
   <div class="modal-box wide">
-    <h3>💬 对话设置 (LLM)</h3>
+    <h3 data-i18n="llm.title">💬 Chat Settings (LLM)</h3>
     <div class="form-col">
-      <label>供应商<select id="s-llm-provider">
-        <option value="deepseek">DeepSeek（深度求索）</option>
-        <option value="openai">OpenAI</option>
-        <option value="moonshot">Moonshot Kimi（月之暗面）</option>
-        <option value="siliconflow">SiliconFlow 硅基流动</option>
-        <option value="groq">Groq</option>
-        <option value="zhipu">智谱 GLM</option>
-        <option value="qwen">阿里云百炼 Qwen</option>
-        <option value="xiaomi">小米 MiMo</option>
-        <option value="openrouter">OpenRouter</option>
-        <option value="ollama">Ollama（本地）</option>
-        <option value="custom">自定义</option>
+      <label><span data-i18n="llm.provider">Provider</span><select id="s-llm-provider">
+        <option value="deepseek" data-i18n="provider.deepseek">DeepSeek</option>
+        <option value="openai" data-i18n="provider.openai">OpenAI</option>
+        <option value="moonshot" data-i18n="provider.moonshot">Moonshot Kimi</option>
+        <option value="siliconflow" data-i18n="provider.siliconflow">SiliconFlow</option>
+        <option value="groq" data-i18n="provider.groq">Groq</option>
+        <option value="zhipu" data-i18n="provider.zhipu">Zhipu GLM</option>
+        <option value="qwen" data-i18n="provider.qwen">Alibaba Bailian Qwen</option>
+        <option value="xiaomi" data-i18n="provider.xiaomi">Xiaomi MiMo</option>
+        <option value="openrouter" data-i18n="provider.openrouter">OpenRouter</option>
+        <option value="ollama" data-i18n="provider.ollama">Ollama (local)</option>
+        <option value="custom" data-i18n="provider.custom">Custom</option>
       </select></label>
-      <label class="check"><input id="s-llm-custom-url" type="checkbox" /> 自定义接口地址（不勾就用所选供应商的默认地址）</label>
-      <label id="wrap-llm-base" class="hidden">接口地址 Base URL<input id="s-llm-base" placeholder="https://api.deepseek.com" /></label>
-      <label>API Key<input id="s-llm-key" type="password" placeholder="sk-…" /></label>
-      <label>模型<input id="s-llm-model" list="dl-llm-models" placeholder="deepseek-chat（可点击获取模型）" /><datalist id="dl-llm-models"></datalist>
+      <label class="check"><input id="s-llm-custom-url" type="checkbox" /> <span data-i18n="llm.customUrl">Custom endpoint</span></label>
+      <label id="wrap-llm-base" class="hidden"><span data-i18n="llm.baseUrl">Base URL</span><input id="s-llm-base" placeholder="https://api.deepseek.com" /></label>
+      <label><span data-i18n="llm.apiKey">API Key</span><input id="s-llm-key" type="password" placeholder="sk-…" /></label>
+      <label><span data-i18n="llm.model">Model</span><input id="s-llm-model" list="dl-llm-models" data-i18n-ph="llm.modelPlaceholder" /><datalist id="dl-llm-models"></datalist>
         <div class="row-btns">
-          <button id="btn-llm-fetch" class="ghost small-btn">⚡ 获取模型列表</button>
-          <button id="btn-llm-test" class="ghost small-btn">🔌 测试连接</button>
+          <button id="btn-llm-fetch" class="ghost small-btn" data-i18n="llm.fetch">⚡ Fetch models</button>
+          <button id="btn-llm-test" class="ghost small-btn" data-i18n="llm.test">🔌 Test connection</button>
         </div></label>
-      <label>温度<input id="s-llm-temp" type="number" min="0" max="2" step="0.1" /></label>
-      <label>最大输出 Tokens<input id="s-llm-max" type="number" min="1" max="8192" /></label>
-      <p class="hint">选择供应商自动填充地址与模型。「获取模型列表」会请求该接口的 GET /models 并填入下拉建议。<br>📷 屏幕视觉需要多模态模型：阿里百炼 qwen-vl-plus / OpenAI gpt-4o / 智谱 glm-4v / 小米 MiMo-VL 等。</p>
+      <label><span data-i18n="llm.temperature">Temperature</span><input id="s-llm-temp" type="number" min="0" max="2" step="0.1" /></label>
+      <label><span data-i18n="llm.maxTokens">Max output tokens</span><input id="s-llm-max" type="number" min="1" max="8192" /></label>
+      <p class="hint" data-i18n-html="llm.hint"></p>
     </div>
     <div class="modal-actions">
-      <button id="s-llm-cancel">取消</button>
-      <button id="s-llm-save" class="primary">保存</button>
+      <button id="s-llm-cancel" data-i18n="char.cancel">Cancel</button>
+      <button id="s-llm-save" class="primary" data-i18n="llm.save">Save</button>
     </div>
   </div>
 </div>
 
-<!-- TTS 设置（独立弹窗） -->
+<!-- TTS settings -->
 <div id="modal-tts" class="modal hidden">
   <div class="modal-box wide">
-    <h3>🔊 语音合成设置 (TTS)</h3>
+    <h3 data-i18n="tts.title">🔊 Text-to-Speech (TTS)</h3>
     <div class="form-col">
-      <label>引擎<select id="s-tts-provider">
-        <option value="web">系统语音（离线 · 免费）</option>
-        <option value="openai">OpenAI 兼容 TTS（/audio/speech，可配 SiliconFlow 等）</option>
-        <option value="fish">Fish Audio（fish.audio，音色克隆）</option>
-        <option value="xiaomi">小米 MiMo TTS</option>
+      <label><span data-i18n="tts.engine">Engine</span><select id="s-tts-provider">
+        <option value="web" data-i18n="tts.provider.web">System voice</option>
+        <option value="openai" data-i18n="tts.provider.openai">OpenAI-compatible TTS</option>
+        <option value="fish" data-i18n="tts.provider.fish">Fish Audio</option>
+        <option value="xiaomi" data-i18n="tts.provider.xiaomi">Xiaomi MiMo TTS</option>
       </select></label>
-      <label>语言<select id="s-tts-language">
-        <option value="zh">中文</option>
-        <option value="en">English 英语</option>
-        <option value="ja">日本語 日语</option>
-        <option value="es">Español 西班牙语</option>
+      <label><span data-i18n="tts.language">Language</span><select id="s-tts-language">
+        <option value="zh" data-i18n="lang.zh">Chinese</option>
+        <option value="en" data-i18n="lang.en">English</option>
+        <option value="ja" data-i18n="lang.ja">Japanese</option>
+        <option value="es" data-i18n="lang.es">Spanish</option>
       </select></label>
-      <label class="check hidden" id="wrap-tts-custom"><input id="s-tts-custom-url" type="checkbox" /> 自定义接口地址（不勾就用默认地址）</label>
-      <label id="wrap-tts-base" class="hidden">Base URL<input id="s-tts-base" placeholder="https://api.openai.com/v1" /></label>
-      <label>API Key<input id="s-tts-key" type="password" placeholder="sk-… / fish.audio 的 key" /></label>
-      <label>模型<input id="s-tts-model" list="dl-tts-models" placeholder="tts-1 / fishaudio/fish-speech-1.5" /><datalist id="dl-tts-models"></datalist></label>
-      <label>语音<input id="s-tts-voice" list="dl-tts-voices" placeholder="OpenAI: alloy · Fish: reference_id · 小米: 冰糖/茉莉…" /><datalist id="dl-tts-voices"></datalist>
-        <button id="btn-tts-fetch" class="ghost small-btn">🎵 获取可用音色</button></label>
-      <label>语速 <span id="s-tts-rate-val" class="hint">1.0×</span>
+      <label class="check hidden" id="wrap-tts-custom"><input id="s-tts-custom-url" type="checkbox" /> <span data-i18n="llm.customUrl">Custom endpoint</span></label>
+      <label id="wrap-tts-base" class="hidden"><span data-i18n="tts.baseUrl">Base URL</span><input id="s-tts-base" placeholder="https://api.openai.com/v1" /></label>
+      <label><span data-i18n="llm.apiKey">API Key</span><input id="s-tts-key" type="password" placeholder="sk-…" /></label>
+      <label><span data-i18n="llm.model">Model</span><input id="s-tts-model" list="dl-tts-models" placeholder="tts-1" /><datalist id="dl-tts-models"></datalist></label>
+      <label><span data-i18n="tts.voice">Voice</span><input id="s-tts-voice" list="dl-tts-voices" data-i18n-ph="tts.voicePlaceholder" /><datalist id="dl-tts-voices"></datalist>
+        <button id="btn-tts-fetch" class="ghost small-btn" data-i18n="tts.fetchVoices">🎵 Fetch voices</button></label>
+      <label><span data-i18n="tts.rate">Speed</span> <span id="s-tts-rate-val" class="hint">1.0×</span>
         <input id="s-tts-rate" type="range" min="0.5" max="2" step="0.1" value="1" /></label>
-      <label class="check"><input id="s-tts-auto" type="checkbox" /> 自动朗读助手的回复</label>
-      <p class="hint">Fish Audio：语音填声音 ID（reference_id），「获取可用音色」会拉取你账号下的音色。小米内置音色：冰糖 / 茉莉 / 苏打 / 白桦 / Mia / Chloe / Milo / Dean。系统语音按所选语言自动挑选。</p>
+      <label class="check"><input id="s-tts-auto" type="checkbox" /> <span data-i18n="tts.auto">Auto-read replies</span></label>
+      <p class="hint" data-i18n="tts.hint"></p>
     </div>
     <div class="modal-actions">
-      <button id="s-tts-cancel">取消</button>
-      <button id="s-tts-save" class="primary">保存</button>
+      <button id="s-tts-cancel" data-i18n="char.cancel">Cancel</button>
+      <button id="s-tts-save" class="primary" data-i18n="tts.save">Save</button>
     </div>
   </div>
 </div>
 
-<!-- STT 设置（独立弹窗） -->
+<!-- STT settings -->
 <div id="modal-stt" class="modal hidden">
   <div class="modal-box wide">
-    <h3>🎤 语音识别设置 (STT)</h3>
+    <h3 data-i18n="stt.title">🎤 Speech Recognition (STT)</h3>
     <div class="form-col">
-      <label>引擎<select id="s-stt-provider">
-        <option value="openai">Whisper（OpenAI 兼容 /audio/transcriptions）</option>
-        <option value="xiaomi">小米 MiMo ASR（mimo-v2.5-asr）</option>
-        <option value="web">浏览器语音识别（实验性）</option>
+      <label><span data-i18n="stt.engine">Engine</span><select id="s-stt-provider">
+        <option value="openai" data-i18n="stt.provider.openai">Whisper</option>
+        <option value="xiaomi" data-i18n="stt.provider.xiaomi">Xiaomi MiMo ASR</option>
+        <option value="web" data-i18n="stt.provider.web">Browser speech recognition</option>
       </select></label>
-      <label>语言<select id="s-stt-language">
-        <option value="zh">中文</option>
-        <option value="en">English 英语</option>
-        <option value="ja">日本語 日语</option>
-        <option value="es">Español 西班牙语</option>
-        <option value="auto">自动检测</option>
+      <label><span data-i18n="stt.language">Language</span><select id="s-stt-language">
+        <option value="zh" data-i18n="lang.zh">Chinese</option>
+        <option value="en" data-i18n="lang.en">English</option>
+        <option value="ja" data-i18n="lang.ja">Japanese</option>
+        <option value="es" data-i18n="lang.es">Spanish</option>
+        <option value="auto" data-i18n="lang.auto">Auto detect</option>
       </select></label>
-      <label class="check hidden" id="wrap-stt-custom"><input id="s-stt-custom-url" type="checkbox" /> 自定义接口地址（不勾就用默认地址）</label>
-      <label id="wrap-stt-base" class="hidden">Base URL<input id="s-stt-base" placeholder="https://api.openai.com/v1" /></label>
-      <label>API Key<input id="s-stt-key" type="password" placeholder="sk-…" /></label>
-      <label>模型<input id="s-stt-model" list="dl-stt-models" placeholder="whisper-1" /><datalist id="dl-stt-models"></datalist>
-        <button id="btn-stt-fetch" class="ghost small-btn">⚡ 获取模型列表</button></label>
-      <p class="hint">Whisper 兼容端点也可用 Groq（https://api.groq.com/openai/v1，模型 whisper-large-v3）。小米 ASR 自动用其专属接口，无需填 Base URL。</p>
+      <label class="check hidden" id="wrap-stt-custom"><input id="s-stt-custom-url" type="checkbox" /> <span data-i18n="llm.customUrl">Custom endpoint</span></label>
+      <label id="wrap-stt-base" class="hidden"><span data-i18n="stt.baseUrl">Base URL</span><input id="s-stt-base" placeholder="https://api.openai.com/v1" /></label>
+      <label><span data-i18n="llm.apiKey">API Key</span><input id="s-stt-key" type="password" placeholder="sk-…" /></label>
+      <label><span data-i18n="stt.model">Model</span><input id="s-stt-model" list="dl-stt-models" placeholder="whisper-1" /><datalist id="dl-stt-models"></datalist>
+        <button id="btn-stt-fetch" class="ghost small-btn" data-i18n="stt.fetchModels">⚡ Fetch models</button></label>
+      <p class="hint" data-i18n="stt.hint"></p>
     </div>
     <div class="modal-actions">
-      <button id="s-stt-cancel">取消</button>
-      <button id="s-stt-save" class="primary">保存</button>
+      <button id="s-stt-cancel" data-i18n="char.cancel">Cancel</button>
+      <button id="s-stt-save" class="primary" data-i18n="stt.save">Save</button>
     </div>
   </div>
 </div>
-
-<!-- 角色卡菜单 -->
+<!-- Character card menu -->
 <div id="char-menu" class="pop-menu hidden">
-  <button data-act="edit">✏️ 编辑角色卡</button>
-  <button data-act="quick">🎀 更换模型 / 语音</button>
-  <button data-act="duplicate">⧉ 复制角色卡</button>
-  <button data-act="export">📤 导出</button>
-  <button data-act="delete">🗑 删除</button>
+  <button data-act="edit" data-i18n="charMenu.edit">✏️ Edit card</button>
+  <button data-act="quick" data-i18n="charMenu.quick">🎀 Change model / voice</button>
+  <button data-act="duplicate" data-i18n="charMenu.duplicate">⧉ Duplicate card</button>
+  <button data-act="export" data-i18n="charMenu.export">📤 Export</button>
+  <button data-act="delete" data-i18n="charMenu.delete">🗑 Delete</button>
 </div>
 
-<!-- 快捷更换模型 / 语音 -->
+<!-- Quick model / voice -->
 <div id="modal-quick" class="modal hidden">
   <div class="modal-box">
-    <h3 id="quick-title">更换模型 / 语音</h3>
+    <h3 id="quick-title" data-i18n="quick.title">Change model / voice</h3>
     <div class="form-col">
-      <label>Live2D 模型<select id="q-model"></select></label>
-      <label>语音（系统 TTS）<select id="q-voice"></select></label>
-      <p class="hint">保存后立即生效；人设、开场白等更多设定请用「编辑角色卡」。</p>
+      <label><span data-i18n="char.model">Live2D model</span><select id="q-model"></select></label>
+      <label><span data-i18n="char.voice">Voice (system TTS)</span><select id="q-voice"></select></label>
+      <p class="hint" data-i18n="quick.hint"></p>
     </div>
     <div class="modal-actions">
-      <button id="q-cancel">取消</button>
-      <button id="q-save" class="primary">保存</button>
+      <button id="q-cancel" data-i18n="char.cancel">Cancel</button>
+      <button id="q-save" class="primary" data-i18n="char.save">Save</button>
     </div>
   </div>
 </div>
 
-<!-- 设置菜单 -->
+<!-- Settings menu -->
 <div id="modal-menu" class="modal hidden">
   <div class="modal-box">
-    <h3>⚙ 设置</h3>
+    <h3 data-i18n="menu.title">⚙ Settings</h3>
     <div class="menu-list">
-      <div class="menu-group-title">对话与语音</div>
-      <button data-target="modal-llm">💬 对话设置 (LLM)<span class="menu-sub" id="menu-sub-llm"></span></button>
-      <button data-target="modal-tts">🔊 语音合成设置 (TTS)<span class="menu-sub" id="menu-sub-tts"></span></button>
-      <button data-target="modal-stt">🎤 语音识别设置 (STT)<span class="menu-sub" id="menu-sub-stt"></span></button>
-      <div class="menu-group-title">形象与外观</div>
-      <button data-target="modal-model">🎀 Live2D 模型设置<span class="menu-sub" id="menu-sub-model"></span></button>
-      <button data-target="modal-theme">🎨 外观调色<span class="menu-sub" id="menu-sub-theme"></span></button>
-      <button data-action="overlay">🖼 无边框展台<span class="menu-sub" id="menu-sub-overlay">让角色浮在桌面上，不挡鼠标</span></button>
-      <button data-action="mc">🎮 Minecraft 伙伴<span class="menu-sub" id="menu-sub-mc">让 AI 陪你玩 MC · mineflayer (MIT)</span></button>
-      <div class="menu-group-title">其他</div>
-      <button data-action="datadir">📂 打开数据目录<span class="menu-sub">角色卡 / 聊天记录 / 设置</span></button>
-      <button data-action="about">ℹ️ 关于 AILEEN<span class="menu-sub" id="menu-sub-about"></span></button>
+      <div class="menu-group-title" data-i18n="menu.group.chat">Chat &amp; Voice</div>
+      <button data-target="modal-llm"><span class="menu-label" data-i18n="menu.llm">💬 Chat Settings (LLM)</span><span class="menu-sub" id="menu-sub-llm"></span></button>
+      <button data-target="modal-tts"><span class="menu-label" data-i18n="menu.tts">🔊 Text-to-Speech (TTS)</span><span class="menu-sub" id="menu-sub-tts"></span></button>
+      <button data-target="modal-stt"><span class="menu-label" data-i18n="menu.stt">🎤 Speech Recognition (STT)</span><span class="menu-sub" id="menu-sub-stt"></span></button>
+      <div class="menu-group-title" data-i18n="menu.group.look">Character &amp; Appearance</div>
+      <button data-target="modal-model"><span class="menu-label" data-i18n="menu.model">🎀 Live2D Model Settings</span><span class="menu-sub" id="menu-sub-model"></span></button>
+      <button data-target="modal-theme"><span class="menu-label" data-i18n="menu.theme">🎨 Appearance</span><span class="menu-sub" id="menu-sub-theme"></span></button>
+      <button data-action="overlay"><span class="menu-label" data-i18n="menu.overlay">🖼 Borderless Stage</span><span class="menu-sub" id="menu-sub-overlay"></span></button>
+      <div class="menu-group-title" data-i18n="menu.group.fun">Fun</div>
+      <button data-action="mc"><span class="menu-label" data-i18n="menu.mc">🎮 Minecraft Companion</span><span class="menu-sub" id="menu-sub-mc"></span></button>
+      <button data-action="chess"><span class="menu-label" data-i18n="menu.chess">♟ Chess</span><span class="menu-sub" id="menu-sub-chess"></span></button>
+      <div class="menu-group-title" data-i18n="menu.group.other">Other</div>
+      <div class="menu-row">
+        <span class="menu-row-label" data-i18n="menu.language">🌐 Language</span>
+        <div id="lang-switch" class="lang-switch"></div>
+      </div>
+      <button data-action="datadir" data-i18n="menu.datadir">📂 Open Data Folder</button>
+      <button data-action="about" data-i18n="menu.about">ℹ️ About AILEEN</button>
     </div>
     <div class="modal-actions">
-      <button id="menu-cancel">关闭</button>
+      <button id="menu-cancel" data-i18n="menu.close">Close</button>
     </div>
   </div>
 </div>
 
-<!-- 模型设置 -->
+<!-- Live2D model settings -->
 <div id="modal-model" class="modal hidden">
   <div class="modal-box wide">
-    <h3>🎀 Live2D 模型设置</h3>
+    <h3 data-i18n="model.title">🎀 Live2D Model Settings</h3>
     <div class="form-col">
-      <label>当前模型<select id="m-model"></select></label>
+      <label><span data-i18n="model.current">Current model</span><select id="m-model"></select></label>
       <div class="row-btns">
-        <button id="btn-add-model" class="ghost">📁 从文件夹导入</button>
-        <button id="btn-add-url-model" class="ghost">🔗 从网址加载</button>
-        <button id="btn-refresh-models" class="ghost">🔄 刷新列表</button>
+        <button id="btn-add-model" class="ghost" data-i18n="model.fromFolder">📁 Import from folder</button>
+        <button id="btn-add-url-model" class="ghost" data-i18n="model.fromUrl">🔗 Load from URL</button>
+        <button id="btn-refresh-models" class="ghost" data-i18n="model.refresh">🔄 Refresh list</button>
       </div>
       <div id="m-url-form" class="add-url-form hidden">
-        <input id="m-url-input" placeholder="模型 JSON 网址（model3.json / model.json）" />
-        <input id="m-url-name" placeholder="模型名字" />
-        <button id="m-url-ok" class="primary">添加</button>
-        <button id="m-url-cancel" class="ghost">取消</button>
+        <input id="m-url-input" data-i18n-ph="model.urlPlaceholder" />
+        <input id="m-url-name" data-i18n-ph="model.namePlaceholder" />
+        <button id="m-url-ok" class="primary" data-i18n="model.add">Add</button>
+        <button id="m-url-cancel" class="ghost" data-i18n="model.cancel">Cancel</button>
       </div>
-      <label>已加载的 URL 模型<div id="m-url-list" class="url-list"></div></label>
-      <p class="hint">文件夹导入会把模型复制到 models/ 目录；网址加载的模型会持久保存，可在此移除。动作/表情仍可在舞台下方控制。</p>
+      <label><span data-i18n="model.urlList">Loaded URL models</span><div id="m-url-list" class="url-list"></div></label>
+      <p class="hint" data-i18n="model.hint"></p>
     </div>
     <div class="modal-actions">
-      <button id="m-cancel">关闭</button>
+      <button id="m-cancel" data-i18n="model.close">Close</button>
     </div>
   </div>
 </div>
 
-<!-- 外观调色 -->
+<!-- Appearance -->
 <div id="modal-theme" class="modal hidden">
   <div class="modal-box">
-    <h3>🎨 外观调色</h3>
+    <h3 data-i18n="theme.title">🎨 Appearance</h3>
     <div class="form-col">
-      <label>主题预设
+      <label><span data-i18n="theme.presets">Theme presets</span>
         <div id="theme-presets" class="theme-presets"></div>
       </label>
-      <label>主色调（按钮/强调）<input id="t-primary" type="color" /></label>
-      <label>辅色调（链接/边框）<input id="t-secondary" type="color" /></label>
-      <p class="hint">修改后即时预览，保存后写入设置，下次启动仍生效。</p>
+      <label><span data-i18n="theme.primary">Primary colour</span><input id="t-primary" type="color" /></label>
+      <label><span data-i18n="theme.secondary">Secondary colour</span><input id="t-secondary" type="color" /></label>
+      <p class="hint" data-i18n="theme.hint"></p>
     </div>
     <div class="modal-actions">
-      <button id="t-reset" class="ghost">恢复默认</button>
+      <button id="t-reset" class="ghost" data-i18n="theme.reset">Reset to default</button>
       <span class="spacer"></span>
-      <button id="t-cancel">取消</button>
-      <button id="t-save" class="primary">保存</button>
+      <button id="t-cancel" data-i18n="theme.cancel">Cancel</button>
+      <button id="t-save" class="primary" data-i18n="theme.save">Save</button>
     </div>
   </div>
 </div>
 
-<!-- 屏幕源选择弹窗 -->
+<!-- Screen picker -->
 <div id="modal-screen" class="modal hidden">
   <div class="modal-box">
-    <h3>📷 选择要发送给角色的画面</h3>
+    <h3 data-i18n="screen.title">📷 Choose a screen</h3>
     <div id="screen-grid" class="screen-grid"></div>
     <div class="modal-actions">
-      <button id="screen-cancel">取消</button>
+      <button id="screen-cancel" data-i18n="screen.cancel">Cancel</button>
     </div>
   </div>
 </div>
 
-<!-- 关于 -->
+<!-- About -->
 <div id="modal-about" class="modal hidden">
   <div class="modal-box">
-    <h3>ℹ️ 关于 AILEEN</h3>
+    <h3 data-i18n="about.title">ℹ️ About AILEEN</h3>
     <div id="about-body" class="about-body"></div>
-    <p class="hint">开源桌面 AI 伴侣 · 以 MIT License 发布</p>
+    <p class="hint" data-i18n="about.hint"></p>
     <div class="modal-actions">
-      <button id="about-cancel">关闭</button>
+      <button id="about-cancel" data-i18n="about.close">Close</button>
+    </div>
+  </div>
+</div>
+<!-- Minecraft companion -->
+<div id="modal-mc" class="modal hidden">
+  <div class="modal-box wide">
+    <h3 data-i18n="mc.title">🎮 Minecraft AI Companion</h3>
+    <div class="form-col">
+      <div class="mc-row">
+        <label><span data-i18n="mc.host">Server address</span><input id="mc-host" placeholder="127.0.0.1" /></label>
+        <label class="mc-narrow"><span data-i18n="mc.port">Port</span><input id="mc-port" type="number" placeholder="25565" /></label>
+        <label><span data-i18n="mc.username">Bot name</span><input id="mc-username" placeholder="AILEEN" /></label>
+      </div>
+      <label class="check"><input id="mc-autoreply" type="checkbox" /> <span data-i18n="mc.autoReply">Let the AI reply to in-game chat</span></label>
+      <div class="row-btns">
+        <button id="mc-connect" class="primary" data-i18n="mc.connect">🔌 Connect</button>
+        <button id="mc-disconnect" class="ghost" data-i18n="mc.disconnect">Disconnect</button>
+        <button id="mc-follow" class="ghost" data-i18n="mc.follow">🚶 Follow me</button>
+        <button id="mc-stopfollow" class="ghost" data-i18n="mc.stopFollow">Stop</button>
+      </div>
+      <div id="mc-status" class="mc-status" data-i18n="mc.statusIdle">Not connected</div>
+      <div class="mc-pad">
+        <button data-mc-dir="forward" data-i18n-title="mc.forward">↑</button>
+        <div class="mc-pad-mid">
+          <button data-mc-dir="left" data-i18n-title="mc.left">←</button>
+          <button data-mc-jump="1" data-i18n-title="mc.jump">⤒</button>
+          <button data-mc-dir="right" data-i18n-title="mc.right">→</button>
+        </div>
+        <button data-mc-dir="back" data-i18n-title="mc.back">↓</button>
+      </div>
+      <label><span data-i18n="chat.send">Say</span><input id="mc-say-input" data-i18n-ph="mc.sayPlaceholder" /></label>
+      <div id="mc-log" class="mc-log"></div>
+      <p class="hint" data-i18n-html="mc.hint"></p>
+    </div>
+    <div class="modal-actions">
+      <button id="mc-close" data-i18n="mc.close">Close</button>
     </div>
   </div>
 </div>
 
-<!-- Minecraft AI 伙伴 -->
-<div id="modal-mc" class="modal hidden">
+<!-- Chess -->
+<div id="modal-chess" class="modal hidden">
   <div class="modal-box wide">
-    <h3>🎮 Minecraft AI 伙伴</h3>
-    <div class="form-col">
-      <div class="mc-row">
-        <label>服务器地址<input id="mc-host" placeholder="127.0.0.1" /></label>
-        <label class="mc-narrow">端口<input id="mc-port" type="number" placeholder="25565" /></label>
-        <label>角色名<input id="mc-username" placeholder="AILEEN" /></label>
+    <h3 data-i18n="chess.title">♟ Chess</h3>
+    <div class="chess-layout">
+      <div class="chess-left">
+        <div id="chess-board" class="chess-board"></div>
+        <div id="chess-captured" class="chess-captured"></div>
+        <div id="chess-status" class="chess-status">—</div>
       </div>
-      <label class="check"><input id="mc-autoreply" type="checkbox" /> AI 自动回复服务器聊天（用当前角色的性格 + 你的 LLM）</label>
-      <div class="row-btns">
-        <button id="mc-connect" class="primary">🔌 连接服务器</button>
-        <button id="mc-disconnect" class="ghost">断开</button>
-        <button id="mc-follow" class="ghost">🚶 跟着我走</button>
-        <button id="mc-stopfollow" class="ghost">停下</button>
-      </div>
-      <div id="mc-status" class="mc-status">未连接</div>
-      <div class="mc-pad">
-        <button data-mc-dir="forward" title="前进">↑</button>
-        <div class="mc-pad-mid">
-          <button data-mc-dir="left" title="左移">←</button>
-          <button data-mc-jump="1" title="跳">跳</button>
-          <button data-mc-dir="right" title="右移">→</button>
+      <div class="chess-right">
+        <label><span data-i18n="chess.level">AI level</span><select id="chess-level">
+          <option value="1">1</option><option value="2">2</option><option value="3">3</option>
+          <option value="4">4</option><option value="5">5</option>
+        </select></label>
+        <div class="chess-field">
+          <span data-i18n="chess.side">I play</span>
+          <div id="chess-side-switch" class="seg">
+            <button data-side="white" data-i18n="chess.white">White</button>
+            <button data-side="black" data-i18n="chess.black">Black</button>
+          </div>
         </div>
-        <button data-mc-dir="back" title="后退">↓</button>
+        <label class="check"><input id="chess-banter" type="checkbox" /> <span data-i18n="chess.banter">Let the character comment</span></label>
+        <div class="row-btns">
+          <button id="chess-new" class="ghost" data-i18n="chess.new">New game</button>
+          <button id="chess-undo" class="ghost" data-i18n="chess.undo">Undo</button>
+          <button id="chess-resign" class="ghost" data-i18n="chess.resign">Resign</button>
+          <button id="chess-flip" class="ghost" data-i18n="chess.flip">Flip board</button>
+        </div>
+        <div id="chess-comment" class="chess-comment hidden"></div>
+        <div class="chess-moves-title" data-i18n="chess.moves">Moves</div>
+        <div id="chess-moves" class="chess-moves"></div>
       </div>
-      <label>说话<input id="mc-say-input" placeholder="对服务器里的人说点什么…（Enter 发送）" /></label>
-      <div id="mc-log" class="mc-log"></div>
-      <p class="hint">基于 MIT 许可的 <b>mineflayer</b>。单人游戏里按 Esc → 「对局域网开放」→ 记下聊天栏里的端口号，填到上面即可（地址用 127.0.0.1）。角色名不能和你自己重名。</p>
     </div>
+    <p class="hint" data-i18n-html="chess.hint"></p>
     <div class="modal-actions">
-      <button id="mc-close">关闭</button>
+      <button id="chess-close" data-i18n="chess.close">Close</button>
     </div>
   </div>
 </div>

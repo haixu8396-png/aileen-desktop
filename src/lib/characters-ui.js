@@ -8,6 +8,7 @@ import { state, hooks, tts } from './state.js';
 import { $, toast, scrollBottom, avatarUrl } from './dom.js';
 import { renderMessages, saveChatFor, loadChatFor, clearChatFor, ttsSettingsForCharacter, setBusy } from './chat.js';
 import { setStageModelIndex, updateStageModelName, syncOverlayModel } from './stage.js';
+import { t } from './i18n.js';
 
 export function findChar(file) {
   return state.characters.find((c) => c.file === file);
@@ -19,7 +20,7 @@ export function renderCharList() {
   if (!box) return;
   box.innerHTML = '';
   if (!state.characters.length) {
-    box.innerHTML = '<div class="char-item" style="color:var(--muted)">暂无角色卡，点击「新建角色」开始吧～</div>';
+    box.innerHTML = '<div class="char-item" style="color:var(--muted)">' + t('nav.noChars') + '</div>';
     return;
   }
   for (const c of state.characters) {
@@ -55,9 +56,9 @@ export function renderEmptyState() {
   const av = $('chat-avatar');
   if (av) av.src = '';
   $('chat-name').textContent = 'AILEEN';
-  $('chat-desc').textContent = '从零开始，搭建你的专属 AI 伴侣';
+  $('chat-desc').textContent = t('chat.emptyDesc');
   const box = $('messages');
-  box.innerHTML = '<div class="msg assistant">欢迎使用 AILEEN ✨<br><br>点击左侧「＋ 新建角色」创建你的第一位角色卡，<br>然后在 ⚙ 设置 中填入 DeepSeek API Key，就可以开始对话啦～</div>';
+  box.innerHTML = '<div class="msg assistant">' + t('chat.welcome') + '</div>';
   scrollBottom();
 }
 
@@ -142,20 +143,20 @@ export async function duplicateCard(file) {
   const c = findChar(file);
   if (!c) return;
   const copy = JSON.parse(JSON.stringify(c.data));
-  copy.name = (copy.name || '角色') + ' 副本';
+  copy.name = (copy.name || 'AILEEN') + ' (copy)';
   copy.createdAt = Date.now();
   copy.updatedAt = Date.now();
   const res = await window.api.writeCharacter(cardFileName(copy), copy, 'create');
   if (res) {
     await refreshCharacters(res.file);
-    toast('已复制为「' + copy.name + '」');
+    toast(t('char.duplicated', { name: copy.name }));
   }
 }
 
 export async function deleteCard(file) {
   const c = findChar(file);
   if (!c) return;
-  if (!confirm('确定删除角色「' + (c.data.name || file) + '」吗？')) return;
+  if (!confirm(t('char.confirmDelete', { name: c.data.name || file }))) return;
   await window.api.deleteCharacter(file);
   if (state.current && state.current.file === file) {
     state.current = null;
@@ -163,16 +164,16 @@ export async function deleteCard(file) {
     await clearChatFor(file);
   }
   await refreshCharacters();
-  toast('角色已删除');
+  toast(t('char.deleted'));
 }
 
 // ---------------- 快捷更换模型 / 语音 ----------------
 export function populateQuickSelects() {
   const qm = $('q-model');
-  qm.innerHTML = '<option value="">（不绑定）</option>' +
+  qm.innerHTML = '<option value="">' + t('char.unbound') + '</option>' +
     state.models.map((m) => '<option value="' + escapeHtml(m.file) + '">' + escapeHtml(m.name) + '</option>').join('');
   const qv = $('q-voice');
-  qv.innerHTML = '<option value="">（默认语音）</option>';
+  qv.innerHTML = '<option value="">' + t('char.defaultVoice') + '</option>';
   let voices = [];
   try { voices = window.speechSynthesis.getVoices(); } catch { /* ignore */ }
   qv.innerHTML += voices.map((v) => '<option value="' + escapeHtml(v.name) + '">' + escapeHtml(v.name + ' · ' + v.lang) + '</option>').join('');
@@ -185,7 +186,7 @@ export function openQuickModal(file) {
   populateQuickSelects();
   $('q-model').value = c.data.model || '';
   $('q-voice').value = c.data.voice || '';
-  $('quick-title').textContent = '更换模型 / 语音 · ' + (c.data.name || file);
+  $('quick-title').textContent = t('quick.title') + ' · ' + (c.data.name || file);
   $('modal-quick').classList.remove('hidden');
 }
 
@@ -199,19 +200,19 @@ export async function saveQuickModal() {
   renderCharList();
   $('modal-quick').classList.add('hidden');
   if (state.current && state.current.file === state.quickFile) await selectCharacter(state.quickFile, { greet: false });
-  toast('已更新');
+  toast(t('char.quickUpdated'));
 }
 
 // ---------------- 角色编辑器 ----------------
 export function populateModelSelect(select) {
   const el = select || $('f-model');
-  el.innerHTML = '<option value="">（不绑定）</option>' +
+  el.innerHTML = '<option value="">' + t('char.unbound') + '</option>' +
     state.models.map((m) => '<option value="' + escapeHtml(m.file) + '">' + escapeHtml(m.name) + '</option>').join('');
 }
 
 export function populateVoiceSelect() {
   const el = $('f-voice');
-  el.innerHTML = '<option value="">（默认语音）</option>';
+  el.innerHTML = '<option value="">' + t('char.defaultVoice') + '</option>';
   let voices = [];
   try { voices = window.speechSynthesis.getVoices(); } catch { /* ignore */ }
   if (!voices.length) return;
@@ -222,7 +223,7 @@ export function populateVoiceSelect() {
 export function openCharModal(card, file) {
   state.editorCard = card ? deepMerge(emptyCard(), card) : emptyCard();
   state.editorFile = file || null;
-  $('char-modal-title').textContent = state.editorFile ? '编辑角色：' + state.editorCard.name : '新建角色卡';
+  $('char-modal-title').textContent = state.editorFile ? t('char.edit', { name: state.editorCard.name }) : t('char.new');
   $('f-name').value = state.editorCard.name || '';
   $('f-desc').value = state.editorCard.description || '';
   $('f-personality').value = state.editorCard.personality || '';
@@ -245,7 +246,7 @@ export function closeCharModal() {
 
 export function saveCharModal() {
   const name = $('f-name').value.trim();
-  if (!name) { toast('角色名不能为空', true); return; }
+  if (!name) { toast(t('char.nameRequired'), true); return; }
   const card = state.editorCard;
   card.name = name;
   card.description = $('f-desc').value.trim();
@@ -261,7 +262,7 @@ export function saveCharModal() {
 
   const file = cardFileName(card);
   window.api.writeCharacter(file, card, state.editorFile ? 'update' : 'create').then((res) => {
-    toast('角色卡已保存');
+    toast(t('char.saved'));
     closeCharModal();
     return refreshCharacters(res.file);
   });

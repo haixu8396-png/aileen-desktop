@@ -4,6 +4,7 @@
 // 鼠标穿透由主进程按「热区 + 真实光标位置」判定，这里负责告知热区
 // ============================================================
 import { loadOml2d } from 'oh-my-live2d';
+import { t, setLang } from './lib/i18n.js';
 
 const stageBox = document.getElementById('ov-stage');
 const tools = document.getElementById('ov-tools');
@@ -30,7 +31,7 @@ function overTools(x, y) {
   const r = tools.getBoundingClientRect();
   // 还没排版完（宽高为 0）时一律视为「不在把手上」，否则全 0 矩形会把整窗误判成可交互
   if (!r.width || !r.height) return false;
-  const pad = 12; // 稍微外扩，手柄更好按
+  const pad = 6; // 轻微外扩，保证不会碰到窗口边缘的系统缩放手柄
   return x >= r.left - pad && x <= r.right + pad && y >= r.top - pad && y <= r.bottom + pad;
 }
 
@@ -84,7 +85,7 @@ lockBtn.onclick = async () => {
   const on = !lockBtn.classList.contains('on');
   lockBtn.classList.toggle('on', on);
   lockBtn.textContent = on ? '👆' : '🖱';
-  lockBtn.title = on ? '角色可点击（当前：可点击）' : '角色不挡鼠标（当前：穿透）';
+  lockBtn.title = on ? t('overlay.lockOn') : t('overlay.lockOff');
   await window.api.overlaySetInteractive(on);
   showTools();
 };
@@ -104,7 +105,7 @@ function renderStage(model) {
   destroyStage();
   currentModel = model;
   if (!model || !model.url) {
-    stageBox.innerHTML = '<div class="ov-empty">还没有 Live2D 模型<br><span>在 AILEEN 的「⚙ 设置 → 🎀 Live2D 模型设置」里添加</span></div>';
+    stageBox.innerHTML = '<div class="ov-empty">' + t('overlay.empty') + '</div>';
     return;
   }
   const W = window.innerWidth;
@@ -134,6 +135,7 @@ function renderStage(model) {
 // ---------------- 启动 ----------------
 async function init() {
   const st = await window.api.overlayGetState();
+  if (st && st.language) setLang(st.language);
   overlayCfg = Object.assign(overlayCfg, (st && st.overlay) || {});
   stageBox.style.opacity = String(overlayCfg.opacity || 1);
   const lockOn = !!(st && st.overlay && st.overlay.interactive);

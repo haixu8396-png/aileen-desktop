@@ -57,6 +57,12 @@ jobs:
           if (-not $diag.themeCancelRestores) { throw '外观调色：点取消后主题预览没有还原' }
           if (-not $diag.mcStatusOk) { throw 'Minecraft 伙伴：主进程 IPC 不可用' }
           if (-not $diag.mcModalOk) { throw 'Minecraft 伙伴：设置菜单里的入口打不开弹窗' }
+          if (-not $diag.chessModalOk) { throw '国际象棋：棋盘没有渲染出 64 格' }
+          if (-not $diag.typingHidden) { throw '“正在思考…”指示器加载后没有隐藏（CSS 缺少 .hidden 规则）' }
+          if (-not $diag.langOk) { throw 'i18n：默认语言不是英文' }
+          if ($diag.i18nMissing -gt 0) { throw ('i18n：有 ' + $diag.i18nMissing + ' 处文案漏翻（显示成了 key 本身）') }
+          if (-not $diag.langSwitchWorks) { throw 'i18n：语言切换没有真正生效' }
+          if ($diag.jaMissingKeys -gt 0) { throw ('i18n：日文下仍有 ' + $diag.jaMissingKeys + ' 处回退成了 key') }
           $opath = '${{ github.workspace }}\.ci-data\selftest\overlay.json'
           if (!(Test-Path $opath)) { throw '无边框悬浮展台自检未生成报告' }
           $ovr = Get-Content $opath -Raw | ConvertFrom-Json
@@ -64,6 +70,8 @@ jobs:
           if (-not $ovr.visible) { throw '无边框悬浮展台窗口不可见' }
           if ($ovr.interactiveMode -eq $true) { throw '悬浮展台不应默认处于「角色可点击」模式' }
           if (-not $ovr.hitAreaSizeOk) { throw '悬浮展台没有上报有效的交互热区（右下角手柄）' }
+          if ($ovr.hitMarginRight -lt 14 -or $ovr.hitMarginBottom -lt 14) { throw ('悬浮展台的交互热区离窗口边缘太近（右 ' + $ovr.hitMarginRight + 'px / 下 ' + $ovr.hitMarginBottom + 'px），会压到系统缩放手柄上导致拖动变成缩放') }
+          if (-not $ovr.programmaticResizeOk) { throw '悬浮展台无法通过 −/＋ 调整尺寸' }
           if ($ovr.cursorInHit -eq $false -and $ovr.ignoringByDefault -ne $true) { throw '光标不在手柄上时，悬浮展台必须鼠标穿透，否则会挡住桌面操作' }
           if (-not $ovr.moved) { throw '悬浮展台无法移动' }
           if (-not $ovr.toolsExists) { throw '悬浮展台缺少右下角工具栏' }
@@ -108,6 +116,12 @@ jobs:
           if (-not $diag.themeCancelRestores) { throw '外观调色：点取消后主题预览没有还原' }
           if (-not $diag.mcStatusOk) { throw 'Minecraft 伙伴：主进程 IPC 不可用' }
           if (-not $diag.mcModalOk) { throw 'Minecraft 伙伴：设置菜单里的入口打不开弹窗' }
+          if (-not $diag.chessModalOk) { throw '国际象棋：棋盘没有渲染出 64 格' }
+          if (-not $diag.typingHidden) { throw '“正在思考…”指示器加载后没有隐藏（CSS 缺少 .hidden 规则）' }
+          if (-not $diag.langOk) { throw 'i18n：默认语言不是英文' }
+          if ($diag.i18nMissing -gt 0) { throw ('i18n：有 ' + $diag.i18nMissing + ' 处文案漏翻（显示成了 key 本身）') }
+          if (-not $diag.langSwitchWorks) { throw 'i18n：语言切换没有真正生效' }
+          if ($diag.jaMissingKeys -gt 0) { throw ('i18n：日文下仍有 ' + $diag.jaMissingKeys + ' 处回退成了 key') }
           $opath = '${{ github.workspace }}\.ci-pack\selftest\overlay.json'
           if (!(Test-Path $opath)) { throw '无边框悬浮展台自检未生成报告' }
           $ovr = Get-Content $opath -Raw | ConvertFrom-Json
@@ -115,6 +129,8 @@ jobs:
           if (-not $ovr.visible) { throw '无边框悬浮展台窗口不可见' }
           if ($ovr.interactiveMode -eq $true) { throw '悬浮展台不应默认处于「角色可点击」模式' }
           if (-not $ovr.hitAreaSizeOk) { throw '悬浮展台没有上报有效的交互热区（右下角手柄）' }
+          if ($ovr.hitMarginRight -lt 14 -or $ovr.hitMarginBottom -lt 14) { throw ('悬浮展台的交互热区离窗口边缘太近（右 ' + $ovr.hitMarginRight + 'px / 下 ' + $ovr.hitMarginBottom + 'px），会压到系统缩放手柄上导致拖动变成缩放') }
+          if (-not $ovr.programmaticResizeOk) { throw '悬浮展台无法通过 −/＋ 调整尺寸' }
           if ($ovr.cursorInHit -eq $false -and $ovr.ignoringByDefault -ne $true) { throw '光标不在手柄上时，悬浮展台必须鼠标穿透，否则会挡住桌面操作' }
           if (-not $ovr.moved) { throw '悬浮展台无法移动' }
           if (-not $ovr.toolsExists) { throw '悬浮展台缺少右下角工具栏' }

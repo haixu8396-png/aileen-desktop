@@ -33,6 +33,8 @@ import {
 } from './lib/modals.js';
 import { startVoiceLoop, stopVoiceLoop } from './lib/voice.js';
 import { openMcModal, bindMc } from './lib/minecraft.js';
+import { openChessModal, bindChess } from './lib/chess.js';
+import { t, setLang, getLang, applyI18n, LANGS } from './lib/i18n.js';
 
 // 错误收集（供自检诊断使用）
 window.__AILEEN_ERRORS = [];
@@ -71,6 +73,7 @@ async function boot() {
   injectHooks();
   state.appInfo = await window.api.appInfo();
   await loadSettings();
+  setLang(getSettings().language || 'en'); // 界面语言：默认英文
   applyTheme(getSettings().theme);
   state.models = await window.api.listModels();
   state.characters = await window.api.listCharacters();
@@ -87,7 +90,7 @@ async function boot() {
     initLive2D();
   } catch (err) {
     console.error('[live2d] init failed:', err);
-    $('stage-container').innerHTML = '<div class="stage-placeholder">Live2D 初始化失败：' + escapeHtml(String(err && err.message || err)) + '</div>';
+    $('stage-container').innerHTML = '<div class="stage-placeholder">' + escapeHtml(t('stage.initFailed', { msg: String(err && err.message || err) })) + '</div>';
   }
   renderEmptyState();
 
@@ -97,7 +100,10 @@ async function boot() {
 
   bindEvents();
   bindMc();
+  bindChess();
   bindAppMenu();
+  buildLangSwitch();
+  applyI18n();
   $('input').focus();
 }
 
@@ -228,6 +234,31 @@ function bindModelModal() {
   };
 }
 
+// 语言切换（菜单内联，不需要再弹一层窗）
+function buildLangSwitch() {
+  const box = $('lang-switch');
+  if (!box) return;
+  box.innerHTML = '';
+  for (const l of LANGS) {
+    const b = document.createElement('button');
+    b.textContent = l.label;
+    b.className = getLang() === l.id ? 'on' : '';
+    b.onclick = async () => {
+      setLang(l.id);
+      buildLangSwitch();
+      const next = { ...getSettings(), language: l.id };
+      await saveSettings(next);
+      // 语言变了，动态文案要重画一遍
+      renderCharList();
+      populateStageModelSelect();
+      updateStageModelName();
+      refreshMenuSubtitles();
+      toast(t('menu.language') + ': ' + l.label);
+    };
+    box.appendChild(b);
+  }
+}
+
 // 原生应用菜单 → 渲染层动作
 function bindAppMenu() {
   window.api.onMenuAction((action) => {
@@ -245,6 +276,7 @@ function bindAppMenu() {
       model: openModelModal,
       theme: openThemeModal,
       mc: openMcModal,
+      chess: openChessModal,
     };
     const fn = table[action];
     if (fn) fn();
@@ -364,6 +396,10 @@ function bindEvents() {
   $('about-cancel').onclick = () => $('modal-about').classList.add('hidden');
   window.api.onOverlayState((st) => setMenuSub('menu-sub-overlay', st && st.visible ? '已开启 · 角色浮在桌面' : '已关闭 · 点一下开启'));
 
+  // 舞台上的「悬浮展台」快捷按钮
+  const floatBtn = $('btn-float-stage');
+  if (floatBtn) floatBtn.onclick = () => toggleOverlayStage();
+
   // 屏幕截图
   $('btn-screenshot').onclick = openScreenPicker;
   $('attach-remove').onclick = () => { state.pendingImage = null; setAttachUI(); };
@@ -399,6 +435,7 @@ function runMenuAction(action) {
   $('modal-menu').classList.add('hidden');
   if (action === 'overlay') toggleOverlayStage();
   else if (action === 'mc') openMcModal();
+  else if (action === 'chess') openChessModal();
   else if (action === 'datadir') window.api.openPath(state.appInfo.userDataDir || state.appInfo.dataDir || state.appInfo.appRoot);
   else if (action === 'about') openAboutModal();
 }
@@ -415,12 +452,12 @@ function openAboutModal() {
   if (box) {
     box.innerHTML = '';
     const rows = [
-      ['应用', 'AILEEN ' + (info.version || '')],
-      ['Electron', info.electron || '-'],
-      ['Node', info.node || '-'],
-      ['数据目录', info.userDataDir || info.dataDir || '-'],
-      ['角色卡', String((state.characters || []).length) + ' 张'],
-      ['Live2D 模型', String((state.models || []).length) + ' 个'],
+      [t('about.app'), 'AILEEN ' + (info.version || '')],
+      [t('about.electron'), info.electron || '-'],
+      [t('about.node'), info.node || '-'],
+      [t('about.datadir'), info.userDataDir || info.dataDir || '-'],
+      [t('about.characters'), String((state.characters || []).length)],
+      [t('about.models'), String((state.models || []).length)],
     ];
     for (const [k, v] of rows) {
       const row = document.createElement('div');

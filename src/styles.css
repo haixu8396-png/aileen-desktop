@@ -12,6 +12,8 @@
   --radius: 12px;
 }
 * { box-sizing: border-box; margin: 0; padding: 0; }
+/* 全局兜底：以前只有各组件自己写 .xxx.hidden，漏掉的元素（如 #typing）会一直显示 */
+.hidden { display: none !important; }
 html, body { height: 100%; }
 body {
   background: var(--bg);
@@ -335,6 +337,67 @@ button.icon-btn.small { width: 30px; height: 30px; font-size: 14px; }
 .mc-error { color: #ff8a94; }
 
 /* ---------- 设置菜单分组 / 关于弹窗 ---------- */
+/* ---------- 设置菜单：语言行 ---------- */
+.menu-row {
+  display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  padding: 10px 14px; background: var(--panel2);
+  border: 1px solid var(--line); border-radius: 12px;
+}
+.menu-row-label { font-size: 14px; }
+.lang-switch { display: flex; gap: 4px; }
+.lang-switch button {
+  padding: 5px 12px; border-radius: 8px; border: 1px solid var(--line);
+  background: transparent; color: var(--muted); font-size: 12px; cursor: pointer;
+}
+.lang-switch button:hover { border-color: var(--accent); color: var(--text); }
+.lang-switch button.on { background: var(--accent); border-color: var(--accent); color: #fff; }
+
+/* ---------- 国际象棋 ---------- */
+.chess-layout { display: flex; gap: 16px; align-items: flex-start; }
+.chess-left { flex: none; }
+.chess-right { flex: 1; display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.chess-board {
+  width: 328px; height: 328px; display: grid;
+  grid-template-columns: repeat(8, 1fr); grid-template-rows: repeat(8, 1fr);
+  border: 1px solid var(--line); border-radius: 8px; overflow: hidden;
+}
+.csq { position: relative; display: flex; align-items: center; justify-content: center; font-size: 27px; line-height: 1; cursor: pointer; }
+.csq.light { background: #e9e0d1; }
+.csq.dark { background: #8b7b69; }
+.csq.sel { box-shadow: inset 0 0 0 3px #ffd166; }
+.csq.last { box-shadow: inset 0 0 0 3px rgba(56, 176, 222, 0.8); }
+.csq.can::after {
+  content: ''; position: absolute; width: 24%; height: 24%; border-radius: 50%;
+  background: rgba(76, 200, 100, 0.85); box-shadow: 0 0 6px rgba(0, 0, 0, 0.4);
+}
+.cpiece.w { color: #ffffff; text-shadow: 0 0 2px #000, 0 1px 2px rgba(0, 0, 0, 0.65); }
+.cpiece.b { color: #14151a; text-shadow: 0 0 2px rgba(255, 255, 255, 0.45); }
+.chess-status { margin-top: 8px; font-size: 13px; color: var(--muted); }
+.chess-status.over { color: #ffd166; }
+.chess-captured { margin-top: 6px; min-height: 22px; font-size: 17px; letter-spacing: 3px; color: var(--muted); }
+.chess-field { display: flex; align-items: center; justify-content: space-between; gap: 10px; font-size: 13px; color: var(--muted); }
+.seg { display: flex; gap: 4px; }
+.seg button {
+  padding: 5px 12px; border-radius: 8px; border: 1px solid var(--line);
+  background: var(--panel2); color: var(--text); font-size: 12px; cursor: pointer;
+}
+.seg button.on { background: var(--accent); border-color: var(--accent); color: #fff; }
+.chess-moves-title { font-size: 12px; color: var(--muted); }
+.chess-moves {
+  height: 148px; overflow-y: auto; background: #101116;
+  border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px;
+  font-size: 12px; font-family: Consolas, 'Courier New', monospace;
+}
+.mv-line { line-height: 1.75; }
+.mv-no { color: var(--muted); }
+.mv-b { color: var(--accent2); }
+.chess-comment {
+  background: var(--panel2); border: 1px solid var(--accent2);
+  border-radius: 8px; padding: 8px 10px; font-size: 12px; line-height: 1.6;
+}
+.chess-comment.hidden { display: none; }
+.chess-right label { display: flex; flex-direction: column; gap: 6px; font-size: 13px; color: var(--muted); }
+
 .menu-group-title {
   font-size: 11px; color: var(--muted); letter-spacing: 0.08em;
   margin: 6px 2px -2px; text-transform: uppercase;

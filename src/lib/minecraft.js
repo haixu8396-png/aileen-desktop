@@ -6,6 +6,7 @@ import { getSettings, saveSettings } from './settings.js';
 import { state } from './state.js';
 import { $, toast } from './dom.js';
 import { streamChat } from './llm.js';
+import { t } from './i18n.js';
 
 let autoReply = false;
 let replying = false;
@@ -40,25 +41,25 @@ function clearLog() { const box = el('mc-log'); if (box) box.innerHTML = ''; }
 function renderStatus(st) {
   const box = el('mc-status');
   if (!box) return;
-  if (!st) { box.textContent = '未连接'; box.className = 'mc-status'; return; }
+  if (!st) { box.textContent = t('mc.statusIdle'); box.className = 'mc-status'; return; }
   if (st.connected) {
     const bits = [
-      '已连接 ' + st.host + ':' + st.port,
-      '角色 ' + st.username,
+      t('mc.connected', { host: st.host, port: st.port }),
+      t('mc.botName', { name: st.username }),
       st.health != null ? '❤ ' + Math.round(st.health) : '',
       st.food != null ? '🍗 ' + Math.round(st.food) : '',
       st.pos ? '坐标 ' + st.pos.x + ',' + st.pos.y + ',' + st.pos.z : '',
-      st.players && st.players.length ? '在线 ' + st.players.length + ' 人' : '',
-      st.following ? '正在跟随 ' + st.following : '',
+      st.players && st.players.length ? t('mc.online', { n: st.players.length }) : '',
+      st.following ? t('mc.following', { name: st.following }) : '',
     ].filter(Boolean);
     box.textContent = bits.join(' · ');
     box.className = 'mc-status on';
   } else {
-    box.textContent = st.lastError ? '未连接 · ' + st.lastError : '未连接';
+    box.textContent = st.lastError ? t('mc.statusIdle') + ' · ' + st.lastError : t('mc.statusIdle');
     box.className = 'mc-status' + (st.lastError ? ' err' : '');
   }
   const btn = el('mc-connect');
-  if (btn) btn.textContent = st.connected ? '🔄 重新连接' : '🔌 连接服务器';
+  if (btn) btn.textContent = st.connected ? t('mc.reconnect') : t('mc.connect');
 }
 
 // ---------------- AI 自动回复 ----------------
@@ -71,9 +72,9 @@ function parseChatLine(text) {
 
 async function replyTo(player, message) {
   if (replying) return;
-  if (!getSettings().llm.apiKey) { appendLog({ type: 'error', text: 'AI 自动回复需要先在「⚙ 设置 → 对话设置」里填 API Key' }); return; }
+  if (!getSettings().llm.apiKey) { appendLog({ type: 'error', text: t('mc.needKey') }); return; }
   replying = true;
-  appendLog({ type: 'info', text: '正在思考怎么回 ' + player + ' …' });
+  appendLog({ type: 'info', text: t('mc.thinking', { name: player }) });
   try {
     const card = state.current && state.current.data ? state.current.data : null;
     const who = card && card.name ? card.name : 'AILEEN';
@@ -95,11 +96,11 @@ async function replyTo(player, message) {
       onDelta: (d) => { out += d; },
     });
     const clean = String(out).replace(/[\r\n]+/g, ' ').replace(/^["「『]+|[」』"]+$/g, '').trim();
-    if (!clean) { appendLog({ type: 'error', text: 'AI 没憋出话来，跳过' }); return; }
+    if (!clean) { appendLog({ type: 'error', text: t('mc.noReply') }); return; }
     const res = await window.api.mcSay(clean.slice(0, 200));
-    if (!res || !res.ok) appendLog({ type: 'error', text: '发言失败：' + ((res && res.error) || '未知错误') });
+    if (!res || !res.ok) appendLog({ type: 'error', text: t('mc.sayFailed') + ': ' + ((res && res.error) || '') });
   } catch (err) {
-    appendLog({ type: 'error', text: 'AI 回复失败：' + String((err && err.message) || err) });
+    appendLog({ type: 'error', text: t('llm.testFailed', { msg: String((err && err.message) || err) }) });
   } finally {
     replying = false;
   }
@@ -134,8 +135,8 @@ export function bindMc() {
     await saveMcSettings({ host, port, username, autoReply });
     clearLog();
     const res = await window.api.mcConnect({ host, port, username, auth: 'offline' });
-    if (res && res.ok === false) { toast(res.error || '连接失败', true); appendLog({ type: 'error', text: res.error || '连接失败' }); }
-    else toast('正在连接 ' + host + ':' + port + ' …');
+    if (res && res.ok === false) { toast(res.error || t('mc.connectFailed'), true); appendLog({ type: 'error', text: res.error || t('mc.connectFailed') }); }
+    else toast(t('mc.connecting', { host, port }));
   };
 
   el('mc-disconnect').onclick = async () => { await window.api.mcDisconnect(); renderStatus(await window.api.mcStatus()); };
@@ -144,14 +145,14 @@ export function bindMc() {
   el('mc-autoreply').onchange = async (e) => {
     autoReply = e.target.checked;
     await saveMcSettings({ autoReply });
-    toast(autoReply ? 'AI 会自动回复服务器聊天' : '已关闭自动回复');
+    toast(autoReply ? t('mc.autoOn') : t('mc.autoOff'));
   };
 
   el('mc-follow').onclick = async () => {
-    const name = prompt('要跟着哪个玩家走？（填游戏里的名字）', '');
+    const name = prompt(t('mc.follow'), '');
     if (!name) return;
     const res = await window.api.mcFollow(name.trim());
-    if (!res || !res.ok) toast((res && res.error) || '跟随失败', true);
+    if (!res || !res.ok) toast((res && res.error) || t('mc.followFailed'), true);
     renderStatus(await window.api.mcStatus());
   };
   el('mc-stopfollow').onclick = async () => { await window.api.mcStopFollow(); renderStatus(await window.api.mcStatus()); };
@@ -169,7 +170,7 @@ export function bindMc() {
     if (!text) return;
     input.value = '';
     const res = await window.api.mcSay(text);
-    if (!res || !res.ok) toast((res && res.error) || '发送失败', true);
+    if (!res || !res.ok) toast((res && res.error) || t('mc.sayFailed'), true);
   });
 
   window.api.onMcEvent((ev) => {

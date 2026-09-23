@@ -5,12 +5,13 @@ import { loadOml2d } from 'oh-my-live2d';
 import { state, hooks, tts } from './state.js';
 import { $, toast } from './dom.js';
 import { escapeHtml } from './markdown.js';
+import { t } from './i18n.js';
 
 export function initLive2D() {
   const container = $('stage-container');
   if (!container) return;
   if (!state.models.length) {
-    container.innerHTML = '<div class="stage-placeholder">还没有 Live2D 模型～<br>可以在「⚙ 设置 → 🎀 Live2D 模型设置」里<br>从文件夹导入或从网址加载。<br><button id="btn-goto-models" class="ghost">去添加模型</button></div>';
+    container.innerHTML = '<div class="stage-placeholder">' + t('stage.noModelsHint') + '<br><button id="btn-goto-models" class="ghost">' + t('stage.gotoModels') + '</button></div>';
     const go = container.querySelector('#btn-goto-models');
     if (go) go.onclick = () => openModelModal();
     return;
@@ -61,7 +62,7 @@ export function initLive2D() {
       console.error('[live2d] load failed:', err);
       const box = $('stage-container');
       if (box && !box.querySelector('canvas')) {
-        box.innerHTML = '<div class="stage-placeholder">Live2D 加载失败：' + escapeHtml(String(err && err.message || err)) + '</div>';
+        box.innerHTML = '<div class="stage-placeholder">' + escapeHtml(t('stage.loadFailed', { msg: String(err && err.message || err) })) + '</div>';
       }
     });
   }
@@ -96,13 +97,13 @@ export function refreshStageControls() {
     const groups = Object.keys(mm.motionGroups || {});
     mc.innerHTML = groups.length
       ? groups.map((g) => '<button class="chip" data-motion="' + escapeHtml(g) + '">' + escapeHtml(g) + '</button>').join('')
-      : '<span style="color:var(--muted);font-size:12px">无动作</span>';
+      : '<span style="color:var(--muted);font-size:12px">' + t('stage.none') + '</span>';
     const defs = (mm.expressionManager && mm.expressionManager.definitions) || [];
     ec.innerHTML = defs.length
       ? defs.map((d) => '<button class="chip" data-expr="' + escapeHtml(d.name) + '">' + escapeHtml(d.name) + '</button>').join('')
-      : '<span style="color:var(--muted);font-size:12px">无表情</span>';
+      : '<span style="color:var(--muted);font-size:12px">' + t('stage.none') + '</span>';
     mc.querySelectorAll('.chip').forEach((btn) => {
-      btn.onclick = () => { try { model.motion(btn.dataset.motion); } catch (e) { toast('动作失败: ' + e.message, true); } };
+      btn.onclick = () => { try { model.motion(btn.dataset.motion); } catch (e) { toast(t('stage.none') + ': ' + e.message, true); } };
     });
     ec.querySelectorAll('.chip').forEach((btn) => {
       btn.onclick = () => { try { model.expression(btn.dataset.expr); } catch (e) { toast('表情失败: ' + e.message, true); } };
@@ -152,7 +153,7 @@ export function updateStageModelName() {
   const hint = $('stage-model-name');
   if (!sel || !hint) return;
   const opt = sel.options[sel.selectedIndex];
-  hint.textContent = opt && opt.value !== '-1' ? opt.textContent : '未加载模型';
+  hint.textContent = opt && opt.value !== '-1' ? opt.textContent : t('stage.noModel');
 }
 
 export function populateStageModelSelect() {
@@ -160,7 +161,7 @@ export function populateStageModelSelect() {
   if (!el) return;
   el.innerHTML = state.models.length
     ? state.models.map((m, i) => '<option value="' + i + '">' + escapeHtml(m.name) + '</option>').join('')
-    : '<option value="-1">（无模型）</option>';
+    : '<option value="-1">' + t('char.unbound') + '</option>';
   updateStageModelName();
 }
 
@@ -202,7 +203,7 @@ export async function addModelFromFolder() {
   const list = await window.api.addModelFolder();
   if (list) {
     await refreshModelsAfterAdd();
-    toast('模型已导入到 models/ 目录');
+    toast(t('model.imported'));
   }
 }
 
@@ -214,7 +215,7 @@ export function showUrlForm() {
 export async function submitUrlForm() {
   const url = $('m-url-input').value.trim();
   const name = $('m-url-name').value.trim() || 'URL 模型';
-  if (!url) { toast('请输入模型网址', true); return; }
+  if (!url) { toast(t('model.needUrl'), true); return; }
   try {
     const list = await window.api.addModelUrl({ name, url });
     if (list) {
@@ -222,10 +223,10 @@ export async function submitUrlForm() {
       $('m-url-form').classList.add('hidden');
       $('m-url-input').value = '';
       $('m-url-name').value = '';
-      toast('URL 模型已添加');
+      toast(t('model.urlAdded'));
     }
   } catch (err) {
-    toast('添加失败: ' + String(err && err.message || err), true);
+    toast(t('model.addFailed', { msg: String(err && err.message || err) }), true);
   }
 }
 
@@ -235,7 +236,7 @@ export function renderUrlList() {
   const urls = state.models.filter((m) => m.source === 'url');
   box.innerHTML = '';
   if (!urls.length) {
-    box.innerHTML = '<div class="empty">暂无 URL 模型</div>';
+    box.innerHTML = '<div class="empty">' + t('model.noUrl') + '</div>';
     return;
   }
   for (const m of urls) {
@@ -256,7 +257,7 @@ export function renderUrlList() {
       populateStageModelSelect();
       rebuildLive2D();
       renderUrlList();
-      toast('已移除 ' + m.name);
+      toast(t('model.urlRemoved', { name: m.name }));
     };
     item.appendChild(nm);
     item.appendChild(url);
