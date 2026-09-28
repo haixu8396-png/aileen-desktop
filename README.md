@@ -1,61 +1,72 @@
 # ✦ AILEEN
 
-**An open-source desktop AI companion — a character that talks, moves, sees your screen, and plays games with you. Runs entirely on your own machine.**
-
-**English** | [日本語](./README.ja.md) | [简体中文](./README.zh-CN.md)
+**English** · [日本語](./README.ja.md) · [简体中文](./README.zh-CN.md)
 
 [![License](https://img.shields.io/badge/license-MIT-ff7eb3.svg)](./LICENSE)
-[![Platform](https://img.shields.io/badge/platform-Windows-38b0de.svg)](#install)
-[![Electron](https://img.shields.io/badge/electron-44-9aa0b4.svg)](https://www.electronjs.org/)
-[![Tests](https://img.shields.io/badge/tests-39%20passing-4ecdc4.svg)](./tests)
-[![Languages](https://img.shields.io/badge/languages-EN%20%7C%20JA%20%7C%20ZH-a78bfa.svg)](#interface-languages)
+[![Downloads](https://img.shields.io/github/downloads/haixu8396-png/aileen-desktop/total?color=38b0de)](../../releases)
+[![Platform](https://img.shields.io/badge/platform-Windows-9aa0b4.svg)](#install)
+[![Languages](https://img.shields.io/badge/languages-English%20%C2%B7%20日本語%20%C2%B7%20简体中文-a78bfa.svg)](#interface)
 
-[Download](../../releases/latest) · [Changelog](./CHANGELOG.md) · [Contributing](./CONTRIBUTING.md) · [Security](./SECURITY.md)
+### A desktop companion you actually own.
+
+AILEEN puts a character on your desktop. Not a chat window — a presence. A Live2D figure that breathes, blinks, looks at you, and speaks out loud in a voice you chose. You decide who it is; it decides how to say things.
+
+And when you're done talking, it will follow you into Minecraft, or sit down across the board for a game of chess.
+
+No account. No cloud. Your conversations, your API keys and your character cards never leave your computer.
 
 ---
 
-AILEEN puts a **Live2D character on your desktop** and gives it a brain, a voice, eyes and hands. It is not a chatbot in a browser tab — it is a small companion that lives next to your windows, remembers your conversations, and can join you in Minecraft or a game of chess.
+## Give it a body
 
-Everything stays local: API keys, chat logs, character cards and models never leave your machine. No account, no telemetry, no third-party server in the middle.
+Drop in any Live2D model — Cubism 2, 3 or 4 — and it becomes the face of your companion. It idles, breathes, plays motions, changes expressions, and moves its mouth while it talks. Import from a folder or load one straight from a URL.
 
-> Inspired by [moeru-ai/Airi](https://github.com/moeru-ai/airi) and the AI streamer [Neuro-sama](https://www.youtube.com/channel/UCLHmLrj4pHHg3-iBJn_CqxA).
+## Give it a voice
 
-## Highlights
+Press the mic and speak; it answers out loud and keeps listening. Leave it running for a real back-and-forth conversation, or use one-shot voice input when you would rather type. Four speech engines — your system voice, anything OpenAI-compatible, Fish Audio with voice cloning, or Xiaomi MiMo — across Chinese, English, Japanese and Spanish.
 
-| | |
-| --- | --- |
-| 🎀 **Live2D avatar** | Cubism 2/3/4 runtime included. Your character blinks, breathes, plays motions and changes expressions — and moves its mouth while speaking. |
-| 💬 **Bring your own model** | DeepSeek, OpenAI, Moonshot, SiliconFlow, Groq, Zhipu, Alibaba Bailian, Xiaomi MiMo, OpenRouter, or a local Ollama. Streaming replies, per-character prompts. |
-| 🎙 **Real voice conversation** | Speak → transcribe → the character answers → read aloud → keep listening. One continuous loop, no push-to-talk. |
-| 📷 **It can see your screen** | Pick any window or monitor and send it as an image, so the character can comment on what you are actually looking at. |
-| 🪟 **Borderless floating stage** | Float the character in a frameless, transparent, always-on-top window. **Click-through by default** — it never blocks the window underneath. The handle appears when you reach for it and fades when you stop. |
-| 🎮 **Minecraft companion** | Your character joins a Java server as a bot, follows you around, takes manual controls, chats — and answers other players in its own persona using your LLM. |
-| ♟ **Chess** | Five difficulty levels, play as white or black, undo, flip the board — and let your character comment on the position. |
-| 🗂 **Character cards** | Create, edit, duplicate, import and export. Bind a model and a voice to each card. |
-| 🎨 **Theming** | Six presets plus custom accent colours. |
+## Give it a mind
 
-## Interface languages
+Bring the model you already pay for: DeepSeek, OpenAI, Moonshot, SiliconFlow, Groq, Zhipu, Alibaba Bailian, Xiaomi MiMo or OpenRouter. Or keep it entirely offline with a local Ollama.
 
-The app ships in three languages and **starts in English**:
+Every character card carries its own name, portrait, personality, scenario, greeting and example dialogue. Two cards can share the same model brain and still feel like two completely different people — and Minecraft and chess use the same personality, so the character who teases you in chat is the character who teases you in-game.
 
-| Language | Coverage |
-| --- | --- |
-| English | default — complete (303 strings) |
-| 日本語 | complete (303 strings) |
-| 简体中文 | complete (303 strings) |
+## Give it eyes
 
-Switch any time from **Settings → 🌐 Language**, or from the native menu (`Alt`). The native application menu is localised too.
+Hand it a screenshot of any window or monitor and ask what it thinks. Useful for debugging, reading a chart, or complaining about a boss fight together.
+
+## Then let it out of the chat box
+
+**Minecraft.** Your character joins a Java server as a bot: it follows you around, takes manual steering, chats in the server chat, and — with auto-reply on — answers other players in its own voice and personality. Perched on a hill watching it try to pathfind after you is genuinely funny.
+
+**Chess.** Five difficulty levels, play as white or black, undo, flip the board, and let your character comment on the position as you go.
+
+## And let it off the leash of the window
+
+The **floating stage** lifts your character out of the app and onto your desktop: a frameless, transparent, always-on-top window with nothing in it but your character.
+
+It is **click-through by default**, so it never steals a click from whatever is underneath. The little handle only appears when you reach for it, and fades again when you stop. Drag it where you like, resize it, or lock it in place — it remembers.
+
+---
 
 ## Install
 
-Grab the newest build from [Releases](../../releases):
+Grab the newest build from **[Releases](../../releases)**.
 
-| File | What it is |
+| | |
 | --- | --- |
-| `AILEEN Setup x.x.x.exe` | **Installer (recommended)** — adds desktop and Start-menu shortcuts |
-| `AILEEN x.x.x.exe` | **Portable** — just double-click, nothing gets installed |
+| `AILEEN Setup x.x.x.exe` | **Installer** — adds desktop and Start-menu shortcuts. Recommended. |
+| `AILEEN x.x.x.exe` | **Portable** — double-click and go. Nothing is installed. |
 
 Windows 10 / 11, 64-bit.
+
+## Interface
+
+The app speaks **English, 日本語 and 简体中文** — completely, not half-translated. It starts in English.
+
+Switch any time from **Settings → 🌐 Language**, or straight from the native menu (`Alt`). The application menu itself is localised too.
+
+> Want to add a fourth language? Everything lives in `src/lib/i18n.js` plus a JSON file per language — pull requests are very welcome.
 
 ## Run from source
 
@@ -66,47 +77,50 @@ npm install
 npm start
 ```
 
-Node.js 18 or newer. The first run downloads Electron; if that is slow where you are, point `ELECTRON_MIRROR` at a mirror first.
-On Windows you can also just double-click `install.bat`.
+Node.js 18 or newer. The first run downloads Electron — if that is slow where you are, set `ELECTRON_MIRROR` to a mirror first. On Windows you can also just double-click `install.bat`.
 
 ## Build your own installer
 
 ```bash
-npm run dist      # NSIS installer + portable exe into release/
-npm test          # 39 unit tests
+npm run dist      # installer + portable exe, into release/
+npm test          # unit tests
 ```
 
 On Windows, `build-installer.bat` does the same thing.
 
-## How it is put together
+## Under the hood
 
 ```
-main.js                 Electron main process — windows, IPC, settings, local model server
-preload.js              contextBridge API surface
-mc-bot.cjs              Minecraft bot (mineflayer)
-shared/                 helpers shared by the main process and the tests
-  util.cjs              settings whitelist and validation
-  menu-i18n.cjs         native menu translations
-src/                    renderer (vanilla JS + Vite)
-  main.js               renderer entry, event wiring
-  overlay.html|js|css   the borderless floating stage window
-  lib/                  controllers — state, dom, stage, chat, characters-ui,
-                        modals, voice, minecraft, chess, i18n
-  lib/i18n.ja.json      Japanese dictionary
-  lib/i18n.zh.json      Simplified Chinese dictionary
-tests/                  vitest unit tests
+main.js               Electron main process — windows, IPC, settings, local model server
+preload.js            the contextBridge API surface
+mc-bot.cjs            Minecraft bot
+shared/               helpers shared by the main process and the tests
+src/                  the interface
+  main.js             entry point and event wiring
+  overlay.*           the floating stage window
+  lib/                state, dom, stage, chat, characters, modals, voice,
+                      minecraft, chess, i18n
+  lib/i18n.ja.json    Japanese strings
+  lib/i18n.zh.json    Simplified Chinese strings
+tests/                unit tests
 ```
 
-## Quality gates
+Nothing is fetched at runtime and nothing phones home. Models and avatars are served from a tiny local HTTP server so that Live2D's WebAssembly and texture loading work under `file://` — that server never listens outside your machine.
 
-Nothing gets released until CI passes. Every tag runs:
+## Credits
 
-1. **39 unit tests** — including persona-prompt regression tests that prove Minecraft and chess use *your* character card, and that prompts follow the interface language.
-2. **Dev smoke test** — no runtime errors; every settings modal opens; closing a sub-page returns to the parent menu; cancelling the theme editor rolls the preview back; Minecraft IPC answers; the chess board renders 64 squares; **zero untranslated strings**; switching language actually changes the UI; the “thinking” indicator is hidden.
-3. **Packaged-app smoke test** — all of the above against the built `.exe`, plus: the floating stage must be **click-through by default**, its handle must sit clear of the window resize border, and `mineflayer` / `mineflayer-pathfinder` must load from inside the asar.
+AILEEN stands on other people's generous work. Bundled with thanks:
+
+- [mineflayer](https://github.com/PrismarineJS/mineflayer) and [mineflayer-pathfinder](https://github.com/PrismarineJS/mineflayer-pathfinder) — MIT
+- [minecraft-protocol](https://github.com/PrismarineJS/node-minecraft-protocol) — BSD-3-Clause
+- [js-chess-engine](https://github.com/josefjadrny/js-chess-engine) — MIT
+- [oh-my-live2d](https://github.com/oh-my-live2d/oh-my-live2d) — MIT
+- [DOMPurify](https://github.com/cure53/DOMPurify) — Apache-2.0 or MIT
+
+The Live2D Cubism Core runtime is covered by Live2D's own licence, and any Live2D model you add carries its own terms — please respect the artist's.
+
+Inspired by [moeru-ai/Airi](https://github.com/moeru-ai/airi) and the AI streamer [Neuro-sama](https://www.youtube.com/channel/UCLHmLrj4pHHg3-iBJn_CqxA).
 
 ## License
 
 MIT — see [LICENSE](./LICENSE).
-
-Bundled third-party work: [mineflayer](https://github.com/PrismarineJS/mineflayer) and [mineflayer-pathfinder](https://github.com/PrismarineJS/mineflayer-pathfinder) (MIT), [minecraft-protocol](https://github.com/PrismarineJS/node-minecraft-protocol) (BSD-3-Clause), [js-chess-engine](https://github.com/josefjadrny/js-chess-engine) (MIT), [oh-my-live2d](https://github.com/oh-my-live2d/oh-my-live2d) (MIT), [DOMPurify](https://github.com/cure53/DOMPurify) (Apache-2.0 or MIT). The Live2D Cubism Core runtime carries Live2D's own licence.
