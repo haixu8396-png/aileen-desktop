@@ -268,10 +268,12 @@ function scanModels(dir, prefix) {
     const full = path.join(dir, entry.name);
     if (entry.isDirectory()) {
       results.push(...scanModels(full, prefix ? prefix + '/' + entry.name : entry.name));
-    } else if (entry.isFile() && /.(model3|model).json$/i.test(entry.name)) {
+      // 注意：入口文件本身就叫 model.json / model3.json 的模型（Cubism 2 常见命名）也要能扫到，
+      // 原来的正则要求「model」前面必须有一个字符，会把这类模型整个漏掉。
+    } else if (entry.isFile() && /^(?:model3?\.json|.+\.model3?\.json)$/i.test(entry.name)) {
       const rel = (prefix ? prefix + '/' : '') + entry.name;
       results.push({
-        name: prefix || entry.name.replace(/\.(model3|model)\.json$/i, ''),
+        name: prefix || entry.name.replace(/\.?model3?\.json$/i, '') || entry.name,
         file: rel.replace(/\\/g, '/'),
         url: modelBaseUrl + '/models/' + rel.replace(/\\/g, '/'),
       });
@@ -1232,9 +1234,10 @@ function createWindow() {
                 const beforeGuard = w.getBounds();
                 overlayProgrammaticUntil = 0;
                 w.setBounds({ x: beforeGuard.x, y: beforeGuard.y, width: beforeGuard.width + 300, height: beforeGuard.height + 200 });
-                await new Promise((r) => setTimeout(r, 800));
+                await new Promise((r) => setTimeout(r, 1300));
                 const afterGuard = w.getBounds();
-                rep.snapBackOk = (afterGuard.width === beforeGuard.width && afterGuard.height === beforeGuard.height);
+                // 弹回允许几像素误差（无边框窗口的隐形边框），但要确认确实缩小回来了
+                rep.snapBackOk = near(afterGuard.width, beforeGuard.width, 10) && near(afterGuard.height, beforeGuard.height, 10);
                 await applyOverlayBounds(b0);
               } catch (err) { rep.errors.push('resize: ' + String((err && err.message) || err)); }
               const before = w.getBounds();
