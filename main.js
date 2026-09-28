@@ -1024,8 +1024,18 @@ function createWindow() {
               const handleShown = !document.getElementById('btn-expand-sidebar').classList.contains('hidden');
               cs.click();
               sideCollapseOk = collapsed && handleShown && !app.classList.contains('side-collapsed');
+              // CI 用的是全新数据目录，可能一张角色卡都没有 ——
+              // 那就先自己造一张，否则这个断言在空列表下是空转，还会误报失败。
+              let before = document.querySelectorAll('#char-list .char-item').length;
+              let tempFile = null;
+              if (before === 0) {
+                const wr = await window.api.writeCharacter('_uifilter', { name: 'UI filter probe', description: '', personality: '', scenario: '', first_mes: '', mes_example: '', system_prompt: '', model: '', voice: '', createdAt: Date.now(), updatedAt: Date.now() }, 'create');
+                tempFile = (wr && wr.file) || '_uifilter.json';
+                if (typeof window.__AILEEN_REFRESH === 'function') await window.__AILEEN_REFRESH();
+                await new Promise((r) => setTimeout(r, 250));
+                before = document.querySelectorAll('#char-list .char-item').length;
+              }
               const searchEl = document.getElementById('char-search');
-              const before = document.querySelectorAll('#char-list .char-item').length;
               searchEl.value = 'zzz-no-such-character';
               searchEl.dispatchEvent(new Event('input', { bubbles: true }));
               const none = document.querySelectorAll('#char-list .char-item').length;
@@ -1033,6 +1043,10 @@ function createWindow() {
               searchEl.dispatchEvent(new Event('input', { bubbles: true }));
               const all = document.querySelectorAll('#char-list .char-item').length;
               searchFilterOk = before > 0 && none === 0 && all === before;
+              if (tempFile) {
+                await window.api.deleteCharacter(tempFile);
+                if (typeof window.__AILEEN_REFRESH === 'function') await window.__AILEEN_REFRESH();
+              }
             } catch (err) { window.__AILEEN_ERRORS.push('uiTest: ' + String((err && err.message) || err)); }
             ['t-cancel', 'm-cancel', 'menu-cancel'].forEach((id) => {
               const el = document.getElementById(id);
