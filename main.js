@@ -72,6 +72,8 @@ const DEFAULT_SETTINGS = {
   behavior: {
     greetingOnLoad: true,
     autoScroll: true,
+    narration: 'natural',   // off | rare | natural | rich —— 括号里的动作/心理活动
+    pacing: 'natural',      // off | rare | natural —— 回复是否可以带停顿拆成多条
   },
   extraModels: [],   // [{ name, url }] 通过 URL 添加的 Live2D 模型
   theme: {           // 外观调色
@@ -95,6 +97,9 @@ const DEFAULT_SETTINGS = {
     autoReply: false,
   },
   language: 'en',    // 界面语言：en（默认）/ ja / zh
+  stage: {           // Live2D 舞台视图偏好
+    scale: 0.3,
+  },
   chess: {           // 国际象棋
     level: 3,
     playerColor: 'white',
@@ -347,13 +352,36 @@ function overlayBounds() {
   };
 }
 
-/** 唯一合法的改尺寸入口：先登记期望尺寸，再 setBounds，避免被兜底逻辑弹回 */
-function applyOverlayBounds(next) {
+const sleepMs = (ms) => new Promise((r) => setTimeout(r, ms));
+
+/** 唯一合法的改尺寸入口：登记期望尺寸 → 临时解禁 → setBounds → 立刻锁回 */
+async function applyOverlayBounds(next) {
   if (!overlayWin || overlayWin.isDestroyed()) return null;
   overlayExpectedSize = { width: next.width, height: next.height };
-  overlayProgrammaticUntil = Date.now() + 500;
+  overlayProgrammaticUntil = Date.now() + 900;
+  const locked = !overlayWin.isResizable();
+  if (locked) { overlayWin.setResizable(true); await sleepMs(50); }
   overlayWin.setBounds(next);
+  await sleepMs(50);
+  if (locked) { overlayWin.setResizable(false); }
+  reassertOverlayIgnore();
   return overlayWin.getBounds();
+}
+
+/** 工具条 −/＋ 的入口：以右下角为锚点缩放 */
+async function resizeOverlayBy(dw, dh) {
+  if (!overlayWin || overlayWin.isDestroyed()) return null;
+  const b = overlayWin.getBounds();
+  const width = Math.min(1400, Math.max(220, b.width + dw));
+  const height = Math.min(1600, Math.max(260, b.height + dh));
+  const r = await applyOverlayBounds({
+    x: b.x + (b.width - width),
+    y: b.y + (b.height - height),
+    width,
+    height,
+  });
+  persistOverlayBounds();
+  return r;
 }
 
 function persistOverlayBounds() {
@@ -362,7 +390,12 @@ function persistOverlayBounds() {
     overlayPersistTimer = null;
     if (!overlayWin || overlayWin.isDestroyed()) return;
     const b = overlayWin.getBounds();
-    try { writeSettings({ overlay: { x: b.x, y: b.y, width: b.width, height: b.height } }); }
+    // 尺寸要存「程序化设定的值」，不能存 Windows 回读的实际值：
+    // 无边框窗口带隐形边框，回读值比请求值大 1~6px；
+    // 存回读值的话，下次启动拿这个更大的值再请求，又再大几像素 ——
+    // 每轮增长一点，表现出来就是「窗口自己越变越大」。
+    const size = overlayExpectedSize || { width: b.width, height: b.height };
+    try { writeSettings({ overlay: { x: b.x, y: b.y, width: size.width, height: size.height } }); }
     catch (err) { console.error('[overlay] persist failed:', err); }
   }, 400);
 }
@@ -374,9 +407,37 @@ function broadcastOverlayState() {
   }
 }
 
+/**
+ * 强制重申一遍穿透状态。
+ * setResizable() 在 Windows 上会重建窗口样式，穿透状态可能被一并重置，
+ * 所以每次程序化改完尺寸都要重申一次，不能依赖缓存。
+ */
+function reassertOverlayIgnore() {
+  if (!overlayWin || overlayWin.isDestroyed()) return;
+  overlayIgnoring = null; // 让 setOverlayIgnore 一定真的调用一次
+  setOverlayIgnore(!overlayShouldCapture());
+}
+
+// 拖拽超时兜底：正常情况下 pointermove 会不停刷新它。
+// 万一 pointerup 丢了（窗口中途改尺寸、指针捕获失效…），overlayDrag 会一直是 set 状态，
+// overlayShouldCapture() 就永远返回 true —— 展台会永久吃掉鼠标，底下全点不动。
+let overlayDragTimer = null;
+function armDragTimeout() {
+  if (overlayDragTimer) clearTimeout(overlayDragTimer);
+  overlayDragTimer = setTimeout(() => {
+    overlayDragTimer = null;
+    if (overlayDrag) {
+      overlayDrag = null;
+      persistOverlayBounds();
+      reassertOverlayIgnore();
+    }
+  }, 4000);
+}
+
 function setOverlayIgnore(ignore) {
   if (!overlayWin || overlayWin.isDestroyed()) return;
   if (overlayIgnoring === ignore) return;
+  if (overlayIgnoring === null) overlayIgnoring = !ignore; // 走完下面这次调用
   overlayIgnoring = ignore;
   overlayWin.setIgnoreMouseEvents(ignore, { forward: true });
 }
@@ -426,7 +487,9 @@ function destroyOverlayWindow() {
 
 function createOverlayWindow() {
   if (overlayWin && !overlayWin.isDestroyed()) return overlayWin;
-  overlayInteractive = !!overlaySettings().interactive;
+  // 刻意不恢复上次的「角色可点击」：那是使用时临时开的开关。
+  // 如果持久化，上次误开一次，之后每次启动展台都会吃掉桌面点击 —— 表现就是「点都点不了」。
+  overlayInteractive = false;
   const overlayPath = path.join(APP_ROOT, 'dist', 'overlay.html');
   if (!process.env.AILEEN_DEV_URL && !fs.existsSync(overlayPath)) {
     console.error('[overlay] 缺少构建产物 dist/overlay.html，请先 npm run build');
@@ -438,14 +501,10 @@ function createOverlayWindow() {
     transparent: true,
     backgroundColor: '#00000000',
     hasShadow: false,
-    // 「拖动自己变大」的元凶：frameless 窗口仍带 WS_THICKFRAME，
-    // ① 拖到屏幕边缘触发 Windows 的 Aero Snap（半屏 / 最大化）
-    // ② 按住右下角被当成缩放。
-    // 试过 thickFrame:false / resizable:false —— 两者都会连带废掉 setBounds，
-    // −/＋ 按钮就失效了（实测 programmaticResizeOk=false）。
-    // 最终方案：保留缩放能力，只拦「用户发起的缩放」（will-resize），
-    // 再加一层尺寸兜底（resize 事件发现尺寸不是程序化设定的值就立刻弹回）。
-    resizable: true,
+    // 尺寸只允许用工具条的 −/＋ 改，用户不能自己拖边/拖角/贴边缩放。
+    // resizable:false 会让 Windows 忽略 setBounds 的尺寸变化，所以程序化改尺寸时
+    // 走「临时解禁 → setBounds → 立刻锁回」的流程（见 resizeOverlayBy）。
+    resizable: false,
     minimizable: false,
     maximizable: false,
     fullscreenable: false,
@@ -491,6 +550,7 @@ function createOverlayWindow() {
     if (exp && (Math.abs(b.width - exp.width) > 4 || Math.abs(b.height - exp.height) > 4)) {
       overlayProgrammaticUntil = Date.now() + 400;
       overlayWin.setBounds({ x: b.x, y: b.y, width: exp.width, height: exp.height });
+      reassertOverlayIgnore();
     }
   });
   overlayWin.on('moved', persistOverlayBounds);
@@ -538,7 +598,7 @@ function registerOverlayIpc() {
   });
   ipcMain.handle('overlay:interactive', (_e, on) => {
     overlayInteractive = !!on;
-    writeSettings({ overlay: { interactive: overlayInteractive } });
+    // 只影响本次运行，不写进设置（见上面的理由）
     setOverlayIgnore(!overlayShouldCapture());
     broadcastOverlayState();
     return overlayInteractive;
@@ -554,20 +614,12 @@ function registerOverlayIpc() {
     theme: readSettings().theme || {},
     language: readSettings().language || 'en',
   }));
-  ipcMain.handle('overlay:resize', (_e, payload) => {
-    if (!overlayWin || overlayWin.isDestroyed()) return null;
-    const b = overlayWin.getBounds();
+  ipcMain.handle('overlay:resize', async (_e, payload) => {
     const dw = Math.round((payload && payload.dw) || 0);
     const dh = Math.round((payload && payload.dh) || 0);
-    const width = Math.min(1400, Math.max(220, b.width + dw));
-    const height = Math.min(1600, Math.max(260, b.height + dh));
-    // 以右下角为锚点缩放
-    const next = { x: b.x + (b.width - width), y: b.y + (b.height - height), width, height };
-    applyOverlayBounds(next);
-    persistOverlayBounds();
-    return overlayWin.getBounds();
+    return resizeOverlayBy(dw, dh);
   });
-  ipcMain.handle('overlay:reset', () => {
+  ipcMain.handle('overlay:reset', async () => {
     if (!overlayWin || overlayWin.isDestroyed()) return null;
     const width = 380;
     const height = 640;
@@ -575,13 +627,14 @@ function registerOverlayIpc() {
     const x = area.x + area.width - width - 28;
     const y = area.y + area.height - height - 28;
     writeSettings({ overlay: { x: null, y: null, width, height } });
-    return applyOverlayBounds({ x, y, width, height });
+    return await applyOverlayBounds({ x, y, width, height });
   });
   ipcMain.handle('overlay:dragStart', () => {
     if (!overlayWin || overlayWin.isDestroyed()) return false;
     const pt = screen.getCursorScreenPoint();
     const b = overlayWin.getBounds();
     overlayDrag = { dx: pt.x - b.x, dy: pt.y - b.y };
+    armDragTimeout();
     setOverlayIgnore(false);
     return true;
   });
@@ -589,9 +642,11 @@ function registerOverlayIpc() {
     if (!overlayDrag || !overlayWin || overlayWin.isDestroyed()) return false;
     const pt = screen.getCursorScreenPoint();
     overlayWin.setPosition(Math.round(pt.x - overlayDrag.dx), Math.round(pt.y - overlayDrag.dy));
+    armDragTimeout();
     return true;
   });
   ipcMain.handle('overlay:dragEnd', () => {
+    if (overlayDragTimer) { clearTimeout(overlayDragTimer); overlayDragTimer = null; }
     overlayDrag = null;
     persistOverlayBounds();
     setOverlayIgnore(!overlayShouldCapture());
@@ -652,6 +707,7 @@ function buildAppMenu(lang) {
         { label: M.llm, click: () => sendMenuAction('llm') },
         { label: M.tts, click: () => sendMenuAction('tts') },
         { label: M.stt, click: () => sendMenuAction('stt') },
+        { label: M.perform, click: () => sendMenuAction('perform') },
         { label: M.model, click: () => sendMenuAction('model') },
         { label: M.theme, click: () => sendMenuAction('theme') },
       ],
@@ -660,6 +716,13 @@ function buildAppMenu(lang) {
       label: M.stageGroup,
       submenu: [
         { label: M.toggleStage, accelerator: 'CmdOrCtrl+Shift+S', click: () => toggleOverlayWindow() },
+        { label: M.fixClickThrough, click: () => {
+          // 逃生阀：万一展台卡在「接收鼠标」状态把桌面点击全吃了，这里一键恢复穿透
+          overlayInteractive = false;
+          overlayDrag = null;
+          if (overlayDragTimer) { clearTimeout(overlayDragTimer); overlayDragTimer = null; }
+          reassertOverlayIgnore();
+        } },
         { label: M.resetStage, click: () => {
           if (!overlayWin || overlayWin.isDestroyed()) { createOverlayWindow(); }
           setTimeout(() => {
@@ -782,7 +845,7 @@ function createWindow() {
               if (cancel) cancel.click();
             }
             // 点击测试：设置菜单 → 各设置弹窗
-            const modalOpens = { menu: false, llm: false, tts: false, stt: false, model: false, theme: false };
+            const modalOpens = { menu: false, llm: false, tts: false, stt: false, model: false, theme: false, perform: false };
             const menuBtn = document.getElementById('btn-settings-menu');
             if (menuBtn) {
               menuBtn.click();
@@ -794,7 +857,7 @@ function createWindow() {
               if (target) modalOpens[target.replace('modal-', '')] = !document.getElementById(target).classList.contains('hidden');
             });
             // 收尾：强制关掉被点开的弹窗，回到干净状态再做行为断言
-            ['modal-about', 'modal-llm', 'modal-tts', 'modal-stt', 'modal-model', 'modal-theme', 'modal-menu'].forEach((id) => {
+            ['modal-about', 'modal-llm', 'modal-tts', 'modal-stt', 'modal-model', 'modal-theme', 'modal-perform', 'modal-menu'].forEach((id) => {
               const el = document.getElementById(id);
               if (el) el.classList.add('hidden');
             });
@@ -838,6 +901,8 @@ function createWindow() {
             // 行为断言⑥：加载完 #typing（正在思考…）必须是隐藏的
             const typingHidden = document.getElementById('typing').classList.contains('hidden');
             let langOk = false;
+            let repLangAttr = '';
+            let repLangWant = '';
             let i18nMissing = 0;
             let langSwitchCount = 0;
             let chessModalOk = false;
@@ -855,7 +920,11 @@ function createWindow() {
                 chessModalOk = !document.getElementById('modal-chess').classList.contains('hidden') && chessSquares === 64;
                 document.getElementById('chess-close').click();
               }
-              langOk = document.documentElement.lang === 'en';
+              const curLang = ((await window.api.getSettings()) || {}).language || 'en';
+              const wantLang = curLang === 'zh' ? 'zh-CN' : curLang;
+              repLangAttr = document.documentElement.lang;
+              repLangWant = wantLang;
+              langOk = document.documentElement.lang === wantLang;
             } catch (err) { window.__AILEEN_ERRORS.push('i18nTest: ' + String((err && err.message) || err)); }
             // 行为断言⑤：语言切换真的生效（日文 / 中文 / 英文各点一遍，并检查有无回退到 key）
             let langSwitchWorks = false;
@@ -878,6 +947,91 @@ function createWindow() {
                 langSwitchWorks = !!jaText && !!zhText && jaText !== zhText && jaMissingKeys === 0;
               }
             } catch (err) { window.__AILEEN_ERRORS.push('langTest: ' + String((err && err.message) || err)); }
+            // 行为断言⑦：新界面 —— 折叠、搜索过滤、舞台换模型/缩放、重新生成、状态点
+            // 行为断言⑧：对话内核 —— 标记解析在打包产物里可用（标记跨 chunk + 摘除）
+            // 行为断言⑨：表演设置可调 —— 打开弹窗、改档位、保存后设置真的变了
+            // 行为断言⑩：界面没有被隐形元素遮挡（「点都点不了」探测器）
+            // 用 elementFromPoint 在几个关键位置做命中测试，命中的元素必须落在 #app 里。
+            // 如果某个固定定位的弹窗/遮罩没被正确隐藏，这里就会抓到。
+            let uiBlockedBy = [];
+            try {
+              // 先回到「静止状态」：把所有弹窗关掉，再测有没有东西挡住界面
+              document.querySelectorAll('.modal').forEach((m) => m.classList.add('hidden'));
+              const pts = [[160, 60], [200, 300], [420, 120], [420, 500], [900, 80], [900, 400], [1150, 300]];
+              for (const p of pts) {
+                const el = document.elementFromPoint(p[0], p[1]);
+                if (!el) continue;
+                if (el === document.body || el === document.documentElement) continue;
+                if (!el.closest('#app')) {
+                  uiBlockedBy.push((el.id || el.className || el.tagName) + '@' + p[0] + ',' + p[1]);
+                }
+              }
+            } catch (err) { window.__AILEEN_ERRORS.push('hitTest: ' + String((err && err.message) || err)); }
+            let performOk = false;
+            let performDetail = null;
+            try {
+              const entry = document.querySelector('#modal-menu .menu-list button[data-target="modal-perform"]');
+              if (entry) {
+                entry.click();
+                const opened = !document.getElementById('modal-perform').classList.contains('hidden');
+                const narrOpts = document.querySelectorAll('#p-narration option').length;
+                const paceOpts = document.querySelectorAll('#p-pacing option').length;
+                const before = (((await window.api.getSettings()) || {}).behavior) || {};
+                document.getElementById('p-narration').value = 'off';
+                document.getElementById('p-pacing').value = 'rare';
+                document.getElementById('p-save').click();
+                await new Promise((r) => setTimeout(r, 500));
+                const after = (((await window.api.getSettings()) || {}).behavior) || {};
+                performDetail = { opened, narrOpts, paceOpts, before: before.narration, after: after.narration, afterPace: after.pacing };
+                performOk = opened && narrOpts === 4 && paceOpts === 3 && after.narration === 'off' && after.pacing === 'rare';
+                // 还原成默认，别把用户设置留在测试档位
+                document.getElementById('p-narration').value = 'natural';
+                document.getElementById('p-pacing').value = 'natural';
+                document.getElementById('p-save').click();
+                await new Promise((r) => setTimeout(r, 500));
+              }
+            } catch (err) { window.__AILEEN_ERRORS.push('performTest: ' + String((err && err.message) || err)); }
+            let pacerProbeOk = false;
+            let pacerProbeDetail = null;
+            try {
+              if (typeof window.__AILEEN_PROBE_PACER === 'function') {
+                const pp = await window.__AILEEN_PROBE_PACER();
+                pacerProbeDetail = pp;
+                pacerProbeOk = pp.text === '在？算了没事' && pp.breaks === 1 && pp.waits.join(',') === '2000';
+              }
+            } catch (err) { window.__AILEEN_ERRORS.push('pacerProbe: ' + String((err && err.message) || err)); }
+            let markerProbeOk = false;
+            let markerProbeDetail = null;
+            try {
+              if (typeof window.__AILEEN_PROBE_MARKERS === 'function') {
+                const pr = window.__AILEEN_PROBE_MARKERS();
+                markerProbeDetail = pr;
+                markerProbeOk = pr.text === 'ABC' && pr.kinds.join(',') === 'motion,expr';
+              }
+            } catch (err) { window.__AILEEN_ERRORS.push('markerProbe: ' + String((err && err.message) || err)); }
+            let uiElementsOk = false;
+            let sideCollapseOk = false;
+            let searchFilterOk = false;
+            try {
+              uiElementsOk = ['btn-regen', 'stage-model', 'stage-scale', 'chat-status', 'char-search', 'drop-hint', 'btn-expand-sidebar', 'btn-expand-stage']
+                .every((id) => !!document.getElementById(id));
+              const app = document.getElementById('app');
+              const cs = document.getElementById('btn-collapse-sidebar');
+              cs.click();
+              const collapsed = app.classList.contains('side-collapsed');
+              const handleShown = !document.getElementById('btn-expand-sidebar').classList.contains('hidden');
+              cs.click();
+              sideCollapseOk = collapsed && handleShown && !app.classList.contains('side-collapsed');
+              const searchEl = document.getElementById('char-search');
+              const before = document.querySelectorAll('#char-list .char-item').length;
+              searchEl.value = 'zzz-no-such-character';
+              searchEl.dispatchEvent(new Event('input', { bubbles: true }));
+              const none = document.querySelectorAll('#char-list .char-item').length;
+              searchEl.value = '';
+              searchEl.dispatchEvent(new Event('input', { bubbles: true }));
+              const all = document.querySelectorAll('#char-list .char-item').length;
+              searchFilterOk = before > 0 && none === 0 && all === before;
+            } catch (err) { window.__AILEEN_ERRORS.push('uiTest: ' + String((err && err.message) || err)); }
             ['t-cancel', 'm-cancel', 'menu-cancel'].forEach((id) => {
               const el = document.getElementById(id);
               if (el) el.click();
@@ -971,11 +1125,23 @@ function createWindow() {
               mcModalOk,
               typingHidden,
               langOk,
+              langAttr: repLangAttr,
+              langWant: repLangWant,
               i18nMissing,
               langSwitchCount,
               chessModalOk,
               chessSquares,
               langSwitchWorks,
+              uiElementsOk,
+              markerProbeOk,
+              markerProbeDetail,
+              pacerProbeOk,
+              pacerProbeDetail,
+              performOk,
+              performDetail,
+              uiBlockedBy,
+              sideCollapseOk,
+              searchFilterOk,
               jaText,
               zhText,
               jaMissingKeys,
@@ -1041,14 +1207,27 @@ function createWindow() {
               // ① −/＋ 走的程序化缩放通道必须有效（applyOverlayBounds 就是按钮的入口）
               try {
                 const b0 = w.getBounds();
-                applyOverlayBounds({ x: b0.x, y: b0.y, width: b0.width + 40, height: b0.height + 64 });
+                await applyOverlayBounds({ x: b0.x, y: b0.y, width: b0.width + 40, height: b0.height + 64 });
                 await new Promise((r) => setTimeout(r, 300));
                 const b1 = w.getBounds();
-                rep.programmaticResizeOk = (b1.width === b0.width + 40 && b1.height === b0.height + 64);
+                // Windows 会给无边框窗口加隐形边框，回读值允许几像素误差
+                const near = (a, b2, tol) => Math.abs(a - b2) <= tol;
+                rep.programmaticResizeOk = near(b1.width, b0.width + 40, 6) && near(b1.height, b0.height + 64, 6);
+                // 关键：改完尺寸必须回到「用户不能缩放」状态
+                rep.userResizeDisabled = !w.isResizable();
+                rep.resizeProbe = {
+                  b0: [b0.width, b0.height],
+                  b1: [b1.width, b1.height],
+                  want: [b0.width + 40, b0.height + 64],
+                  expected: overlayExpectedSize ? [overlayExpectedSize.width, overlayExpectedSize.height] : null,
+                  persisted: [overlaySettings().width, overlaySettings().height],
+                };
                 rep.userResizable = w.isResizable();
                 // 关键不变量：交互热区必须离窗口边缘足够远
                 rep.hitMarginRight = overlayHit ? Math.round(b1.width - (overlayHit.x + overlayHit.w)) : -1;
                 rep.hitMarginBottom = overlayHit ? Math.round(b1.height - (overlayHit.y + overlayHit.h)) : -1;
+                // 改完尺寸后必须仍然是穿透的（setResizable 会重置 Windows 窗口样式）
+                rep.ignoringAfterResize = overlayIgnoring;
                 // ② 模拟系统把窗口意外放大（Aero Snap / 拖动越界），兜底必须把它弹回去
                 const beforeGuard = w.getBounds();
                 overlayProgrammaticUntil = 0;
@@ -1056,14 +1235,20 @@ function createWindow() {
                 await new Promise((r) => setTimeout(r, 800));
                 const afterGuard = w.getBounds();
                 rep.snapBackOk = (afterGuard.width === beforeGuard.width && afterGuard.height === beforeGuard.height);
-                applyOverlayBounds(b0);
+                await applyOverlayBounds(b0);
               } catch (err) { rep.errors.push('resize: ' + String((err && err.message) || err)); }
               const before = w.getBounds();
               overlayDrag = { dx: 10, dy: 10 };
               w.setPosition(before.x - 60, before.y - 40);
               const after = w.getBounds();
               rep.moved = after.x !== before.x || after.y !== before.y;
+              // 移动/拖拽之后也必须仍然是穿透的
+              rep.ignoringAfterMove = overlayIgnoring;
               overlayDrag = null;
+              // 自检改过尺寸，把持久化值复位成创建时的尺寸，避免跑多轮后越漂越大
+              if (rep.bounds) {
+                try { writeSettings({ overlay: { width: rep.bounds.width, height: rep.bounds.height } }); } catch (err) { /* ignore */ }
+              }
               try {
                 const shot = await w.webContents.capturePage();
                 fs.writeFileSync(path.join(DIR3, 'overlay.png'), shot.toPNG());

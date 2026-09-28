@@ -9,19 +9,28 @@
 </head>
 <body>
 <div id="app">
-  <!-- Left: character list -->
+  <!-- Left: characters -->
   <aside id="sidebar">
-    <div class="logo"><span class="logo-heart">✦</span> AILEEN</div>
-    <div class="sidebar-actions">
-      <button id="btn-new-card" class="primary block" data-i18n="nav.newChar">＋ New Character</button>
-      <button id="btn-import-card" class="ghost block" data-i18n="nav.importCard">Import Card</button>
+    <div class="side-head">
+      <div class="logo"><span class="logo-heart">✦</span> AILEEN</div>
+      <button id="btn-collapse-sidebar" class="icon-btn tiny" data-i18n-title="sidebar.collapse" title="Collapse">‹</button>
     </div>
-    <div class="list-label" data-i18n="nav.characters">Characters</div>
-    <div id="char-list" class="char-list"></div>
-    <div class="list-label" data-i18n="nav.config">Config</div>
-    <div class="sidebar-foot-col">
-      <button id="btn-settings-menu" class="ghost block" data-i18n="nav.settings">⚙ Settings</button>
-      <button id="btn-open-data" class="ghost block" data-i18n="nav.dataDir">📂 Data Folder</button>
+
+    <div class="sidebar-actions">
+      <button id="btn-new-card" class="primary block" data-i18n-title="sidebar.newTip" data-i18n="nav.newChar">＋ New Character</button>
+      <button id="btn-import-card" class="ghost block" data-i18n-title="sidebar.importTip" data-i18n="nav.importCard">Import Card</button>
+    </div>
+
+    <div class="side-search">
+      <span class="search-icon" aria-hidden="true">🔍</span>
+      <input id="char-search" type="search" autocomplete="off" data-i18n-ph="sidebar.search" placeholder="Search characters…" />
+    </div>
+
+    <div class="side-body"><div id="char-list" class="char-list"></div></div>
+
+    <div class="side-foot">
+      <button id="btn-settings-menu" class="ghost block" data-i18n-title="app.settingsTip" data-i18n="nav.settings">⚙ Settings</button>
+      <button id="btn-open-data" class="ghost block" data-i18n-title="app.dataTip" data-i18n="nav.dataDir">📂 Data Folder</button>
     </div>
   </aside>
 
@@ -33,8 +42,10 @@
         <strong id="chat-name">…</strong>
         <span id="chat-desc"></span>
       </div>
+      <span id="chat-status" class="status-dot off" data-i18n-title="chat.statusNoKey"></span>
       <div class="chat-actions">
         <button id="btn-speak" class="icon-btn" data-i18n-title="chat.speakTitle" title="Read the last reply aloud">🔊</button>
+        <button id="btn-regen" class="icon-btn" data-i18n-title="chat.regenerate" title="Regenerate">↻</button>
         <button id="btn-stop" class="icon-btn" data-i18n-title="chat.stopTitle" title="Stop" disabled>⏹</button>
         <button id="btn-clear" class="icon-btn" data-i18n-title="chat.clearTitle" title="Clear conversation">🗑</button>
         <button id="btn-char-actions" class="icon-btn" data-i18n-title="chat.menuTitle" title="Character menu">⋯</button>
@@ -57,21 +68,30 @@
       <textarea id="input" rows="1" data-i18n-ph="chat.inputPlaceholder" placeholder="Say something…"></textarea>
       <button id="btn-send" class="primary" data-i18n="chat.send">Send</button>
     </footer>
+    <div id="drop-hint" class="drop-hint hidden" data-i18n="chat.dropHint">Drop an image to attach it</div>
+    <button id="btn-expand-sidebar" class="edge-toggle left hidden" data-i18n-title="sidebar.expand" title="Expand">›</button>
+    <button id="btn-expand-stage" class="edge-toggle right hidden" data-i18n-title="stage.expand" title="Show the stage">‹</button>
   </main>
 
   <!-- Right: Live2D stage -->
   <aside id="stage-panel">
     <div class="stage-head">
       <span data-i18n="stage.title">Live2D Stage</span>
-      <span class="stage-hint" id="stage-model-name">No model loaded</span>
+      <button id="btn-collapse-stage" class="icon-btn tiny" data-i18n-title="stage.collapse" title="Hide the stage">›</button>
+    </div>
+    <div class="stage-model-bar">
+      <select id="stage-model" data-i18n-title="stage.changeModel"></select>
+      <button id="btn-stage-import" class="icon-btn tiny" data-i18n-title="stage.importModel" title="Import a model">📁</button>
+      <button id="btn-stage-refresh" class="icon-btn tiny" data-i18n-title="stage.refreshModels" title="Refresh">🔄</button>
     </div>
     <div id="stage-container" class="stage-container"></div>
     <div class="stage-controls">
       <div class="ctl-row"><label data-i18n="stage.motion">Motion</label><div id="motion-chips" class="chips"></div></div>
       <div class="ctl-row"><label data-i18n="stage.expression">Expression</label><div id="expr-chips" class="chips"></div></div>
+      <div class="ctl-row"><label data-i18n="stage.scale">Size</label><input id="stage-scale" type="range" min="0.15" max="1.2" step="0.05" /></div>
       <div class="ctl-row">
         <div class="chips">
-          <button id="btn-float-stage" class="chip" data-i18n-title="menu.overlaySub" data-i18n="menu.overlay">🖼 Borderless Stage</button>
+          <button id="btn-float-stage" class="chip" data-i18n-title="stage.floatTip" data-i18n="menu.overlay">🖼 Borderless Stage</button>
         </div>
       </div>
     </div>
@@ -244,6 +264,7 @@
       <button data-target="modal-llm"><span class="menu-label" data-i18n="menu.llm">💬 Chat Settings (LLM)</span><span class="menu-sub" id="menu-sub-llm"></span></button>
       <button data-target="modal-tts"><span class="menu-label" data-i18n="menu.tts">🔊 Text-to-Speech (TTS)</span><span class="menu-sub" id="menu-sub-tts"></span></button>
       <button data-target="modal-stt"><span class="menu-label" data-i18n="menu.stt">🎤 Speech Recognition (STT)</span><span class="menu-sub" id="menu-sub-stt"></span></button>
+      <button data-target="modal-perform"><span class="menu-label" data-i18n="menu.perform">🎭 Performance</span><span class="menu-sub" id="menu-sub-perform"></span></button>
       <div class="menu-group-title" data-i18n="menu.group.look">Character &amp; Appearance</div>
       <button data-target="modal-model"><span class="menu-label" data-i18n="menu.model">🎀 Live2D Model Settings</span><span class="menu-sub" id="menu-sub-model"></span></button>
       <button data-target="modal-theme"><span class="menu-label" data-i18n="menu.theme">🎨 Appearance</span><span class="menu-sub" id="menu-sub-theme"></span></button>
@@ -261,6 +282,36 @@
     </div>
     <div class="modal-actions">
       <button id="menu-cancel" data-i18n="menu.close">Close</button>
+    </div>
+  </div>
+</div>
+
+<!-- Performance -->
+<div id="modal-perform" class="modal hidden">
+  <div class="modal-box">
+    <h3 data-i18n="perform.title">🎭 Performance</h3>
+    <div class="form-col">
+      <label><span data-i18n="perform.narration">Parenthetical actions &amp; inner thoughts</span>
+        <select id="p-narration">
+          <option value="off" data-i18n="perform.off">Never</option>
+          <option value="rare" data-i18n="perform.rare">Rarely</option>
+          <option value="natural" data-i18n="perform.natural">Naturally</option>
+          <option value="rich" data-i18n="perform.rich">Often</option>
+        </select>
+        <span class="hint" data-i18n="perform.narrationHint"></span>
+      </label>
+      <label><span data-i18n="perform.pacing">Reply rhythm</span>
+        <select id="p-pacing">
+          <option value="off" data-i18n="perform.off">Never</option>
+          <option value="rare" data-i18n="perform.rare">Rarely</option>
+          <option value="natural" data-i18n="perform.natural">Naturally</option>
+        </select>
+        <span class="hint" data-i18n="perform.pacingHint"></span>
+      </label>
+    </div>
+    <div class="modal-actions">
+      <button id="p-cancel" data-i18n="char.cancel">Cancel</button>
+      <button id="p-save" class="primary" data-i18n="perform.save">Save</button>
     </div>
   </div>
 </div>

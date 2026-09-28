@@ -43,7 +43,9 @@ const MENU_TEXT = {
     "fullscreen": "Full Screen",
     "help": "Help",
     "homepage": "Project Homepage (GitHub)",
-    "shortcuts": "About AILEEN"
+    "shortcuts": "About AILEEN",
+    "perform": "Performance (asides & pacing)",
+    "fixClickThrough": "Stage is blocking clicks — restore click-through"
   },
   "ja": {
     "app": "AILEEN",
@@ -84,7 +86,9 @@ const MENU_TEXT = {
     "fullscreen": "全画面表示",
     "help": "ヘルプ",
     "homepage": "プロジェクトページ (GitHub)",
-    "shortcuts": "AILEEN について"
+    "shortcuts": "AILEEN について",
+    "perform": "演技（かっこ書き・リズム）",
+    "fixClickThrough": "ステージがクリックを奪っている — マウス透過に戻す"
   },
   "zh": {
     "app": "AILEEN",
@@ -125,7 +129,9 @@ const MENU_TEXT = {
     "fullscreen": "全屏",
     "help": "帮助",
     "homepage": "项目主页 (GitHub)",
-    "shortcuts": "关于 AILEEN"
+    "shortcuts": "关于 AILEEN",
+    "perform": "表演（括号补充・回复节奏）",
+    "fixClickThrough": "展台挡住了点击 —— 恢复鼠标穿透"
   }
 };
 

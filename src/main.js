@@ -15,24 +15,27 @@ import { $, toast, autoGrowInput } from './lib/dom.js';
 import { escapeHtml } from './lib/markdown.js';
 import {
   initLive2D, rebuildLive2D, updateStageModelName, populateStageModelSelect, setStageModelIndex, syncOverlayModel,
-  openModelModal, addModelFromFolder, showUrlForm, submitUrlForm, refreshModelsAfterAdd, bindTtsMotion,
+  openModelModal, addModelFromFolder, showUrlForm, submitUrlForm, refreshModelsAfterAdd, bindTtsMotion, applyStageScale,
 } from './lib/stage.js';
 import {
-  send, renderMessages, setBusy, ttsSettingsForCharacter, clearMessages,
+  send, renderMessages, setBusy, ttsSettingsForCharacter, clearMessages, regenerateLast,
 } from './lib/chat.js';
 import {
   renderCharList, renderEmptyState, selectCharacter, refreshCharacters, findChar,
   openCharMenuAt, closeCharMenu, duplicateCard, deleteCard,
-  openQuickModal, saveQuickModal, openCharModal, closeCharModal, saveCharModal, populateModelSelect,
+  openQuickModal, saveQuickModal, openCharModal, closeCharModal, saveCharModal, populateModelSelect, setCharFilter,
 } from './lib/characters-ui.js';
 import {
   openLlmModal, saveLlmModal, openTtsModal, saveTtsModal, openSttModal, saveSttModal,
   refreshMenuSubtitles, fetchLlmModels, testLlmConnection, fetchTtsVoices, fetchSttModels,
   applyTheme, openThemeModal, saveThemeModal, setAttachUI, openScreenPicker,
-  openSettingsMenu, openFromMenu, closeSubModal, markActivePreset, setMenuSub,
+  openSettingsMenu, openFromMenu, closeSubModal, markActivePreset, setMenuSub, refreshChatStatus,
+  openPerformModal, savePerformModal,
 } from './lib/modals.js';
 import { startVoiceLoop, stopVoiceLoop } from './lib/voice.js';
 import { openMcModal, bindMc } from './lib/minecraft.js';
+import { createMarkerParser } from './lib/marker-parser.js';
+import { createReplyPacer } from './lib/reply-pacer.js';
 import { openChessModal, bindChess } from './lib/chess.js';
 import { t, setLang, getLang, applyI18n, LANGS } from './lib/i18n.js';
 
@@ -99,9 +102,12 @@ async function boot() {
   if (first) await selectCharacter(first.file, { greet: true });
 
   bindEvents();
+  bindLayout();
+  bindDropImage();
   bindMc();
   bindChess();
   bindAppMenu();
+  refreshChatStatus();
   buildLangSwitch();
   applyI18n();
   $('input').focus();
@@ -158,6 +164,8 @@ function bindSettingsModals() {
   $('s-tts-cancel').onclick = () => closeSubModal('modal-tts');
   $('s-tts-save').onclick = saveTtsModal;
   $('s-stt-cancel').onclick = () => closeSubModal('modal-stt');
+  $('p-cancel').onclick = () => closeSubModal('modal-perform');
+  $('p-save').onclick = savePerformModal;
   $('s-stt-save').onclick = saveSttModal;
   $('btn-llm-fetch').onclick = fetchLlmModels;
   $('btn-llm-test').onclick = testLlmConnection;
@@ -234,6 +242,58 @@ function bindModelModal() {
   };
 }
 
+// 侧栏 / 舞台的折叠（记住状态）
+function bindLayout() {
+  const app = $('app');
+  const KS = 'aileen.ui.sideCollapsed';
+  const KT = 'aileen.ui.stageCollapsed';
+  const apply = () => {
+    const side = localStorage.getItem(KS) === '1';
+    const stage = localStorage.getItem(KT) === '1';
+    app.classList.toggle('side-collapsed', side);
+    app.classList.toggle('stage-collapsed', stage);
+    const es = $('btn-expand-sidebar');
+    const et = $('btn-expand-stage');
+    if (es) es.classList.toggle('hidden', !side);
+    if (et) et.classList.toggle('hidden', !stage);
+  };
+  const flip = (key) => { localStorage.setItem(key, localStorage.getItem(key) === '1' ? '0' : '1'); apply(); };
+  const side = () => flip(KS);
+  const stage = () => flip(KT);
+  const cs = $('btn-collapse-sidebar'); if (cs) cs.onclick = side;
+  const xs = $('btn-expand-sidebar'); if (xs) xs.onclick = side;
+  const ct = $('btn-collapse-stage'); if (ct) ct.onclick = stage;
+  const xt = $('btn-expand-stage'); if (xt) xt.onclick = stage;
+  apply();
+}
+
+// 把图片拖进聊天区就能当截图附件
+function bindDropImage() {
+  const panel = $('chat-panel');
+  const hint = $('drop-hint');
+  if (!panel) return;
+  let depth = 0;
+  const show = (on) => { if (hint) hint.classList.toggle('hidden', !on); };
+  panel.addEventListener('dragenter', (e) => { e.preventDefault(); depth += 1; show(true); });
+  panel.addEventListener('dragover', (e) => { e.preventDefault(); });
+  panel.addEventListener('dragleave', () => { depth -= 1; if (depth <= 0) { depth = 0; show(false); } });
+  panel.addEventListener('drop', (e) => {
+    e.preventDefault();
+    depth = 0;
+    show(false);
+    const f = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
+    if (!f || !/^image\//.test(f.type)) return;
+    if (f.size > 8 * 1024 * 1024) { toast(t('screen.captureFailed', { msg: '>8MB' }), true); return; }
+    const reader = new FileReader();
+    reader.onload = () => {
+      state.pendingImage = { dataURL: String(reader.result || ''), name: f.name };
+      setAttachUI();
+      toast(t('chat.attached'));
+    };
+    reader.readAsDataURL(f);
+  });
+}
+
 // 语言切换（菜单内联，不需要再弹一层窗）
 function buildLangSwitch() {
   const box = $('lang-switch');
@@ -273,6 +333,7 @@ function bindAppMenu() {
       llm: openLlmModal,
       tts: openTtsModal,
       stt: openSttModal,
+      perform: openPerformModal,
       model: openModelModal,
       theme: openThemeModal,
       mc: openMcModal,
@@ -301,14 +362,14 @@ function bindMisc() {
     if (e.key !== 'Escape') return;
     closeCharMenu();
     // 设置子弹窗走 closeSubModal，保证主题预览被还原、且能退回设置菜单
-    ['modal-llm', 'modal-tts', 'modal-stt', 'modal-model', 'modal-theme'].forEach((id) => {
+    ['modal-llm', 'modal-tts', 'modal-stt', 'modal-model', 'modal-theme', 'modal-perform'].forEach((id) => {
       if (!$(id).classList.contains('hidden')) closeSubModal(id);
     });
     ['modal-screen', 'modal-quick', 'modal-menu'].forEach((id) => $(id).classList.add('hidden'));
   });
 
   // 点击遮罩关闭
-  ['modal-llm', 'modal-tts', 'modal-stt', 'modal-model', 'modal-theme'].forEach((id) => {
+  ['modal-llm', 'modal-tts', 'modal-stt', 'modal-model', 'modal-theme', 'modal-perform'].forEach((id) => {
     $(id).addEventListener('click', (e) => { if (e.target === $(id)) closeSubModal(id); });
   });
   ['modal-screen', 'modal-menu', 'modal-quick'].forEach((id) => {
@@ -334,7 +395,12 @@ function bindEvents() {
     tts.cancel();
     setBusy(false);
   };
-  $('btn-clear').onclick = () => { clearMessages(); toast('对话已清空'); };
+  $('btn-clear').onclick = () => {
+    if (!state.messages.length) { toast(t('chat.cleared')); return; }
+    if (!confirm(t('chat.confirmClear'))) return;
+    clearMessages();
+    toast(t('chat.cleared'));
+  };
   $('btn-speak').onclick = () => {
     if (state.lastAssistantText) tts.enqueue(state.lastAssistantText, ttsSettingsForCharacter());
     else toast('还没有可朗读的内容');
@@ -384,6 +450,7 @@ function bindEvents() {
     'modal-stt': openSttModal,
     'modal-model': openModelModal,
     'modal-theme': openThemeModal,
+    'modal-perform': openPerformModal,
   };
   document.querySelectorAll('#modal-menu .menu-list button[data-target]').forEach((btn) => {
     btn.onclick = () => openFromMenu(btn.dataset.target, menuOpeners[btn.dataset.target]);
@@ -395,6 +462,47 @@ function bindEvents() {
   $('menu-cancel').onclick = () => $('modal-menu').classList.add('hidden');
   $('about-cancel').onclick = () => $('modal-about').classList.add('hidden');
   window.api.onOverlayState((st) => setMenuSub('menu-sub-overlay', st && st.visible ? '已开启 · 角色浮在桌面' : '已关闭 · 点一下开启'));
+
+  // 舞台侧栏：就地换模型、导入、刷新、缩放
+  const stageSel = $('stage-model');
+  if (stageSel) {
+    stageSel.onchange = (e) => {
+      const idx = parseInt(e.target.value, 10);
+      const mSel = $('m-model');
+      if (mSel) mSel.value = String(idx);
+      if (!isNaN(idx) && state.oml2d) state.oml2d.loadModelByIndex(idx);
+      updateStageModelName();
+      syncOverlayModel();
+    };
+  }
+  const stImport = $('btn-stage-import');
+  if (stImport) stImport.onclick = addModelFromFolder;
+  const stRefresh = $('btn-stage-refresh');
+  if (stRefresh) stRefresh.onclick = refreshModelsAfterAdd;
+
+  const scaleEl = $('stage-scale');
+  if (scaleEl) {
+    const cur = getSettings().stage && getSettings().stage.scale;
+    scaleEl.value = String(Number.isFinite(Number(cur)) ? Number(cur) : 0.3);
+    let scaleTimer = null;
+    scaleEl.addEventListener('input', (e) => {
+      const v = parseFloat(e.target.value) || 0.3;
+      applyStageScale(v);
+      clearTimeout(scaleTimer);
+      scaleTimer = setTimeout(() => {
+        const s = getSettings();
+        saveSettings({ ...s, stage: { ...(s.stage || {}), scale: v } }).catch(() => {});
+      }, 400);
+    });
+  }
+
+  // 侧栏搜索
+  const search = $('char-search');
+  if (search) search.addEventListener('input', (e) => setCharFilter(e.target.value));
+
+  // 重新生成
+  const regen = $('btn-regen');
+  if (regen) regen.onclick = () => regenerateLast();
 
   // 舞台上的「悬浮展台」快捷按钮
   const floatBtn = $('btn-float-stage');
@@ -436,6 +544,7 @@ function runMenuAction(action) {
   if (action === 'overlay') toggleOverlayStage();
   else if (action === 'mc') openMcModal();
   else if (action === 'chess') openChessModal();
+  else if (action === 'perform') openPerformModal();
   else if (action === 'datadir') window.api.openPath(state.appInfo.userDataDir || state.appInfo.dataDir || state.appInfo.appRoot);
   else if (action === 'about') openAboutModal();
 }
@@ -475,6 +584,37 @@ function openAboutModal() {
   }
   $('modal-about').classList.remove('hidden');
 }
+
+// 自检钩子：把标记解析器跑一遍，证明它在打包产物里真的可用
+window.__AILEEN_PROBE_MARKERS = () => {
+  let text = '';
+  const kinds = [];
+  const p = createMarkerParser({
+    onText: (s) => { text += s; },
+    onMarker: (m) => kinds.push(m.kind),
+  });
+  p.push('A<|mo');                        // 规范写法，故意切开
+  p.push('tion:Tap|>B');                  // 接上
+  p.push("<{'|'}expr:Happy");            // 线上写法，故意切开
+  p.push("{'|'}>C");
+  p.end();
+  return { text, kinds };
+};
+
+// 自检钩子：节奏控制（delay 分段 + 真的等待）在打包产物里也要能跑
+window.__AILEEN_PROBE_PACER = () => {
+  let text = '';
+  const breaks = [];
+  const waits = [];
+  const p = createReplyPacer({
+    onText: (s) => { text += s; },
+    onBreak: () => breaks.push(1),
+    sleep: async (ms) => { waits.push(ms); },
+  });
+  p.push("在？<{'|'}del");
+  p.push("ay:2{'|'}>算了没事");
+  return p.finish().then(() => ({ text, breaks: breaks.length, waits }));
+};
 
 // 自检钩子
 window.__AILEEN_MODEL_READY = () => {

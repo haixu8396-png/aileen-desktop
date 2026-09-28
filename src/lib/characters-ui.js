@@ -15,15 +15,34 @@ export function findChar(file) {
 }
 
 // ---------------- 角色列表 ----------------
+let charFilter = '';
+
+/** 侧栏搜索框 */
+export function setCharFilter(q) {
+  charFilter = String(q || '').trim().toLowerCase();
+  renderCharList();
+}
+
+function matchesFilter(c) {
+  if (!charFilter) return true;
+  const hay = ((c.data.name || '') + ' ' + (c.data.description || '') + ' ' + (c.data.personality || '') + ' ' + c.file).toLowerCase();
+  return hay.indexOf(charFilter) >= 0;
+}
+
 export function renderCharList() {
   const box = $('char-list');
   if (!box) return;
   box.innerHTML = '';
   if (!state.characters.length) {
-    box.innerHTML = '<div class="char-item" style="color:var(--muted)">' + t('nav.noChars') + '</div>';
+    box.innerHTML = '<div class="ci-empty">' + t('nav.noChars') + '</div>';
     return;
   }
-  for (const c of state.characters) {
+  const list = state.characters.filter(matchesFilter);
+  if (!list.length) {
+    box.innerHTML = '<div class="ci-empty">' + t('sidebar.noMatch', { q: charFilter }) + '</div>';
+    return;
+  }
+  for (const c of list) {
     const item = document.createElement('div');
     item.className = 'char-item' + (state.current && state.current.file === c.file ? ' active' : '');
     item.dataset.file = c.file;
@@ -39,13 +58,33 @@ export function renderCharList() {
     ds.className = 'ci-desc';
     ds.textContent = c.data.description || '';
     meta.appendChild(nm); meta.appendChild(ds);
+    // 绑定徽章：一眼看出这张卡有没有配模型 / 音色
+    const badges = document.createElement('div');
+    badges.className = 'ci-badges';
+    if (c.data.model) {
+      const b = document.createElement('span');
+      b.className = 'ci-badge';
+      b.textContent = '🎀';
+      b.title = t('char.model') + ': ' + c.data.model;
+      badges.appendChild(b);
+    }
+    if (c.data.voice) {
+      const b = document.createElement('span');
+      b.className = 'ci-badge voice';
+      b.textContent = '🔊';
+      b.title = t('char.voice') + ': ' + c.data.voice;
+      badges.appendChild(b);
+    }
+    if (badges.children.length) meta.appendChild(badges);
+
     const more = document.createElement('button');
     more.className = 'ci-more';
     more.textContent = '⋯';
-    more.title = '角色卡菜单';
+    more.title = t('chat.menuTitle');
     more.onclick = (e) => { e.stopPropagation(); openCharMenuAt(c.file, e.clientX, e.clientY); };
     item.appendChild(img); item.appendChild(meta); item.appendChild(more);
     item.onclick = () => selectCharacter(c.file, { greet: true });
+    item.ondblclick = () => openCharModal(c.data, c.file);
     item.oncontextmenu = (e) => { e.preventDefault(); openCharMenuAt(c.file, e.clientX, e.clientY); };
     box.appendChild(item);
   }

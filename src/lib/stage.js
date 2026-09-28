@@ -4,8 +4,15 @@
 import { loadOml2d } from 'oh-my-live2d';
 import { state, hooks, tts } from './state.js';
 import { $, toast } from './dom.js';
+import { getSettings } from './settings.js';
 import { escapeHtml } from './markdown.js';
 import { t } from './i18n.js';
+
+function stageScale() {
+  const s = getSettings();
+  const v = s && s.stage && s.stage.scale;
+  return Number.isFinite(Number(v)) ? Number(v) : 0.3;
+}
 
 export function initLive2D() {
   const container = $('stage-container');
@@ -39,7 +46,7 @@ export function initLive2D() {
     models: state.models.map((m) => ({
       name: m.name,
       path: m.url,
-      scale: 0.3,
+      scale: stageScale(),
       anchor: [0.5, 0.5],
       position: [W / 2, H * 0.55],
       motionPreloadStrategy: 'IDLE',
@@ -148,27 +155,51 @@ export function bindTtsMotion() {
   tts.onError = (err) => toast('朗读失败: ' + (err && err.message ? err.message : err), true);
 }
 
+const STAGE_MODEL_SELECTS = ['m-model', 'stage-model'];
+
+function modelOptionsHtml() {
+  return state.models.length
+    ? state.models.map((m, i) => '<option value="' + i + '">' + escapeHtml(m.name) + '</option>').join('')
+    : '<option value="-1">' + t('char.unbound') + '</option>';
+}
+
+/** 两个下拉框（设置弹窗里的 + 舞台上的）始终同步 */
 export function updateStageModelName() {
-  const sel = $('m-model');
-  const hint = $('stage-model-name');
-  if (!sel || !hint) return;
-  const opt = sel.options[sel.selectedIndex];
-  hint.textContent = opt && opt.value !== '-1' ? opt.textContent : t('stage.noModel');
+  const main = $('m-model');
+  if (!main) return;
+  const value = main.value;
+  const opt = main.options[main.selectedIndex];
+  const label = opt && opt.value !== '-1' ? opt.textContent : t('stage.noModel');
+  for (const id of STAGE_MODEL_SELECTS) {
+    const el = $(id);
+    if (!el || el === main) continue;
+    el.value = value;
+    el.title = label;
+  }
 }
 
 export function populateStageModelSelect() {
-  const el = $('m-model');
-  if (!el) return;
-  el.innerHTML = state.models.length
-    ? state.models.map((m, i) => '<option value="' + i + '">' + escapeHtml(m.name) + '</option>').join('')
-    : '<option value="-1">' + t('char.unbound') + '</option>';
+  const html = modelOptionsHtml();
+  for (const id of STAGE_MODEL_SELECTS) {
+    const el = $(id);
+    if (el) el.innerHTML = html;
+  }
   updateStageModelName();
 }
 
 export function setStageModelIndex(idx) {
-  const sel = $('m-model');
-  if (sel && !isNaN(idx) && idx >= 0) sel.value = String(idx);
+  for (const id of STAGE_MODEL_SELECTS) {
+    const sel = $(id);
+    if (sel && !isNaN(idx) && idx >= 0) sel.value = String(idx);
+  }
   syncOverlayModel();
+}
+
+/** 缩放滑杆：直接改活模型的 scale */
+export function applyStageScale(scale) {
+  const m = getLive2dModel();
+  if (!m || !m.scale || typeof m.scale.set !== 'function') return false;
+  try { m.scale.set(Number(scale) || 0.3); return true; } catch (err) { return false; }
 }
 
 /** 当前舞台应显示的模型（跟随舞台下拉框，退化到角色卡绑定，再退化到第一个） */

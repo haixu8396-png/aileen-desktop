@@ -154,6 +154,16 @@ export function closeSubModal(id) {
 }
 
 // ---------------- 设置菜单副标题 ----------------
+/** 聊天区右上角的状态点：有没有配 API Key 一眼可见 */
+export function refreshChatStatus() {
+  const dot = $('chat-status');
+  if (!dot) return;
+  const s = getSettings();
+  const ok = !!(s && s.llm && s.llm.apiKey);
+  dot.classList.toggle('off', !ok);
+  dot.title = ok ? t('chat.statusReady') : t('chat.statusNoKey');
+}
+
 /** 副标题：元素不存在时静默跳过（菜单结构改动不该让整个菜单炸掉） */
 function sub(id, text) {
   const el = $(id);
@@ -171,12 +181,36 @@ export function refreshMenuSubtitles() {
   sub('menu-sub-stt', sttLabel + ' · ' + String(s.stt.language || 'zh').toUpperCase());
   sub('menu-sub-model', state.models.length ? t('menu.subModels', { n: state.models.length }) : t('menu.subNoModels'));
   sub('menu-sub-theme', ((s.theme && s.theme.primary) || '#ff7eb3'));
+  const b = s.behavior || {};
+  sub('menu-sub-perform', t('perform.' + (b.narration || 'natural')) + ' · ' + t('perform.' + (b.pacing || 'natural')));
+  refreshChatStatus();
 }
 
 /** 供其他模块写入菜单副标题（如无边框展台开关状态） */
 export function setMenuSub(id, text) {
   const el = $(id);
   if (el) el.textContent = text;
+}
+
+// ---------------- 表演（括号动作 / 回复节奏） ----------------
+export function openPerformModal() {
+  const b = getSettings().behavior || {};
+  $('p-narration').value = b.narration || 'natural';
+  $('p-pacing').value = b.pacing || 'natural';
+  $('modal-perform').classList.remove('hidden');
+}
+
+export function savePerformModal() {
+  const next = { ...getSettings() };
+  next.behavior = {
+    ...(next.behavior || {}),
+    narration: $('p-narration').value,
+    pacing: $('p-pacing').value,
+  };
+  saveSettings(next).then(() => {
+    toast(t('perform.saved'));
+    closeSubModal('modal-perform');
+  });
 }
 
 // ---------------- 获取模型 / 音色列表 ----------------

@@ -64,6 +64,8 @@ const TTS_LANGS = ['zh', 'en', 'ja', 'es'];
 const STT_LANGS = ['auto', 'zh', 'en', 'ja', 'es'];
 const UI_LANGS = ['en', 'ja', 'zh'];
 const CHESS_SIDES = ['white', 'black'];
+const NARRATION_LEVELS = ['off', 'rare', 'natural', 'rich'];
+const PACING_LEVELS = ['off', 'rare', 'natural'];
 const HEX_COLOR = /^#[0-9a-fA-F]{6}$/;
 
 const asStr = (v, max = 500) => (typeof v === 'string' ? v.slice(0, max) : '');
@@ -102,6 +104,7 @@ function normalizeSettings(raw, defaults) {
   const overlay = pick('overlay');
   const mc = pick('mc');
   const chess = pick('chess');
+  const stage = pick('stage');
 
   const extraModels = Array.isArray(r.extraModels)
     ? r.extraModels
@@ -144,6 +147,10 @@ function normalizeSettings(raw, defaults) {
     behavior: {
       greetingOnLoad: asBool(behavior.greetingOnLoad, true),
       autoScroll: asBool(behavior.autoScroll, true),
+      // 括号里的动作/心理活动写得有多频繁
+      narration: asOneOf(behavior.narration, NARRATION_LEVELS, 'natural'),
+      // 回复是否可以带停顿拆成多条
+      pacing: asOneOf(behavior.pacing, PACING_LEVELS, 'natural'),
     },
     extraModels,
     theme: {
@@ -178,6 +185,10 @@ function normalizeSettings(raw, defaults) {
             .filter((f) => typeof f === 'string' && f.length > 0 && f.length <= 120)
             .slice(-200)
         : [],
+    },
+    // Live2D 舞台视图偏好
+    stage: {
+      scale: asNum(stage.scale, 0.15, 1.5, 0.3),
     },
   };
 }

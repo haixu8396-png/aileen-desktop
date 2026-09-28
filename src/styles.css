@@ -167,6 +167,181 @@ button.realtime-btn.active {
 .sidebar-foot-col { display: flex; flex-direction: column; gap: 6px; margin-top: 4px; }
 .sidebar-foot-col button { text-align: left; }
 
+
+/* ============================================================
+   UI 重构（覆盖上面的旧规则；后面的规则优先级更高）
+   ============================================================ */
+:root {
+  --sp-1: 4px;  --sp-2: 8px;  --sp-3: 12px; --sp-4: 16px; --sp-5: 22px;
+  --r-sm: 8px; --r-md: 10px; --r-lg: 14px;
+  --shadow-1: 0 1px 2px rgba(0, 0, 0, 0.28);
+  --shadow-2: 0 8px 24px rgba(0, 0, 0, 0.38);
+  --shadow-3: 0 18px 50px rgba(0, 0, 0, 0.5);
+  --ring: 0 0 0 3px rgba(255, 126, 179, 0.28);
+}
+
+::selection { background: rgba(255, 126, 179, 0.35); }
+
+/* 统一滚动条，别再默认灰白突兀 */
+* { scrollbar-width: thin; scrollbar-color: #3a3f52 transparent; }
+*::-webkit-scrollbar { width: 10px; height: 10px; }
+*::-webkit-scrollbar-track { background: transparent; }
+*::-webkit-scrollbar-thumb {
+  background: #333849; border-radius: 999px; border: 3px solid transparent;
+  background-clip: content-box;
+}
+*::-webkit-scrollbar-thumb:hover { background: #454b61; background-clip: content-box; }
+
+/* 键盘可达性：只在键盘操作时画焦点环 */
+:focus-visible { outline: none; box-shadow: var(--ring); }
+input:focus-visible, select:focus-visible, textarea:focus-visible { border-color: var(--accent); box-shadow: var(--ring); }
+
+/* ---------- 布局：三栏 + 可折叠 ---------- */
+#app {
+  grid-template-columns: 240px minmax(0, 1fr) 400px;
+  transition: grid-template-columns 0.18s ease;
+}
+#app.side-collapsed { grid-template-columns: 0 minmax(0, 1fr) 400px; }
+#app.stage-collapsed { grid-template-columns: 240px minmax(0, 1fr) 0; }
+#app.side-collapsed.stage-collapsed { grid-template-columns: 0 minmax(0, 1fr) 0; }
+#app.side-collapsed #sidebar, #app.stage-collapsed #stage-panel {
+  overflow: hidden; padding-left: 0; padding-right: 0; border: none; opacity: 0; pointer-events: none;
+}
+#chat-panel { position: relative; }
+
+/* 折叠后露出的边缘把手 */
+.edge-toggle {
+  position: absolute; top: 50%; transform: translateY(-50%);
+  width: 18px; height: 56px; z-index: 20;
+  display: flex; align-items: center; justify-content: center;
+  background: var(--panel2); color: var(--muted);
+  border: 1px solid var(--line); border-radius: 0 8px 8px 0;
+  font-size: 12px; padding: 0;
+}
+.edge-toggle:hover { color: var(--text); border-color: var(--accent2); }
+.edge-toggle.left { left: 0; border-left: none; }
+.edge-toggle.right { right: 0; border-right: none; border-radius: 8px 0 0 8px; }
+
+/* ---------- 侧栏 ---------- */
+#sidebar { padding: var(--sp-3) var(--sp-3) var(--sp-2); gap: var(--sp-2); }
+.side-head { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-2); }
+.logo { font-size: 19px; padding: 0 2px 0; }
+.sidebar-actions { display: flex; flex-direction: column; gap: var(--sp-1); }
+button.block { margin-bottom: 0; }
+
+.side-search { position: relative; display: flex; align-items: center; }
+.side-search .search-icon {
+  position: absolute; left: 10px; font-size: 12px; opacity: 0.6; pointer-events: none;
+}
+.side-search input {
+  width: 100%; padding-left: 30px; height: 34px; font-size: 12px;
+  background: var(--panel2); border-radius: var(--r-md);
+}
+.side-search input::-webkit-search-cancel-button { filter: invert(0.6); }
+
+.side-body { flex: 1; min-height: 0; display: flex; }
+.char-list { flex: 1; gap: var(--sp-1); padding-right: 2px; }
+.side-foot {
+  display: flex; flex-direction: column; gap: var(--sp-1);
+  padding-top: var(--sp-2); border-top: 1px solid var(--line);
+}
+.side-foot button { text-align: left; font-size: 12.5px; padding: 7px 10px; }
+
+.char-item {
+  position: relative; padding: 7px 9px; gap: 9px;
+  border: 1px solid transparent; transition: background 0.12s ease, border-color 0.12s ease;
+}
+.char-item.active { border-color: var(--accent); }
+.char-item.active::before {
+  content: ''; position: absolute; left: -1px; top: 50%; transform: translateY(-50%);
+  width: 3px; height: 22px; border-radius: 0 3px 3px 0; background: var(--accent);
+}
+.char-item img { width: 38px; height: 38px; border-radius: 9px; flex: none; }
+.char-item .ci-desc { max-width: none; }
+.char-item .ci-badges { display: flex; gap: 4px; margin-top: 3px; }
+.char-item .ci-badge {
+  font-size: 10px; line-height: 1.6; padding: 0 5px; border-radius: 5px;
+  background: rgba(56, 176, 222, 0.15); color: var(--accent2);
+}
+.char-item .ci-badge.voice { background: rgba(255, 126, 179, 0.15); color: var(--accent); }
+.ci-empty { padding: 18px 10px; text-align: center; color: var(--muted); font-size: 12px; line-height: 1.8; }
+
+/* ---------- 聊天 ---------- */
+#chat-header { padding: var(--sp-3) var(--sp-4); gap: var(--sp-3); }
+.chat-avatar { width: 42px; height: 42px; border-radius: 11px; }
+.status-dot {
+  width: 8px; height: 8px; border-radius: 50%; flex: none;
+  background: #4ecdc4; box-shadow: 0 0 0 3px rgba(78, 205, 196, 0.16);
+}
+.status-dot.off { background: #ffd166; box-shadow: 0 0 0 3px rgba(255, 209, 102, 0.16); }
+.chat-actions { gap: var(--sp-1); }
+button.icon-btn { width: 34px; height: 34px; font-size: 15px; border-radius: var(--r-md); }
+button.icon-btn.tiny { width: 26px; height: 26px; font-size: 12px; border-radius: 7px; }
+
+.messages { padding: var(--sp-4); gap: var(--sp-3); }
+.msg { max-width: 76%; padding: 10px 13px; }
+.msg.user { box-shadow: var(--shadow-1); }
+.typing { padding: 0 var(--sp-5) 6px; }
+
+#input-bar { padding: var(--sp-2) var(--sp-3) var(--sp-3); gap: 6px; }
+button.realtime-btn { height: 34px; padding: 0 11px; font-size: 12.5px; border-radius: var(--r-md); }
+#input { min-height: 34px; border-radius: var(--r-md); }
+#btn-send { height: 34px; padding: 0 16px; border-radius: var(--r-md); }
+
+.drop-hint {
+  position: absolute; inset: 60px var(--sp-4) 70px;
+  display: flex; align-items: center; justify-content: center;
+  border: 2px dashed var(--accent); border-radius: var(--r-lg);
+  background: rgba(255, 126, 179, 0.08); color: var(--accent);
+  font-size: 13px; font-weight: 600; pointer-events: none; z-index: 30;
+}
+
+/* ---------- 舞台 ---------- */
+#stage-panel { display: flex; flex-direction: column; background: var(--panel); border-left: 1px solid var(--line); }
+.stage-head {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: var(--sp-3) var(--sp-3) var(--sp-2);
+}
+.stage-model-bar {
+  display: flex; align-items: center; gap: var(--sp-1);
+  padding: 0 var(--sp-3) var(--sp-2);
+}
+.stage-model-bar select { flex: 1; min-width: 0; height: 32px; font-size: 12.5px; border-radius: var(--r-md); }
+.stage-container { flex: 1; min-height: 0; position: relative; overflow: hidden; }
+.stage-controls { padding: var(--sp-2) var(--sp-3) var(--sp-3); gap: 6px; }
+.ctl-row { display: flex; align-items: center; gap: var(--sp-2); }
+.ctl-row > label { flex: none; width: 64px; font-size: 12px; color: var(--muted); }
+.ctl-row input[type=range] { flex: 1; accent-color: var(--accent); background: none; border: none; padding: 0; height: 20px; }
+.chips { flex: 1; min-width: 0; display: flex; flex-wrap: wrap; gap: 5px; }
+.chip {
+  font-size: 11.5px; padding: 4px 9px; border-radius: 999px;
+  background: var(--panel2); color: var(--text); border: 1px solid var(--line);
+}
+.chip:hover { border-color: var(--accent); color: var(--accent); }
+
+/* 舞台空状态：整块居中，别让按钮跟文字挤在一行 */
+.stage-placeholder {
+  position: absolute; inset: 0;
+  display: flex; flex-direction: column;
+  align-items: center; justify-content: center;
+  gap: 4px; padding: 26px; text-align: center;
+  color: var(--muted); font-size: 12.5px; line-height: 1.95;
+}
+.stage-placeholder button {
+  margin-top: 10px; font-size: 12px; padding: 6px 16px; border-radius: 999px;
+}
+
+/* ---------- 通用细节 ---------- */
+.modal-box { box-shadow: var(--shadow-3); }
+.toast { box-shadow: var(--shadow-2); max-width: min(560px, 80vw); white-space: normal; line-height: 1.6; }
+button.ghost:active, button.primary:active, button.icon-btn:active { transform: translateY(1px); }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.001ms !important; animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
+}
 /* ---------- 舞台头部 / 添加模型 ---------- */
 .stage-hint { font-size: 12px; color: var(--muted); }
 .stage-head-right { display: flex; align-items: center; gap: 6px; position: relative; }
