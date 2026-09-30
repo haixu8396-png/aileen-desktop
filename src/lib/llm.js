@@ -11,7 +11,7 @@
 //      空气泡，完全不知道发生了什么。这里宁可抛错，让上层把原因和怎么改说清楚。
 import { t } from './i18n.js';
 
-export async function streamChat({ messages, settings, signal, onDelta, onReasoning }) {
+export async function streamChat({ messages, settings, signal, onDelta, onReasoning, onFinish }) {
   const { baseUrl, apiKey, model, temperature, maxTokens } = settings.llm;
   if (!apiKey) throw new Error(t('llm.needKey'));
   const budget = Number(maxTokens) || 1024;
@@ -75,6 +75,12 @@ export async function streamChat({ messages, settings, signal, onDelta, onReason
       } catch { /* partial json */ }
     }
     if (streamDone) break;
+  }
+
+  // 收尾原因要交给上层：finish_reason=length 意味着「话没说完」，
+  // 对生成 JSON 的场景就是「括号还没闭合」—— 上层据此决定要不要加大额度重来。
+  if (typeof onFinish === 'function') {
+    try { onFinish({ finishReason, contentChars, reasoningChars }); } catch (err) { /* 回调出错不影响主流程 */ }
   }
 
   // 一个字都没写出来：绝不能安静地返回空串，那样用户只会看到一个空气泡

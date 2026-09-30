@@ -14,6 +14,17 @@ function stageScale() {
   return Number.isFinite(Number(v)) ? Number(v) : 0.3;
 }
 
+// 舞台钉在右侧面板容器内（库默认是 position:fixed，会盖住整个界面）
+const STAGE_STYLE = {
+  position: 'absolute',
+  left: 0,
+  top: 0,
+  width: '100%',
+  height: '100%',
+  transform: 'none',
+  zIndex: 1,
+};
+
 export function initLive2D() {
   const container = $('stage-container');
   if (!container) return;
@@ -30,6 +41,9 @@ export function initLive2D() {
   state.oml2d = loadOml2d({
     parentElement: container,
     primaryColor: '#ff7eb3',
+    // 见 overlay.js 的注释：库用「窗口宽度 ≤768px」判断手机，主窗口被拖窄时
+    // 同样会走进手机分支（默认不加载模型）。这里统一按桌面处理。
+    mobileDisplay: true,
     dockedPosition: 'right',
     transitionTime: 300,
     sayHello: false,
@@ -50,16 +64,10 @@ export function initLive2D() {
       anchor: [0.5, 0.5],
       position: [W / 2, H * 0.55],
       motionPreloadStrategy: 'IDLE',
-      stageStyle: {
-        position: 'absolute',
-        left: 0,
-        top: 0,
-        width: '100%',
-        height: '100%',
-        transform: 'none',
-        zIndex: 1,
-      },
+      stageStyle: STAGE_STYLE,
+      mobileStageStyle: STAGE_STYLE,
     })),
+    stageStyle: STAGE_STYLE,
   });
   state.oml2d.onLoad((status) => {
     if (status === 'success') { refreshStageControls(); syncOverlayModel(); }

@@ -36,7 +36,8 @@ import { startVoiceLoop, stopVoiceLoop } from './lib/voice.js';
 import { openMcModal, bindMc } from './lib/minecraft.js';
 import { createMarkerParser } from './lib/marker-parser.js';
 import { createReplyPacer } from './lib/reply-pacer.js';
-import { parsePersonaResponse } from './lib/persona.js';
+import { parsePersonaResponse, buildPersonaMessages } from './lib/persona.js';
+import { openPersonaStudio, closePersonaStudio, bindPersonaStudio } from './lib/persona-studio.js';
 import { openChessModal, bindChess } from './lib/chess.js';
 import { t, setLang, getLang, applyI18n, LANGS } from './lib/i18n.js';
 
@@ -169,6 +170,7 @@ function bindSettingsModals() {
   $('s-tts-save').onclick = saveTtsModal;
   $('s-stt-cancel').onclick = () => closeSubModal('modal-stt');
   $('p-cancel').onclick = () => closeSubModal('modal-perform');
+  bindPersonaStudio();
   $('p-save').onclick = savePerformModal;
   $('s-stt-save').onclick = saveSttModal;
   $('btn-llm-fetch').onclick = fetchLlmModels;
@@ -338,6 +340,7 @@ function bindAppMenu() {
       tts: openTtsModal,
       stt: openSttModal,
       perform: openPerformModal,
+      persona: openPersonaStudio,
       model: openModelModal,
       theme: openThemeModal,
       mc: openMcModal,
@@ -366,14 +369,14 @@ function bindMisc() {
     if (e.key !== 'Escape') return;
     closeCharMenu();
     // 设置子弹窗走 closeSubModal，保证主题预览被还原、且能退回设置菜单
-    ['modal-llm', 'modal-tts', 'modal-stt', 'modal-model', 'modal-theme', 'modal-perform'].forEach((id) => {
+    ['modal-llm', 'modal-tts', 'modal-stt', 'modal-model', 'modal-theme', 'modal-perform', 'modal-persona'].forEach((id) => {
       if (!$(id).classList.contains('hidden')) closeSubModal(id);
     });
     ['modal-screen', 'modal-quick', 'modal-menu'].forEach((id) => $(id).classList.add('hidden'));
   });
 
   // 点击遮罩关闭
-  ['modal-llm', 'modal-tts', 'modal-stt', 'modal-model', 'modal-theme', 'modal-perform'].forEach((id) => {
+  ['modal-llm', 'modal-tts', 'modal-stt', 'modal-model', 'modal-theme', 'modal-perform', 'modal-persona'].forEach((id) => {
     $(id).addEventListener('click', (e) => { if (e.target === $(id)) closeSubModal(id); });
   });
   ['modal-screen', 'modal-menu', 'modal-quick'].forEach((id) => {
@@ -455,6 +458,7 @@ function bindEvents() {
     'modal-model': openModelModal,
     'modal-theme': openThemeModal,
     'modal-perform': openPerformModal,
+    'modal-persona': openPersonaStudio,
   };
   document.querySelectorAll('#modal-menu .menu-list button[data-target]').forEach((btn) => {
     btn.onclick = () => openFromMenu(btn.dataset.target, menuOpeners[btn.dataset.target]);
@@ -571,6 +575,7 @@ function openAboutModal() {
       [t('about.datadir'), info.userDataDir || info.dataDir || '-'],
       [t('about.characters'), String((state.characters || []).length)],
       [t('about.models'), String((state.models || []).length)],
+      [t('about.shortcuts'), 'F11 · ' + t('about.fullscreenHint')],
     ];
     for (const [k, v] of rows) {
       const row = document.createElement('div');
@@ -618,6 +623,40 @@ window.__AILEEN_PROBE_PACER = () => {
   p.push("在？<{'|'}del");
   p.push("ay:2{'|'}>算了没事");
   return p.finish().then(() => ({ text, breaks: breaks.length, waits }));
+};
+
+// 自检钩子：人设生成室（入口能开、原型能选、锁定真的改变了发给模型的提示词）
+window.__AILEEN_PROBE_STUDIO = () => {
+  const out = {};
+  const menuBtn = document.getElementById('btn-settings-menu');
+  if (menuBtn) menuBtn.click();
+  const entry = document.querySelector('#modal-menu .menu-list button[data-target="modal-persona"]');
+  out.hasEntry = !!entry;
+  if (entry) entry.click();
+  const m = document.getElementById('modal-persona');
+  out.opened = !!m && !m.classList.contains('hidden');
+  out.chips = document.querySelectorAll('#pa-personalities .arch-chip').length;
+  out.roleChips = document.querySelectorAll('#pa-roles .arch-chip').length;
+  out.genders = document.querySelectorAll('#pa-gender option').length;
+  out.hasLock = !!document.getElementById('pa-lock-p') && !!document.getElementById('pa-lock-r');
+  out.hasSeed = !!document.getElementById('pa-seed');
+  const chip = document.querySelector('#pa-personalities .arch-chip[data-arch-id]:not([data-arch-id=""])');
+  out.picked = chip ? chip.dataset.archId : null;
+  if (chip) chip.click();
+  // 锁上之后，系统提示词里必须是硬约束口径；没锁则必须是「可以参考」口径。
+  const locked = buildPersonaMessages({ personalityId: out.picked, lockPersonality: true, seed: 'x' });
+  const soft = buildPersonaMessages({ personalityId: out.picked, lockPersonality: false, seed: 'x' });
+  out.lockedHasRule = locked[0].content.indexOf(t('persona.lockHeader')) >= 0;
+  out.softHasRule = soft[0].content.indexOf(t('persona.softHeader')) >= 0;
+  out.lockedNotSoft = locked[0].content.indexOf(t('persona.softHeader')) < 0;
+  const offChip = document.querySelector('#pa-personalities .arch-chip[data-arch-id=""]');
+  out.canUnpick = !!offChip;
+  if (offChip) offChip.click();
+  const onChip = document.querySelector('#pa-personalities .arch-chip.on');
+  out.unpicked = !!(onChip && onChip.dataset.archId === '');
+  closeSubModal('modal-persona');
+  document.getElementById('modal-menu').classList.add('hidden');
+  return out;
 };
 
 // 自检钩子：人设解析（围栏 + 废话 + 字符串里的大括号 + 空字段丢弃）

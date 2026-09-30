@@ -715,6 +715,27 @@ button.icon-btn.small { width: 30px; height: 30px; font-size: 14px; }
 .modal-box h3 { margin-bottom: 16px; font-size: 18px; }
 .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 .form-grid .full { grid-column: 1 / -1; }
+
+/* ---- 人设生成室：原型选择 ---- */
+.studio-seed { display: flex; flex-direction: column; gap: 6px; font-size: 13px; color: var(--muted); }
+.arch-group { margin-top: 14px; }
+.arch-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 8px; }
+.arch-title { font-size: 13px; color: var(--muted); }
+.arch-lock { display: flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--muted); cursor: pointer; user-select: none; }
+.arch-lock input { accent-color: #ff7eb3; }
+.arch-grid { display: flex; flex-wrap: wrap; gap: 8px; }
+.arch-chip {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 7px 12px; border-radius: 999px; cursor: pointer;
+  background: transparent; border: 1px solid var(--line, #2c3040); color: var(--text, #e8e8f2);
+  font-size: 12.5px; line-height: 1; transition: border-color 0.15s ease, background 0.15s ease;
+}
+.arch-chip:hover { border-color: #ff7eb3; }
+.arch-chip.on { background: rgba(255, 126, 179, 0.16); border-color: #ff7eb3; color: #fff; }
+.arch-chip .arch-icon { font-size: 14px; }
+.studio-opt { margin-top: 14px; border-top: 1px solid var(--line, #2c3040); padding-top: 12px; }
+.studio-opt summary { cursor: pointer; font-size: 13px; color: var(--muted); }
+.studio-opt[open] summary { margin-bottom: 12px; }
 .form-grid label { display: flex; flex-direction: column; gap: 6px; font-size: 13px; color: var(--muted); }
 .avatar-row { display: flex; align-items: center; gap: 10px; }
 .avatar-preview { width: 56px; height: 56px; border-radius: 12px; object-fit: cover; background: var(--panel2); }

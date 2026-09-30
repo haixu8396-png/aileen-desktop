@@ -10,6 +10,8 @@
 // 然后逐字段类型校验 + 截断。
 // ============================================================
 import { t, getLang } from './i18n.js';
+import { PERSONALITIES, ROLES, GENDERS, findArchetype, labelOf, specOf } from './archetypes.js';
+import { streamChat } from './llm.js';
 
 export const PERSONA_FIELDS = ['name', 'description', 'personality', 'scenario', 'first_mes', 'mes_example'];
 
@@ -26,13 +28,76 @@ export function randomHint() {
   return list[Math.floor(Math.random() * list.length)];
 }
 
-/** 发给模型的消息。seed 为空则随机挑一个灵感。 */
-export function buildPersonaMessages(seed) {
-  const lang = LANG_NAME[getLang()] || 'English';
+/**
+ * 把「原型 + 锁定」写成给模型的约束块。
+ *
+ * 锁定的原型走硬约束口径（每一句台词都要能验证，偏离算失败），
+ * 没锁的走参考口径（可以借鉴也可以另走一路）—— 两句话术完全不同，
+ * 不是同一个模板换个词。
+ */
+function constraintBlock(opts, lang) {
+  const p = findArchetype(PERSONALITIES, opts.personalityId);
+  const r = findArchetype(ROLES, opts.roleId);
+  const hard = [];
+  const soft = [];
+  if (p) {
+    const line = t('persona.linePersonality', { v: labelOf(p, lang) + ' —— ' + specOf(p, lang) });
+    (opts.lockPersonality === false ? soft : hard).push(line);
+  }
+  if (r) {
+    const line = t('persona.lineRole', { v: labelOf(r, lang) + ' —— ' + specOf(r, lang) });
+    (opts.lockRole === false ? soft : hard).push(line);
+  }
+  const parts = [];
+  if (hard.length) parts.push(t('persona.lockHeader') + '\n' + hard.join('\n') + '\n' + t('persona.lockRule'));
+  if (soft.length) parts.push(t('persona.softHeader') + '\n' + soft.join('\n') + '\n' + t('persona.softRule'));
+  return parts.join('\n\n');
+}
+
+/** 名字/性别/年龄/其它要求 —— 用户明确写了的，就必须照做 */
+function requirementLines(opts, lang) {
+  const out = [];
+  const name = String(opts.name || '').trim();
+  if (name) out.push(t('persona.reqName', { v: name }));
+  const g = findArchetype(GENDERS, opts.genderId);
+  if (g && g.id !== 'any') out.push(t('persona.reqGender', { v: labelOf(g, lang) }));
+  const age = String(opts.age || '').trim();
+  if (age) out.push(t('persona.reqAge', { v: age }));
+  const extra = String(opts.extra || '').trim();
+  if (extra) out.push(t('persona.reqExtra', { v: extra }));
+  return out;
+}
+
+/**
+ * 发给模型的消息。
+ * 可以只传一句灵感（字符串，老用法），也可以传完整的 { seed, personalityId, roleId, lock*, name, genderId, age, extra }。
+ * seed 为空则随机挑一个灵感。
+ */
+export function buildPersonaMessages(input) {
+  const opts = typeof input === 'string' ? { seed: input } : (input || {});
+  const lang = getLang();
+  const langName = LANG_NAME[lang] || 'English';
+
+  const blocks = [t('persona.system', { lang })];
+  const c = constraintBlock(opts, lang);
+  if (c) blocks.push(c);
+
+  const seed = String(opts.seed || '').trim();
+  const lines = [];
+  const reqs = requirementLines(opts, lang);
+  if (reqs.length) lines.push(t('persona.reqHeader'), ...reqs.map((x) => '- ' + x));
+  lines.push(seed ? t('persona.hintLine', { seed }) : t('persona.hintNone') + ' ' + t('persona.hintRandom', { v: randomHint() }));
+  lines.push(t('persona.userGo'));
+
   return [
-    { role: 'system', content: t('persona.system', { lang }) },
-    { role: 'user', content: t('persona.user', { seed: String(seed || '').trim() || randomHint() }) },
+    { role: 'system', content: blocks.join('\n\n') },
+    { role: 'user', content: lines.join('\n') },
   ];
+}
+
+/** 老接口：只要种子 */
+export function buildSeedMessages(seed) {
+  return buildPersonaMessages(seed);
 }
 
 // 生成一张卡要花的额度（思考很占），以及撞到上限后允许翻到的天花板
@@ -48,9 +113,14 @@ export function personaBudgets(userMax) {
   return base >= PERSONA_MAX_TOKENS ? [base] : [base, Math.min(base * 2, PERSONA_MAX_TOKENS)];
 }
 
+// 值得「加大额度重来一次」的两种失败：
+//   EMPTY_REPLY      —— 思考把预算吃光，一个字正文都没写出来
+//   TRUNCATED_REPLY  —— 正文写了，但 JSON 被截断（括号没闭合），解析必然失败
+const RETRYABLE = { EMPTY_REPLY: true, TRUNCATED_REPLY: true };
+
 /**
- * 按额度阶梯跑生成。run(budget, attempt) 抛出的错误如果 code 是 EMPTY_REPLY
- * （推理模型把预算全用在思考上），就翻倍再试一次；别的错误照常往上抛。
+ * 按额度阶梯跑生成。run(budget, attempt) 抛出的错误 code 属于上面两种，就翻倍再试一次；
+ * 别的错误（没配 key、401、网络断了）照常往上抛，绝不重试。
  */
 export async function withPersonaBudget(userMax, run) {
   const budgets = personaBudgets(userMax);
@@ -58,10 +128,35 @@ export async function withPersonaBudget(userMax, run) {
     try {
       return await run(budgets[i], i);
     } catch (err) {
-      if (!err || err.code !== 'EMPTY_REPLY' || i === budgets.length - 1) throw err;
+      if (!err || !RETRYABLE[err.code] || i === budgets.length - 1) throw err;
     }
   }
   return null;
+}
+
+/**
+ * 生成一张角色卡（两个入口共用：角色编辑器里的快捷键、设置里的人设生成室）。
+ *
+ * 这里把两种「其实只是额度不够」的失败自己扛掉，不让用户看到「再试一次吧」：
+ *   思考吃光预算 → 加额度重来；JSON 被截断 → 加额度重来。封顶 8192。
+ */
+export async function generatePersonaCard(settings, options) {
+  const messages = buildPersonaMessages(options);
+  return withPersonaBudget(settings.llm.maxTokens, async (budget) => {
+    let out = '';
+    let truncated = false;
+    await streamChat({
+      messages,
+      settings: { ...settings, llm: { ...settings.llm, maxTokens: budget } },
+      onDelta: (d) => { out += d; },
+      onFinish: (info) => { truncated = !!(info && info.finishReason === 'length'); },
+    });
+    const card = parsePersonaResponse(out);
+    if (card) return card;
+    const err = new Error(t('char.genFail'));
+    err.code = truncated ? 'TRUNCATED_REPLY' : 'UNPARSABLE';
+    throw err;
+  });
 }
 
 /**

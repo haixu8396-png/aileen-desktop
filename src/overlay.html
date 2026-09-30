@@ -17,6 +17,30 @@
     <button id="ov-hide" data-i18n-title="overlay.hide">✕</button>
   </div>
 </div>
+<script>
+// oh-my-live2d 判断「是不是手机」用的是 matchMedia("screen and (max-width: 768px)") ——
+// 那是**窗口宽度**，不是屏幕宽度。展台窗口天生就窄（400~600px），于是永远被判成手机：
+// 手机分支下 mobileDisplay 默认 false → 整个模型加载被跳过；即使强行打开，它也只认
+// mobilePosition/mobileScale，并且在模型还没初始化好时就去设锚点，直接把加载链打断
+// （实测报错：onAnchorChange 读 undefined 的 width，模型永远画不出来）。
+// 展台本来就是桌面窗口，这里在库加载之前把这条查询的答案固定成「不是手机」，
+// 让它走和主界面完全同一条（已验证可用的）桌面分支。
+(function () {
+  var mm = window.matchMedia.bind(window);
+  window.matchMedia = function (query) {
+    var real = mm(query);
+    if (typeof query === "string" && query.replace(/\s+/g, "").indexOf("(max-width:768px)") >= 0) {
+      return {
+        matches: false, media: real.media, onchange: null,
+        addListener: function () {}, removeListener: function () {},
+        addEventListener: function () {}, removeEventListener: function () {},
+        dispatchEvent: function () { return false; },
+      };
+    }
+    return real;
+  };
+})();
+</script>
 <script type="module" src="./overlay.js"></script>
 </body>
 </html>

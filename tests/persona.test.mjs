@@ -1,6 +1,7 @@
 // 模型返回的 JSON 从来不可靠 —— 这些用例都是线上真会遇到的形态
 import { describe, it, expect } from 'vitest';
-import { parsePersonaResponse, PERSONA_FIELDS, personaBudgets, withPersonaBudget } from '../src/lib/persona.js';
+import { parsePersonaResponse, PERSONA_FIELDS, personaBudgets, withPersonaBudget, buildPersonaMessages } from '../src/lib/persona.js';
+import { setLang } from '../src/lib/i18n.js';
 
 const full = { name: '阿岚', description: '一句话', personality: '你是……', scenario: '场景', first_mes: '你好', mes_example: '阿岚: 嗨\nUser: 嗨' };
 
@@ -123,6 +124,25 @@ describe('withPersonaBudget · 额度不够时自动重试', () => {
     expect(tried).toEqual([2048, 4096]);
   });
 
+  it('JSON 被截断（TRUNCATED_REPLY）也要加大额度重来一次', async () => {
+    const tried = [];
+    const truncated = () => { const e = new Error('括号没闭合'); e.code = 'TRUNCATED_REPLY'; return e; };
+    const out = await withPersonaBudget(300, async (budget) => {
+      tried.push(budget);
+      if (budget === 2048) throw truncated();
+      return 'OK@' + budget;
+    });
+    expect(tried).toEqual([2048, 4096]);
+    expect(out).toBe('OK@4096');
+  });
+
+  it('解析不出来但不是截断（UNPARSABLE）→ 不重试，直接失败', async () => {
+    const tried = [];
+    const bad = () => { const e = new Error('模型在说废话'); e.code = 'UNPARSABLE'; return e; };
+    await expect(withPersonaBudget(2048, async (budget) => { tried.push(budget); throw bad(); })).rejects.toThrow(/废话/);
+    expect(tried).toEqual([2048]);
+  });
+
   it('其它错误（比如没配 key、HTTP 401）绝不重试', async () => {
     const tried = [];
     const boom = new Error('HTTP 401 unauthorized');
@@ -136,5 +156,79 @@ describe('withPersonaBudget · 额度不够时自动重试', () => {
     await expect(withPersonaBudget(8192, async (budget) => { tried.push(budget); throw emptyReply(); }))
       .rejects.toThrow();
     expect(tried).toEqual([8192]);
+  });
+});
+describe('buildPersonaMessages · 原型锁定', () => {
+  it('锁定性格原型 → 硬约束口径，并且带上「怎么演」的具体约束', () => {
+    setLang('zh');
+    const m = buildPersonaMessages({ personalityId: 'tsundere', lockPersonality: true, seed: '测试' });
+    const sys = m[0].content;
+    expect(sys).toContain('硬约束');
+    expect(sys).not.toContain('参考方向');
+    expect(sys).toContain('傲娇');
+    expect(sys).toContain('嘴硬');          // 具体约束，不是光有个标签
+    expect(sys).not.toContain('冷淡寡言');   // 没选的原型不许混进来
+    setLang('en');
+  });
+
+  it('不锁 → 还是同一个原型，但口径换成「可以参考」', () => {
+    setLang('zh');
+    const m = buildPersonaMessages({ personalityId: 'tsundere', lockPersonality: false, seed: '测试' });
+    const sys = m[0].content;
+    expect(sys).toContain('参考方向');
+    expect(sys).not.toContain('硬约束');
+    expect(sys).toContain('傲娇');
+    setLang('en');
+  });
+
+  it('性格 + 身份可以同时锁，顺序稳定', () => {
+    setLang('zh');
+    const m = buildPersonaMessages({ personalityId: 'kuudere', roleId: 'librarian', seed: '' });
+    const sys = m[0].content;
+    expect(sys).toContain('性格原型');
+    expect(sys).toContain('身份原型');
+    expect(sys.indexOf('性格原型')).toBeLessThan(sys.indexOf('身份原型'));
+    setLang('en');
+  });
+
+  it('名字 / 性别 / 年龄 / 其它要求都变成硬性指定', () => {
+    setLang('zh');
+    const m = buildPersonaMessages({ name: '沈砚', genderId: 'female', age: '17', extra: '怕打雷', seed: '' });
+    const user = m[1].content;
+    expect(user).toContain('沈砚');
+    expect(user).toContain('女');
+    expect(user).toContain('17');
+    expect(user).toContain('怕打雷');
+    setLang('en');
+  });
+
+  it('性别选「不限」时不会写进要求里', () => {
+    setLang('zh');
+    const m = buildPersonaMessages({ genderId: 'any', seed: 'x' });
+    expect(m[1].content).not.toContain('性别');
+    setLang('en');
+  });
+
+  it('切语言后约束跟着换语言', () => {
+    setLang('ja');
+    const ja = buildPersonaMessages({ personalityId: 'tsundere', seed: 'x' });
+    expect(ja[0].content).toContain('厳守');
+    setLang('en');
+    const en = buildPersonaMessages({ personalityId: 'tsundere', seed: 'x' });
+    expect(en[0].content).toContain('LOCKED');
+    setLang('en');
+  });
+
+  it('老用法（只给一句字符串）照旧能用 —— 编辑器里那颗快捷生成走的就是它', () => {
+    const m = buildPersonaMessages('冷淡一点，别话多');
+    expect(m).toHaveLength(2);
+    expect(m[1].content).toContain('冷淡一点，别话多');
+    expect(m[0].content).not.toContain('硬约束');
+  });
+
+  it('种子留空时也会给一个具体灵感，不会发空字符串过去', () => {
+    const m = buildPersonaMessages({ seed: '   ' });
+    expect(m[1].content.length).toBeGreaterThan(20);
+    expect(m[1].content).not.toMatch(/灵感：\s*$/m);
   });
 });

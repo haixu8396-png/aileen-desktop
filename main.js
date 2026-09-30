@@ -710,6 +710,7 @@ function buildAppMenu(lang) {
         { label: M.tts, click: () => sendMenuAction('tts') },
         { label: M.stt, click: () => sendMenuAction('stt') },
         { label: M.perform, click: () => sendMenuAction('perform') },
+        { label: M.personaStudio, click: () => sendMenuAction('persona') },
         { label: M.model, click: () => sendMenuAction('model') },
         { label: M.theme, click: () => sendMenuAction('theme') },
       ],
@@ -755,7 +756,8 @@ function buildAppMenu(lang) {
         { role: 'zoomIn', label: M.zoomIn },
         { role: 'zoomOut', label: M.zoomOut },
         { type: 'separator' },
-        { role: 'togglefullscreen', label: M.fullscreen },
+        // Electron 的 togglefullscreen 角色默认没绑快捷键，F11 要自己给
+        { role: 'togglefullscreen', label: M.fullscreen, accelerator: 'F11' },
       ],
     },
     {
@@ -868,7 +870,7 @@ function createWindow() {
               if (target) modalOpens[target.replace('modal-', '')] = !document.getElementById(target).classList.contains('hidden');
             });
             // 收尾：强制关掉被点开的弹窗，回到干净状态再做行为断言
-            ['modal-about', 'modal-llm', 'modal-tts', 'modal-stt', 'modal-model', 'modal-theme', 'modal-perform', 'modal-menu'].forEach((id) => {
+            ['modal-about', 'modal-llm', 'modal-tts', 'modal-stt', 'modal-model', 'modal-theme', 'modal-perform', 'modal-persona', 'modal-menu'].forEach((id) => {
               const el = document.getElementById(id);
               if (el) el.classList.add('hidden');
             });
@@ -964,6 +966,18 @@ function createWindow() {
             // 行为断言⑩：界面没有被隐形元素遮挡（「点都点不了」探测器）
             // 用 elementFromPoint 在几个关键位置做命中测试，命中的元素必须落在 #app 里。
             // 如果某个固定定位的弹窗/遮罩没被正确隐藏，这里就会抓到。
+            // 行为断言⑫：人设生成室 —— 设置入口 / 原型选择 / 锁定真的改变提示词
+            let studioOk = false;
+            let studioDetail = null;
+            try {
+              studioDetail = typeof window.__AILEEN_PROBE_STUDIO === 'function' ? window.__AILEEN_PROBE_STUDIO() : null;
+              studioOk = !!studioDetail && studioDetail.hasEntry === true && studioDetail.opened === true
+                && studioDetail.chips >= 11 && studioDetail.roleChips >= 11 && studioDetail.genders >= 4
+                && studioDetail.hasLock === true && studioDetail.hasSeed === true
+                && studioDetail.lockedHasRule === true && studioDetail.softHasRule === true
+                && studioDetail.lockedNotSoft === true && studioDetail.canUnpick === true
+                && studioDetail.unpicked === true && !!studioDetail.picked;
+            } catch (err) { window.__AILEEN_ERRORS.push('studioTest: ' + String((err && err.message) || err)); }
             // 行为断言⑪：自动生成人设 —— 解析器容错 + 生成结果能回填进编辑器
             let personaOk = false;
             let personaDetail = null;
@@ -1188,6 +1202,8 @@ function createWindow() {
               performDetail,
               personaOk,
               personaDetail,
+              studioOk,
+              studioDetail,
               uiBlockedBy,
               sideCollapseOk,
               searchFilterOk,
@@ -1230,10 +1246,33 @@ function createWindow() {
             mineflayer: (function () { try { require('mineflayer'); return true; } catch (e) { return String((e && e.message) || e); } })(),
             pathfinder: (function () { try { require('mineflayer-pathfinder'); return true; } catch (e) { return String((e && e.message) || e); } })(),
           };
+          // F11 全屏：1) 菜单里必须真的绑了 F11；2) 全屏开关本身必须有效
+          try {
+            const menu = Menu.getApplicationMenu();
+            const items = [];
+            const walk = (m) => { if (m && m.items) m.items.forEach((it) => { items.push(it); if (it.submenu) walk(it.submenu); }); };
+            walk(menu);
+            const fsItem = items.find((it) => it.role === 'togglefullscreen' || String(it.accelerator || '').toUpperCase() === 'F11');
+            rep.fullscreenItem = fsItem ? { role: fsItem.role, accelerator: fsItem.accelerator } : null;
+            rep.fullscreenAccelOk = !!(fsItem && String(fsItem.accelerator || '').toUpperCase() === 'F11');
+            const wasFull = win.isFullScreen();
+            win.setFullScreen(!wasFull);
+            await new Promise((r) => setTimeout(r, 500));
+            rep.fullscreenToggleOk = win.isFullScreen() === !wasFull;
+            win.setFullScreen(wasFull);
+            await new Promise((r) => setTimeout(r, 400));
+          } catch (err) { rep.errors.push('fullscreen: ' + String((err && err.message) || err)); }
           if (process.env.AILEEN_SELFTEST_OVERLAY) {
             const w = createOverlayWindow();
             rep.opened = !!w;
             if (w) {
+              // 展台的报错只在它自己的控制台里，主进程默认看不到 —— 收进来，否则永远查不出「模型出不来」
+              rep.consoleLines = [];
+              w.webContents.on('console-message', (event, ...args) => {
+                const params = args[0];
+                const msg = params && typeof params === 'object' && 'message' in params ? params.message : args[1];
+                if (rep.consoleLines.length < 40) rep.consoleLines.push(String(msg));
+              });
               await new Promise((r) => setTimeout(r, 5000));
               rep.visible = w.isVisible();
               rep.title = w.getTitle();
@@ -1299,9 +1338,56 @@ function createWindow() {
               if (rep.bounds) {
                 try { writeSettings({ overlay: { width: rep.bounds.width, height: rep.bounds.height } }); } catch (err) { /* ignore */ }
               }
+              // ③ 展台必须**真的把模型画出来**：只看 canvas 存不存在不够 ——
+              //    曾经出现过 canvas 在、画面一片空白的情况。
+              try {
+                rep.canvasMetrics = await w.webContents.executeJavaScript('(function(){'
+                  + 'var c = document.querySelector("#ov-stage canvas");'
+                  + 'if (!c) return null;'
+                  + 'var r = c.getBoundingClientRect(); var cs = getComputedStyle(c);'
+                  + 'var s = document.getElementById("ov-stage"); var b = s.getBoundingClientRect();'
+                  + 'return { rect: [Math.round(r.left), Math.round(r.top), Math.round(r.width), Math.round(r.height)],'
+                  + ' attr: [c.width, c.height],'
+                  + ' css: { position: cs.position, left: cs.left, top: cs.top, width: cs.width, height: cs.height, transform: cs.transform, display: cs.display, zIndex: cs.zIndex },'
+                  + ' stage: [Math.round(b.width), Math.round(b.height)],'
+                  + ' inner: [window.innerWidth, window.innerHeight],'
+                  + ' empty: !!document.querySelector(".ov-empty") };'
+                  + '})()');
+              } catch (err) { rep.errors.push('canvas metrics: ' + String((err && err.message) || err)); }
+              try {
+                // 模型加载是异步的：先轮询等它真的挂上去再断言（固定等待会时快时慢地误报）
+                for (let i = 0; i < 24; i += 1) {
+                  const ready = await w.webContents.executeJavaScript('window.__AILEEN_OVERLAY_READY ? window.__AILEEN_OVERLAY_READY() : false').catch(() => false);
+                  if (ready) break;
+                  await new Promise((r) => setTimeout(r, 500));
+                }
+                rep.overlayProbe = await w.webContents.executeJavaScript('window.__AILEEN_OVERLAY_PROBE ? window.__AILEEN_OVERLAY_PROBE() : null');
+                rep.modelRenderedOk = !!(rep.overlayProbe && rep.overlayProbe.renderedOk === true && rep.overlayProbe.stageChildren > 0);
+                rep.mainWindowMq = await win.webContents.executeJavaScript('({ mq: window.matchMedia("screen and (max-width: 768px)").matches, screen: [window.screen.width, window.screen.height] })').catch(() => null);
+              } catch (err) { rep.errors.push('overlay probe: ' + String((err && err.message) || err)); }
+              await new Promise((r) => setTimeout(r, 400));
               try {
                 const shot = await w.webContents.capturePage();
                 fs.writeFileSync(path.join(DIR3, 'overlay.png'), shot.toPNG());
+                // 展台整窗除了模型和右下角工具条之外全是透明的，
+                // 所以「画面中段出现不透明像素」就等于模型真的画出来了（工具条在底部，按 y 切开）
+                const bmp = shot.toBitmap();
+                const size = shot.getSize();
+                let painted = 0;
+                let paintedCenter = 0;
+                for (let y = 0; y < size.height; y += 2) {
+                  for (let x = 0; x < size.width; x += 2) {
+                    if (bmp[(y * size.width + x) * 4 + 3] > 8) {
+                      painted += 1;
+                      if (y < size.height * 0.75) paintedCenter += 1;
+                    }
+                  }
+                }
+                rep.paintedPixels = painted;
+                rep.paintedCenter = paintedCenter;
+                // capturePage 抓不到透明窗口里的 WebGL 图层，所以它只作参考；
+                // 「模型真的画出来了」以渲染器自己的帧缓冲为准（见上面的 fb 探针）。
+                rep.modelPaintedOk = paintedCenter > 500;
               } catch (err) { rep.errors.push('capture: ' + String((err && err.message) || err)); }
               destroyOverlayWindow();
             }

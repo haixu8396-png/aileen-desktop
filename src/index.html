@@ -132,6 +132,44 @@
   </div>
 </div>
 
+<!-- 人设生成室（设置 → ✨ 人设生成） -->
+<div id="modal-persona" class="modal hidden">
+  <div class="modal-box wide">
+    <h3 data-i18n="studio.title">✨ Persona Studio</h3>
+    <p class="hint" data-i18n="studio.intro"></p>
+    <label class="studio-seed"><span data-i18n="studio.seed">One line of inspiration</span>
+      <input id="pa-seed" data-i18n-ph="studio.seedPh" placeholder="e.g. a night-shift librarian who hates silence" /></label>
+    <div class="arch-group">
+      <div class="arch-head">
+        <span class="arch-title" data-i18n="studio.personality">Personality archetype</span>
+        <label class="arch-lock" data-i18n-title="studio.lockTip"><input type="checkbox" id="pa-lock-p" checked /><span data-i18n="studio.lock">Lock</span></label>
+      </div>
+      <div id="pa-personalities" class="arch-grid"></div>
+    </div>
+    <div class="arch-group">
+      <div class="arch-head">
+        <span class="arch-title" data-i18n="studio.role">Role archetype</span>
+        <label class="arch-lock" data-i18n-title="studio.lockTip"><input type="checkbox" id="pa-lock-r" checked /><span data-i18n="studio.lock">Lock</span></label>
+      </div>
+      <div id="pa-roles" class="arch-grid"></div>
+    </div>
+    <details class="studio-opt">
+      <summary data-i18n="studio.optional">Optional</summary>
+      <div class="form-grid">
+        <label><span data-i18n="studio.name">Force the name</span><input id="pa-name" data-i18n-ph="studio.namePh" /></label>
+        <label><span data-i18n="studio.gender">Gender</span><select id="pa-gender"></select></label>
+        <label><span data-i18n="studio.age">Age</span><input id="pa-age" data-i18n-ph="studio.agePh" /></label>
+        <label><span data-i18n="studio.extra">Anything else</span><input id="pa-extra" data-i18n-ph="studio.extraPh" /></label>
+      </div>
+    </details>
+    <div class="modal-actions">
+      <span class="spacer"></span>
+      <button id="pa-cancel" data-i18n="char.cancel">Cancel</button>
+      <button id="pa-generate" class="primary" data-i18n="studio.generate">✨ Generate</button>
+    </div>
+  </div>
+</div>
+
 <!-- LLM settings -->
 <div id="modal-llm" class="modal hidden">
   <div class="modal-box wide">
@@ -269,6 +307,7 @@
       <button data-target="modal-tts"><span class="menu-label" data-i18n="menu.tts">🔊 Text-to-Speech (TTS)</span><span class="menu-sub" id="menu-sub-tts"></span></button>
       <button data-target="modal-stt"><span class="menu-label" data-i18n="menu.stt">🎤 Speech Recognition (STT)</span><span class="menu-sub" id="menu-sub-stt"></span></button>
       <button data-target="modal-perform"><span class="menu-label" data-i18n="menu.perform">🎭 Performance</span><span class="menu-sub" id="menu-sub-perform"></span></button>
+      <button data-target="modal-persona"><span class="menu-label" data-i18n="studio.menu">✨ Persona Studio</span><span class="menu-sub" id="menu-sub-persona"></span></button>
       <div class="menu-group-title" data-i18n="menu.group.look">Character &amp; Appearance</div>
       <button data-target="modal-model"><span class="menu-label" data-i18n="menu.model">🎀 Live2D Model Settings</span><span class="menu-sub" id="menu-sub-model"></span></button>
       <button data-target="modal-theme"><span class="menu-label" data-i18n="menu.theme">🎨 Appearance</span><span class="menu-sub" id="menu-sub-theme"></span></button>

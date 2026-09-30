@@ -8,6 +8,22 @@ html, body {
 }
 #ov-root { position: fixed; inset: 0; }
 #ov-stage { position: absolute; inset: 0; transition: opacity 0.25s ease; }
+/* 关键：oh-my-live2d 在「滑入」动画里会重写 #oml2d-stage 的内联样式，
+   把定位和尺寸整个抹掉 —— 舞台元素塌成 20 来像素高，canvas 的绘制缓冲变成 0x0，
+   模型就永远画不出来（整窗一片空白）。内联样式盖不过 !important，这里钉死它。 */
+#ov-stage > #oml2d-stage {
+  position: absolute !important;
+  left: 0 !important; top: 0 !important; right: auto !important; bottom: auto !important;
+  width: 100% !important; height: 100% !important;
+  transform: none !important;
+  animation: none !important;
+  z-index: 1 !important;
+}
+#ov-stage > #oml2d-stage > canvas {
+  display: block !important;
+  width: 100% !important;
+  height: 100% !important;
+}
 /* 纯透明：占位文字不画任何底板，整窗除模型与悬浮工具条外全透明 */
 .ov-empty {
   position: absolute; inset: 12px;
