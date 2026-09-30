@@ -1267,6 +1267,8 @@ function createWindow() {
           // 删除本地模型：真建一个临时模型目录，走 IPC 删掉，再确认它真的没了；
           // 顺便把所有越界路径试一遍 —— 这是唯一会真删用户文件的接口，必须挡住。
           try {
+            // CI 用的是全新数据目录，一个模型都没有 —— 先记下来，后面决定哪些断言可以跳过
+            rep.modelsAvailable = scanModels(MODELS_DIR, '').length > 0;
             const tmpDir = path.join(MODELS_DIR, '__selftest_del');
             fs.mkdirSync(tmpDir, { recursive: true });
             fs.writeFileSync(path.join(tmpDir, 'model.json'), '{"version":"Sample 1.0.0"}');
@@ -1400,7 +1402,14 @@ function createWindow() {
                   await new Promise((r) => setTimeout(r, 500));
                 }
                 rep.overlayProbe = await w.webContents.executeJavaScript('window.__AILEEN_OVERLAY_PROBE ? window.__AILEEN_OVERLAY_PROBE() : null');
-                rep.modelRenderedOk = !!(rep.overlayProbe && rep.overlayProbe.renderedOk === true && rep.overlayProbe.stageChildren > 0);
+                // 「模型画出来了」这条断言只在真的装了模型时才有意义：
+                // CI 是全新技术目录（零模型），硬要求像素就等于要求一个不可能的事。
+                // 但「展台不该被当成手机」这条任何环境都必须成立 —— 那才是模型完全不加载的元凶。
+                rep.modelRenderedOk = rep.modelsAvailable
+                  ? !!(rep.overlayProbe && rep.overlayProbe.renderedOk === true && rep.overlayProbe.stageChildren > 0)
+                  : 'skipped:no-model-installed';
+                rep.overlayMqOk = !!(rep.overlayProbe && rep.overlayProbe.mqMobile === false);
+                rep.overlayEmptyOk = rep.modelsAvailable ? null : !!(rep.overlayProbe && rep.overlayProbe.emptyHint === true);
                 rep.mainWindowMq = await win.webContents.executeJavaScript('({ mq: window.matchMedia("screen and (max-width: 768px)").matches, screen: [window.screen.width, window.screen.height] })').catch(() => null);
               } catch (err) { rep.errors.push('overlay probe: ' + String((err && err.message) || err)); }
               await new Promise((r) => setTimeout(r, 400));

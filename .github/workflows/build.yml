@@ -92,7 +92,12 @@ jobs:
           if ($ovr.mineflayer -ne $true) { throw ('打包产物里 mineflayer 不可用: ' + $ovr.mineflayer) }
           if ($ovr.pathfinder -ne $true) { throw ('打包产物里 mineflayer-pathfinder 不可用: ' + $ovr.pathfinder) }
           if (-not $ovr.gripExists) { throw '悬浮展台缺少拖拽手柄' }
-          if (-not $ovr.modelRenderedOk) { throw ('悬浮展台没有把模型画出来（帧缓冲为空）→ ' + ($ovr.overlayProbe | ConvertTo-Json -Compress -Depth 4)) }
+          # 展台被误判成「手机」时，oh-my-live2d 会完全跳过模型加载 —— 这条任何环境都必须成立
+          if ($ovr.overlayProbe.mqMobile -ne $false) { throw '悬浮展台被判定成了移动端（matchMedia 窗口宽度误判），模型会完全不加载' }
+          # 像素级断言只在真的装了模型时才有意义；CI 用全新数据目录，没有模型就退化成检查空状态
+          if ($ovr.modelsAvailable -and -not $ovr.modelRenderedOk) { throw ('悬浮展台没有把模型画出来（帧缓冲为空）→ ' + ($ovr.overlayProbe | ConvertTo-Json -Compress -Depth 4)) }
+          if (-not $ovr.modelsAvailable -and -not $ovr.overlayEmptyOk) { throw ('没有安装模型时，悬浮展台应当显示空状态 → ' + ($ovr.overlayProbe | ConvertTo-Json -Compress -Depth 4)) }
+          if (-not $ovr.overlayMqOk) { throw '悬浮展台的平台判定异常' }
           if (-not $ovr.fullscreenAccelOk) { throw '全屏没有绑定 F11（视图菜单里的 togglefullscreen 缺 accelerator）' }
           if (-not $ovr.fullscreenToggleOk) { throw '窗口全屏开关无效' }
           if (-not $ovr.modelDeleteOk) { throw ('删除本地模型失败（临时模型目录没被删掉）→ ' + $ovr.modelDeleteBefore + ' / ' + $ovr.modelDeleteAfter) }
@@ -170,7 +175,12 @@ jobs:
           if ($ovr.mineflayer -ne $true) { throw ('打包产物里 mineflayer 不可用: ' + $ovr.mineflayer) }
           if ($ovr.pathfinder -ne $true) { throw ('打包产物里 mineflayer-pathfinder 不可用: ' + $ovr.pathfinder) }
           if (-not $ovr.gripExists) { throw '悬浮展台缺少拖拽手柄' }
-          if (-not $ovr.modelRenderedOk) { throw ('悬浮展台没有把模型画出来（帧缓冲为空）→ ' + ($ovr.overlayProbe | ConvertTo-Json -Compress -Depth 4)) }
+          # 展台被误判成「手机」时，oh-my-live2d 会完全跳过模型加载 —— 这条任何环境都必须成立
+          if ($ovr.overlayProbe.mqMobile -ne $false) { throw '悬浮展台被判定成了移动端（matchMedia 窗口宽度误判），模型会完全不加载' }
+          # 像素级断言只在真的装了模型时才有意义；CI 用全新数据目录，没有模型就退化成检查空状态
+          if ($ovr.modelsAvailable -and -not $ovr.modelRenderedOk) { throw ('悬浮展台没有把模型画出来（帧缓冲为空）→ ' + ($ovr.overlayProbe | ConvertTo-Json -Compress -Depth 4)) }
+          if (-not $ovr.modelsAvailable -and -not $ovr.overlayEmptyOk) { throw ('没有安装模型时，悬浮展台应当显示空状态 → ' + ($ovr.overlayProbe | ConvertTo-Json -Compress -Depth 4)) }
+          if (-not $ovr.overlayMqOk) { throw '悬浮展台的平台判定异常' }
           if (-not $ovr.fullscreenAccelOk) { throw '全屏没有绑定 F11（视图菜单里的 togglefullscreen 缺 accelerator）' }
           if (-not $ovr.fullscreenToggleOk) { throw '窗口全屏开关无效' }
           if (-not $ovr.modelDeleteOk) { throw ('删除本地模型失败（临时模型目录没被删掉）→ ' + $ovr.modelDeleteBefore + ' / ' + $ovr.modelDeleteAfter) }
