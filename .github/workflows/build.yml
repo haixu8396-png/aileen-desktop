@@ -69,6 +69,7 @@ jobs:
           if (@($diag.uiBlockedBy).Count -gt 0) { throw ('界面被隐形元素遮挡，鼠标点不动 → ' + ($diag.uiBlockedBy -join ', ')) }
           if (-not $diag.personaOk) { throw ('自动生成人设不可用（解析或回填失败）→ ' + ($diag.personaDetail | ConvertTo-Json -Compress)) }
           if (-not $diag.studioOk) { throw ('人设生成室不可用（入口/原型选择/锁定提示词）→ ' + ($diag.studioDetail | ConvertTo-Json -Compress)) }
+          if (-not $diag.noModelOk) { throw ('「不使用模型」没有真正清空舞台 → ' + ($diag.noModelDetail | ConvertTo-Json -Compress)) }
           if (-not $diag.sideCollapseOk) { throw '界面：侧栏折叠不可用' }
           if (-not $diag.searchFilterOk) { throw '界面：角色搜索没有真正过滤列表' }
           if ($diag.jaMissingKeys -gt 0) { throw ('i18n：日文下仍有 ' + $diag.jaMissingKeys + ' 处回退成了 key') }
@@ -94,6 +95,8 @@ jobs:
           if (-not $ovr.modelRenderedOk) { throw ('悬浮展台没有把模型画出来（帧缓冲为空）→ ' + ($ovr.overlayProbe | ConvertTo-Json -Compress -Depth 4)) }
           if (-not $ovr.fullscreenAccelOk) { throw '全屏没有绑定 F11（视图菜单里的 togglefullscreen 缺 accelerator）' }
           if (-not $ovr.fullscreenToggleOk) { throw '窗口全屏开关无效' }
+          if (-not $ovr.modelDeleteOk) { throw ('删除本地模型失败（临时模型目录没被删掉）→ ' + $ovr.modelDeleteBefore + ' / ' + $ovr.modelDeleteAfter) }
+          if (-not $ovr.modelDeleteGuardOk) { throw ('删除模型的路径校验失效，越界路径被放行 → ' + ($ovr.modelDeleteGuard | ConvertTo-Json -Compress)) }
           $overrs = @($ovr.errors | Where-Object { $_ -and $_.Trim() -ne '' })
           if ($overrs.Count -gt 0) { throw ('悬浮展台报错: ' + ($overrs -join '; ')) }
           Write-Host '自检通过：无运行时错误，菜单行为与悬浮展台均正常'
@@ -144,6 +147,7 @@ jobs:
           if (@($diag.uiBlockedBy).Count -gt 0) { throw ('界面被隐形元素遮挡，鼠标点不动 → ' + ($diag.uiBlockedBy -join ', ')) }
           if (-not $diag.personaOk) { throw ('自动生成人设不可用（解析或回填失败）→ ' + ($diag.personaDetail | ConvertTo-Json -Compress)) }
           if (-not $diag.studioOk) { throw ('人设生成室不可用（入口/原型选择/锁定提示词）→ ' + ($diag.studioDetail | ConvertTo-Json -Compress)) }
+          if (-not $diag.noModelOk) { throw ('「不使用模型」没有真正清空舞台 → ' + ($diag.noModelDetail | ConvertTo-Json -Compress)) }
           if (-not $diag.sideCollapseOk) { throw '界面：侧栏折叠不可用' }
           if (-not $diag.searchFilterOk) { throw '界面：角色搜索没有真正过滤列表' }
           if ($diag.jaMissingKeys -gt 0) { throw ('i18n：日文下仍有 ' + $diag.jaMissingKeys + ' 处回退成了 key') }
@@ -169,6 +173,8 @@ jobs:
           if (-not $ovr.modelRenderedOk) { throw ('悬浮展台没有把模型画出来（帧缓冲为空）→ ' + ($ovr.overlayProbe | ConvertTo-Json -Compress -Depth 4)) }
           if (-not $ovr.fullscreenAccelOk) { throw '全屏没有绑定 F11（视图菜单里的 togglefullscreen 缺 accelerator）' }
           if (-not $ovr.fullscreenToggleOk) { throw '窗口全屏开关无效' }
+          if (-not $ovr.modelDeleteOk) { throw ('删除本地模型失败（临时模型目录没被删掉）→ ' + $ovr.modelDeleteBefore + ' / ' + $ovr.modelDeleteAfter) }
+          if (-not $ovr.modelDeleteGuardOk) { throw ('删除模型的路径校验失效，越界路径被放行 → ' + ($ovr.modelDeleteGuard | ConvertTo-Json -Compress)) }
           $overrs = @($ovr.errors | Where-Object { $_ -and $_.Trim() -ne '' })
           if ($overrs.Count -gt 0) { throw ('悬浮展台报错: ' + ($overrs -join '; ')) }
           Write-Host '打包产物自检通过（含悬浮展台）'

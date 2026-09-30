@@ -7,6 +7,7 @@ contextBridge.exposeInMainWorld('api', {
   addModelFolder: () => ipcRenderer.invoke('models:addFolder'),
   addModelUrl: (payload) => ipcRenderer.invoke('models:addUrl', payload),
   removeModelUrl: (url) => ipcRenderer.invoke('models:removeUrl', url),
+  deleteModel: (target) => ipcRenderer.invoke('models:delete', target),
   captureScreen: () => ipcRenderer.invoke('screen:capture'),
   listCharacters: () => ipcRenderer.invoke('characters:list'),
   writeCharacter: (file, data, mode) => ipcRenderer.invoke('characters:write', { file, data, mode }),

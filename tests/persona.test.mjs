@@ -58,7 +58,7 @@ describe('parsePersonaResponse · 容错', () => {
   it('太长的字段会被截断（别让模型灌一篇小作文进来）', () => {
     const r = parsePersonaResponse(JSON.stringify({ name: 'x'.repeat(200), personality: 'y'.repeat(5000) }));
     expect(r.name.length).toBe(40);
-    expect(r.personality.length).toBe(1200);
+    expect(r.personality.length).toBe(2500);   // personality 现在要装 500~1000 字的提示词
   });
 
   it('救不回来的一律返回 null', () => {
@@ -76,13 +76,13 @@ describe('parsePersonaResponse · 容错', () => {
   });
 });
 describe('personaBudgets · 推理模型的额度阶梯', () => {
-  it('用户设得很小时，起步就给到 2048（思考很占额度）', () => {
-    expect(personaBudgets(0)).toEqual([2048, 4096]);
-    expect(personaBudgets(300)).toEqual([2048, 4096]);
+  it('用户设得很小时，起步就给到 4096（一张卡光正文就 1000+ 字）', () => {
+    expect(personaBudgets(0)).toEqual([4096, 8192]);
+    expect(personaBudgets(300)).toEqual([4096, 8192]);
   });
 
-  it('用户设得大时，尊重用户的设置并翻倍一次', () => {
-    expect(personaBudgets(3000)).toEqual([3000, 6000]);
+  it('用户设得大时，尊重用户的设置并在封顶内翻倍', () => {
+    expect(personaBudgets(5000)).toEqual([5000, 8192]);
   });
 
   it('封顶 8192，且到顶之后不再给第二级', () => {
@@ -91,9 +91,9 @@ describe('personaBudgets · 推理模型的额度阶梯', () => {
   });
 
   it('脏值（undefined / NaN / 负数）按 0 处理', () => {
-    expect(personaBudgets(undefined)).toEqual([2048, 4096]);
-    expect(personaBudgets(NaN)).toEqual([2048, 4096]);
-    expect(personaBudgets(-5)).toEqual([2048, 4096]);
+    expect(personaBudgets(undefined)).toEqual([4096, 8192]);
+    expect(personaBudgets(NaN)).toEqual([4096, 8192]);
+    expect(personaBudgets(-5)).toEqual([4096, 8192]);
   });
 });
 
@@ -104,24 +104,24 @@ describe('withPersonaBudget · 额度不够时自动重试', () => {
     const tried = [];
     const out = await withPersonaBudget(300, async (budget) => {
       tried.push(budget);
-      if (budget === 2048) throw emptyReply();
+      if (budget === 4096) throw emptyReply();
       return 'OK@' + budget;
     });
-    expect(tried).toEqual([2048, 4096]);
-    expect(out).toBe('OK@4096');
+    expect(tried).toEqual([4096, 8192]);
+    expect(out).toBe('OK@8192');
   });
 
   it('第一次就成功的话不会多花钱', async () => {
     const tried = [];
     await withPersonaBudget(300, async (budget) => { tried.push(budget); return 'ok'; });
-    expect(tried).toEqual([2048]);
+    expect(tried).toEqual([4096]);
   });
 
   it('两次都被吃光 → 抛最后一次的错误（上层会toast给用户看）', async () => {
     const tried = [];
-    await expect(withPersonaBudget(2048, async (budget) => { tried.push(budget); throw emptyReply(); }))
+    await expect(withPersonaBudget(4096, async (budget) => { tried.push(budget); throw emptyReply(); }))
       .rejects.toThrow(/思考吃光了/);
-    expect(tried).toEqual([2048, 4096]);
+    expect(tried).toEqual([4096, 8192]);
   });
 
   it('JSON 被截断（TRUNCATED_REPLY）也要加大额度重来一次', async () => {
@@ -129,26 +129,26 @@ describe('withPersonaBudget · 额度不够时自动重试', () => {
     const truncated = () => { const e = new Error('括号没闭合'); e.code = 'TRUNCATED_REPLY'; return e; };
     const out = await withPersonaBudget(300, async (budget) => {
       tried.push(budget);
-      if (budget === 2048) throw truncated();
+      if (budget === 4096) throw truncated();
       return 'OK@' + budget;
     });
-    expect(tried).toEqual([2048, 4096]);
-    expect(out).toBe('OK@4096');
+    expect(tried).toEqual([4096, 8192]);
+    expect(out).toBe('OK@8192');
   });
 
   it('解析不出来但不是截断（UNPARSABLE）→ 不重试，直接失败', async () => {
     const tried = [];
     const bad = () => { const e = new Error('模型在说废话'); e.code = 'UNPARSABLE'; return e; };
-    await expect(withPersonaBudget(2048, async (budget) => { tried.push(budget); throw bad(); })).rejects.toThrow(/废话/);
-    expect(tried).toEqual([2048]);
+    await expect(withPersonaBudget(4096, async (budget) => { tried.push(budget); throw bad(); })).rejects.toThrow(/废话/);
+    expect(tried).toEqual([4096]);
   });
 
   it('其它错误（比如没配 key、HTTP 401）绝不重试', async () => {
     const tried = [];
     const boom = new Error('HTTP 401 unauthorized');
-    await expect(withPersonaBudget(2048, async (budget) => { tried.push(budget); throw boom; }))
+    await expect(withPersonaBudget(4096, async (budget) => { tried.push(budget); throw boom; }))
       .rejects.toThrow(/401/);
-    expect(tried).toEqual([2048]);
+    expect(tried).toEqual([4096]);
   });
 
   it('封顶时只跑一次，不会拿同一个额度重复烧钱', async () => {
@@ -224,6 +224,23 @@ describe('buildPersonaMessages · 原型锁定', () => {
     expect(m).toHaveLength(2);
     expect(m[1].content).toContain('冷淡一点，别话多');
     expect(m[0].content).not.toContain('硬约束');
+  });
+
+  it('两种模式都要求写 500~1000 字的完整提示词', () => {
+    setLang('zh');
+    for (const opts of [{ seed: 'x' }, { mode: 'known', charName: 'X' }]) {
+      const sys = buildPersonaMessages(opts)[0].content;
+      expect(sys).toContain('500~1000 字');
+      expect(sys).toContain('角色扮演提示词');
+    }
+    setLang('en');
+  });
+
+  it('personality 的字段上限容得下 1000 字（别再被自己截断）', () => {
+    const long = '你'.repeat(1000) + '。结尾';
+    const card = parsePersonaResponse(JSON.stringify({ name: 'X', personality: long }));
+    expect(card.personality.length).toBe(long.length);
+    expect(card.personality.endsWith('结尾')).toBe(true);
   });
 
   it('种子留空时也会给一个具体灵感，不会发空字符串过去', () => {

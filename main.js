@@ -967,6 +967,15 @@ function createWindow() {
             // 行为断言⑩：界面没有被隐形元素遮挡（「点都点不了」探测器）
             // 用 elementFromPoint 在几个关键位置做命中测试，命中的元素必须落在 #app 里。
             // 如果某个固定定位的弹窗/遮罩没被正确隐藏，这里就会抓到。
+            // 行为断言⑬：不使用模型 —— 这一档必须真的把舞台清空
+            let noModelOk = false;
+            let noModelDetail = null;
+            try {
+              noModelDetail = typeof window.__AILEEN_PROBE_NOMODEL === 'function' ? await window.__AILEEN_PROBE_NOMODEL() : null;
+              noModelOk = !!noModelDetail && noModelDetail.hasOption === true && noModelDetail.stageHasOption === true
+                && noModelDetail.modelIsNull === true && noModelDetail.disabledFlag === true
+                && noModelDetail.stageCleared === true && noModelDetail.placeholder === true;
+            } catch (err) { window.__AILEEN_ERRORS.push('noModelTest: ' + String((err && err.message) || err)); }
             // 行为断言⑫：人设生成室 —— 设置入口 / 原型选择 / 锁定真的改变提示词
             let studioOk = false;
             let studioDetail = null;
@@ -1211,6 +1220,8 @@ function createWindow() {
               personaDetail,
               studioOk,
               studioDetail,
+              noModelOk,
+              noModelDetail,
               uiBlockedBy,
               sideCollapseOk,
               searchFilterOk,
@@ -1253,6 +1264,25 @@ function createWindow() {
             mineflayer: (function () { try { require('mineflayer'); return true; } catch (e) { return String((e && e.message) || e); } })(),
             pathfinder: (function () { try { require('mineflayer-pathfinder'); return true; } catch (e) { return String((e && e.message) || e); } })(),
           };
+          // 删除本地模型：真建一个临时模型目录，走 IPC 删掉，再确认它真的没了；
+          // 顺便把所有越界路径试一遍 —— 这是唯一会真删用户文件的接口，必须挡住。
+          try {
+            const tmpDir = path.join(MODELS_DIR, '__selftest_del');
+            fs.mkdirSync(tmpDir, { recursive: true });
+            fs.writeFileSync(path.join(tmpDir, 'model.json'), '{"version":"Sample 1.0.0"}');
+            rep.modelDeleteBefore = scanModels(MODELS_DIR, '').length;
+            const after = await win.webContents.executeJavaScript('window.api.deleteModel({ dir: "__selftest_del" })');
+            rep.modelDeleteOk = !fs.existsSync(tmpDir) && Array.isArray(after) && !after.some((m) => String(m.file).indexOf('__selftest_del') === 0);
+            rep.modelDeleteAfter = Array.isArray(after) ? after.length : null;
+            const guard = await win.webContents.executeJavaScript(
+              '(async function(){ var tries=["..","../characters","characters","C:/Windows","__nope__"]; var out=[];'
+              + ' for (var i=0;i<tries.length;i++){ try { await window.api.deleteModel({dir:tries[i]}); out.push([tries[i],"ALLOWED"]); }'
+              + ' catch (e) { out.push([tries[i],"blocked"]); } } return out; })()',
+            );
+            rep.modelDeleteGuard = guard;
+            rep.modelDeleteGuardOk = Array.isArray(guard) && guard.every((x) => x[1] === 'blocked');
+            rep.charactersDirIntact = fs.existsSync(CHARACTERS_DIR);
+          } catch (err) { rep.errors.push('model delete: ' + String((err && err.message) || err)); }
           // F11 全屏：1) 菜单里必须真的绑了 F11；2) 全屏开关本身必须有效
           try {
             const menu = Menu.getApplicationMenu();
@@ -1484,6 +1514,27 @@ function registerIpc() {
     s.extraModels = (s.extraModels || []).filter((m) => m.url !== String(url || ''));
     writeSettings(s);
     return [...scanModels(MODELS_DIR, ''), ...s.extraModels.map((m) => ({ name: m.name, file: m.url, url: m.url, source: 'url' }))];
+  });
+
+  // 删除本地模型：连同磁盘上的文件夹一起删。
+  // 这是唯一一个会真删用户文件的接口，所以路径校验必须死板：
+  // 只接受 models/ 下第一层目录名，绝不允许越出 models 之外。
+  ipcMain.handle('models:delete', (_e, target) => {
+    const raw = String((target && (target.dir || target.file || target.name)) || '').trim();
+    if (!raw) throw new Error('无效的模型路径');
+    const first = raw.split(/[\\/]+/).filter(Boolean)[0];
+    if (!first || first === '.' || first === '..') throw new Error('无效的模型路径');
+    const modelsRoot = path.normalize(MODELS_DIR);
+    const dir = path.normalize(path.join(MODELS_DIR, first));
+    if (dir === modelsRoot || !dir.startsWith(modelsRoot + path.sep)) {
+      throw new Error('拒绝操作 models 目录以外的路径');
+    }
+    if (!fs.existsSync(dir)) throw new Error('模型文件夹不存在');
+    // 二次保险：确认它真的是个模型目录，别让手滑删掉别的什么
+    const looksLikeModel = scanModels(dir, '').length > 0;
+    if (!looksLikeModel) throw new Error('这个文件夹里没有 Live2D 模型文件，已中止');
+    fs.rmSync(dir, { recursive: true, force: true });
+    return scanModels(MODELS_DIR, '');
   });
 
   // 屏幕捕获（视觉功能）

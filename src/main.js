@@ -15,6 +15,7 @@ import { $, toast, autoGrowInput } from './lib/dom.js';
 import { escapeHtml } from './lib/markdown.js';
 import {
   initLive2D, rebuildLive2D, updateStageModelName, populateStageModelSelect, setStageModelIndex, syncOverlayModel,
+  currentStageModel, stageModelDisabled,
   openModelModal, addModelFromFolder, showUrlForm, submitUrlForm, refreshModelsAfterAdd, bindTtsMotion, applyStageScale,
 } from './lib/stage.js';
 import {
@@ -242,7 +243,10 @@ function bindModelModal() {
   $('m-cancel').onclick = () => closeSubModal('modal-model');
   $('m-model').onchange = (e) => {
     const idx = parseInt(e.target.value, 10);
-    if (!isNaN(idx) && state.oml2d) state.oml2d.loadModelByIndex(idx);
+    // 选「不使用模型」要真的把舞台清掉；从「不使用」切回某个模型时要重建舞台 ——
+    // 那条路上 state.oml2d 已经是 null 了，只调 loadModelByIndex 会什么都不发生。
+    if (e.target.value === '-1' || !state.oml2d) rebuildLive2D();
+    else if (!isNaN(idx)) state.oml2d.loadModelByIndex(idx);
     updateStageModelName();
     syncOverlayModel();
   };
@@ -478,7 +482,8 @@ function bindEvents() {
       const idx = parseInt(e.target.value, 10);
       const mSel = $('m-model');
       if (mSel) mSel.value = String(idx);
-      if (!isNaN(idx) && state.oml2d) state.oml2d.loadModelByIndex(idx);
+      if (e.target.value === '-1' || !state.oml2d) rebuildLive2D();
+      else if (!isNaN(idx)) state.oml2d.loadModelByIndex(idx);
       updateStageModelName();
       syncOverlayModel();
     };
@@ -623,6 +628,30 @@ window.__AILEEN_PROBE_PACER = () => {
   p.push("在？<{'|'}del");
   p.push("ay:2{'|'}>算了没事");
   return p.finish().then(() => ({ text, breaks: breaks.length, waits }));
+};
+
+// 自检钩子：「不使用模型」这一档要真的生效（舞台清空、展台收到 null）
+window.__AILEEN_PROBE_NOMODEL = async () => {
+  const out = {};
+  const sel = document.getElementById('m-model');
+  const stageSel = document.getElementById('stage-model');
+  out.hasOption = !!(sel && sel.querySelector('option[value="-1"]'));
+  out.stageHasOption = !!(stageSel && stageSel.querySelector('option[value="-1"]'));
+  const prev = sel ? sel.value : null;
+  if (sel) { sel.value = '-1'; sel.onchange({ target: sel }); }
+  out.modelIsNull = currentStageModel() === null;
+  out.disabledFlag = stageModelDisabled() === true;
+  const box = document.getElementById('stage-container');
+  out.stageCleared = !!(box && !box.querySelector('canvas'));
+  out.placeholder = !!(box && box.querySelector('.stage-placeholder'));
+  // 恢复现场，并等模型重新加载完 —— 否则后面的 modelReady 断言会因为「正在加载」而误报
+  if (sel && prev) { sel.value = prev; sel.onchange({ target: sel }); }
+  for (let i = 0; i < 40; i += 1) {
+    if (typeof window.__AILEEN_MODEL_READY === 'function' && window.__AILEEN_MODEL_READY()) break;
+    await new Promise((r) => setTimeout(r, 150));
+  }
+  out.restoredReady = typeof window.__AILEEN_MODEL_READY === 'function' ? !!window.__AILEEN_MODEL_READY() : 'n/a';
+  return out;
 };
 
 // 自检钩子：按名字打开某个界面（截图核对排版用）

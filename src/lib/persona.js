@@ -16,7 +16,9 @@ import { streamChat } from './llm.js';
 export const PERSONA_FIELDS = ['name', 'description', 'personality', 'scenario', 'first_mes', 'mes_example'];
 
 // 字段长度上限，防止模型灌一篇小作文进角色卡
-const MAX_LEN = { name: 40, description: 120, personality: 1200, scenario: 600, first_mes: 600, mes_example: 1200 };
+// personality 现在要求写 500~1000 字的完整提示词，上限必须跟着放宽，
+// 否则好不容易写出来的东西会被我们自己的截断毁掉（而这正是「乱写」的另一种形态）。
+const MAX_LEN = { name: 40, description: 120, personality: 2500, scenario: 800, first_mes: 800, mes_example: 2000 };
 
 const LANG_NAME = { en: 'English', ja: '日本語', zh: '简体中文' };
 
@@ -151,7 +153,7 @@ export function buildSeedMessages(seed) {
 }
 
 // 生成一张卡要花的额度（思考很占），以及撞到上限后允许翻到的天花板
-export const PERSONA_MIN_TOKENS = 2048;
+export const PERSONA_MIN_TOKENS = 4096;   // 一张卡光正文就 1000+ 字，起步额度必须给够
 export const PERSONA_MAX_TOKENS = 8192;
 
 /**

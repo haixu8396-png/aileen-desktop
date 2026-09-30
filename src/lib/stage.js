@@ -28,8 +28,10 @@ const STAGE_STYLE = {
 export function initLive2D() {
   const container = $('stage-container');
   if (!container) return;
-  if (!state.models.length) {
-    container.innerHTML = '<div class="stage-placeholder">' + t('stage.noModelsHint') + '<br><button id="btn-goto-models" class="ghost">' + t('stage.gotoModels') + '</button></div>';
+  if (!state.models.length || stageModelDisabled()) {
+    const body = state.models.length ? t('stage.noModelOption') : t('stage.noModelsHint');
+    container.innerHTML = '<div class="stage-placeholder">' + body
+      + '<br><button id="btn-goto-models" class="ghost">' + t('stage.gotoModels') + '</button></div>';
     const go = container.querySelector('#btn-goto-models');
     if (go) go.onclick = () => openModelModal();
     return;
@@ -165,10 +167,16 @@ export function bindTtsMotion() {
 
 const STAGE_MODEL_SELECTS = ['m-model', 'stage-model'];
 
+// 「不使用模型」是明确的一档，不是「还没选」：选它就真的不加载模型（桌面展台也一起空掉）
 function modelOptionsHtml() {
-  return state.models.length
-    ? state.models.map((m, i) => '<option value="' + i + '">' + escapeHtml(m.name) + '</option>').join('')
-    : '<option value="-1">' + t('char.unbound') + '</option>';
+  return '<option value="-1">' + t('stage.noModelOption') + '</option>'
+    + state.models.map((m, i) => '<option value="' + i + '">' + escapeHtml(m.name) + '</option>').join('');
+}
+
+/** 用户是不是明确选了「不使用模型」 */
+export function stageModelDisabled() {
+  const sel = $('m-model');
+  return !!(sel && sel.value === '-1');
 }
 
 /** 两个下拉框（设置弹窗里的 + 舞台上的）始终同步 */
@@ -190,7 +198,12 @@ export function populateStageModelSelect() {
   const html = modelOptionsHtml();
   for (const id of STAGE_MODEL_SELECTS) {
     const el = $(id);
-    if (el) el.innerHTML = html;
+    if (!el) continue;
+    const prev = el.value;
+    el.innerHTML = html;
+    // 记住用户的选择（包括「不使用模型」）；第一次进来默认用第一个模型，而不是空舞台
+    if (prev && el.querySelector('option[value="' + prev + '"]')) el.value = prev;
+    else el.value = state.models.length ? '0' : '-1';
   }
   updateStageModelName();
 }
@@ -213,7 +226,9 @@ export function applyStageScale(scale) {
 /** 当前舞台应显示的模型（跟随舞台下拉框，退化到角色卡绑定，再退化到第一个） */
 export function currentStageModel() {
   const sel = $('m-model');
-  const idx = sel ? parseInt(sel.value, 10) : -1;
+  const raw = sel ? sel.value : '';
+  const idx = parseInt(raw, 10);
+  if (raw === '-1') return null;   // 明确选了「不使用模型」：连展台也一起空着
   if (!isNaN(idx) && idx >= 0 && state.models[idx]) return state.models[idx];
   const cur = state.current;
   if (cur && cur.data && cur.data.model) {
@@ -234,8 +249,60 @@ export function syncOverlayModel() {
 // ---------------- 模型管理（设置 → 模型设置） ----------------
 export function openModelModal() {
   populateStageModelSelect();
+  renderLocalList();
   renderUrlList();
   $('modal-model').classList.remove('hidden');
+}
+
+/** 磁盘上的本地模型（可整个删掉） */
+export function renderLocalList() {
+  const box = $('m-local-list');
+  if (!box) return;
+  const locals = state.models.filter((m) => m.source !== 'url');
+  box.innerHTML = '';
+  if (!locals.length) {
+    box.innerHTML = '<div class="empty">' + t('model.noLocal') + '</div>';
+    return;
+  }
+  for (const m of locals) {
+    const item = document.createElement('div');
+    item.className = 'url-item';
+    const nm = document.createElement('span');
+    nm.className = 'ui-name';
+    nm.textContent = m.name;
+    const dir = document.createElement('span');
+    dir.className = 'ui-url';
+    dir.textContent = m.file;
+    const rm = document.createElement('button');
+    rm.textContent = '🗑';
+    rm.title = t('model.delete');
+    rm.dataset.delModel = m.file;
+    rm.onclick = () => deleteLocalModel(m);
+    item.appendChild(nm);
+    item.appendChild(dir);
+    item.appendChild(rm);
+    box.appendChild(item);
+  }
+}
+
+/** 删除磁盘上的模型。这是唯一会真删用户文件的操作，所以在界面上必须再确认一次。 */
+export async function deleteLocalModel(m) {
+  const used = (state.characters || []).filter((c) => c.data && c.data.model === m.file).length;
+  let msg = t('model.deleteConfirm', { name: m.name });
+  if (used) msg += '\n\n' + t('model.deleteInUse', { n: used });
+  // eslint-disable-next-line no-alert
+  if (!confirm(msg)) return;
+  try {
+    state.models = await window.api.deleteModel({ dir: m.file });
+    hooks.populateModelSelect();
+    populateStageModelSelect();
+    rebuildLive2D();
+    renderLocalList();
+    syncOverlayModel();
+    toast(t('model.deleted', { name: m.name }));
+  } catch (err) {
+    toast(t('model.deleteFailed', { msg: String((err && err.message) || err) }), true);
+  }
 }
 
 export async function addModelFromFolder() {
@@ -310,6 +377,7 @@ export async function refreshModelsAfterAdd() {
   hooks.populateModelSelect();
   populateStageModelSelect();
   rebuildLive2D();
+  renderLocalList();
   syncOverlayModel();
   const current = state.current;
   if (current && current.data.model) {
