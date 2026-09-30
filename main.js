@@ -1392,8 +1392,9 @@ function createWindow() {
                   + '})()');
               } catch (err) { rep.errors.push('canvas metrics: ' + String((err && err.message) || err)); }
               try {
-                // 模型加载是异步的：先轮询等它真的挂上去再断言（固定等待会时快时慢地误报）
-                for (let i = 0; i < 24; i += 1) {
+                // 模型加载是异步的：先轮询等它真的挂上去再断言（固定等待会时快时慢地误报）。
+                // 上限给到 30 秒 —— CI runner 比本机慢，宁可多等也不要假红。
+                for (let i = 0; i < 60; i += 1) {
                   const ready = await w.webContents.executeJavaScript('window.__AILEEN_OVERLAY_READY ? window.__AILEEN_OVERLAY_READY() : false').catch(() => false);
                   if (ready) break;
                   await new Promise((r) => setTimeout(r, 500));

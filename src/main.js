@@ -646,9 +646,10 @@ window.__AILEEN_PROBE_NOMODEL = async () => {
   out.placeholder = !!(box && box.querySelector('.stage-placeholder'));
   // 恢复现场，并等模型重新加载完 —— 否则后面的 modelReady 断言会因为「正在加载」而误报
   if (sel && prev) { sel.value = prev; sel.onchange({ target: sel }); }
-  for (let i = 0; i < 40; i += 1) {
+  // 打包版从 asar 里读模型比开发版慢，等待给足（宁可自检慢一点，也不要随机红）
+  for (let i = 0; i < 80; i += 1) {
     if (typeof window.__AILEEN_MODEL_READY === 'function' && window.__AILEEN_MODEL_READY()) break;
-    await new Promise((r) => setTimeout(r, 150));
+    await new Promise((r) => setTimeout(r, 250));
   }
   out.restoredReady = typeof window.__AILEEN_MODEL_READY === 'function' ? !!window.__AILEEN_MODEL_READY() : 'n/a';
   return out;

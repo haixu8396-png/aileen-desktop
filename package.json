@@ -1,7 +1,7 @@
 {
   "name": "aileen",
   "productName": "AILEEN",
-  "version": "0.8.0",
+  "version": "0.6.5",
   "description": "桌面 AI 伴侣：Live2D 角色 + 多模型 LLM 对话 + 语音 + 屏幕视觉 + Minecraft/国际象棋，本地运行、数据私有",
   "license": "MIT",
   "author": "AILEEN Contributors",
