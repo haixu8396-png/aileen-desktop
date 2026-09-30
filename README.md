@@ -7,8 +7,13 @@
 </p>
 
 <p align="center">
-  A tribute to <a href="https://www.youtube.com/channel/UCLHmLrj4pHHg3-iBJn_CqxA">Neuro-sama</a>,
-  inspired by <a href="https://github.com/moeru-ai/airi">moeru-ai/Airi</a>.
+  A character you love can move in — <b>say the name and it writes their personality, history and voice into a card you can use right away</b>.<br/>
+  Or start from one line of inspiration and make someone entirely your own.
+</p>
+
+<p align="center">
+  Inspired by <a href="https://www.youtube.com/channel/UCLHmLrj4pHHg3-iBJn_CqxA">Neuro-sama</a>,
+  a tribute to <a href="https://github.com/moeru-ai/airi">moeru-ai/Airi</a>.
 </p>
 
 <p align="center">
@@ -159,9 +164,9 @@ Models and avatars are served over a tiny local HTTP server instead of `file://`
 
 ### Standing on
 
-AILEEN would not exist without **[moeru-ai/Airi](https://github.com/moeru-ai/airi)**. It is the project that made "an open-source AI companion" sound like a real thing rather than a wish, and this repository follows it openly — its README structure, its habits, and its conviction that a virtual character can be worth building carefully. If you are reading this and you have not seen Airi yet, close this tab and go look. It has earned its stars many times over.
+A tribute to **[moeru-ai/Airi](https://github.com/moeru-ai/airi)** — AILEEN would not exist without it. It is the project that made "an open-source AI companion" sound like a real thing rather than a wish, and this repository follows it openly — its README structure, its habits, and its conviction that a virtual character can be worth building carefully. If you are reading this and you have not seen Airi yet, close this tab and go look. It has earned its stars many times over.
 
-And **[Neuro-sama](https://www.youtube.com/channel/UCLHmLrj4pHHg3-iBJn_CqxA)** — the AI VTuber who proved that a character with a voice, a memory and a personality can make you forget you are watching software. That is the bar. AILEEN is a small hand reaching for it, and we are nowhere near it yet.
+And the idea started with **[Neuro-sama](https://www.youtube.com/channel/UCLHmLrj4pHHg3-iBJn_CqxA)** — the AI VTuber who proved that a character with a voice, a memory and a personality can make you forget you are watching software. That is the bar. AILEEN is a small hand reaching for it, and we are nowhere near it yet.
 
 ### Built with
 

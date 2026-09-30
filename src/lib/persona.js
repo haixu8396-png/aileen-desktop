@@ -10,7 +10,7 @@
 // 然后逐字段类型校验 + 截断。
 // ============================================================
 import { t, getLang } from './i18n.js';
-import { PERSONALITIES, ROLES, GENDERS, findArchetype, labelOf, specOf } from './archetypes.js';
+import { PERSONALITIES, ROLES, GENDERS, RELATIONSHIPS, findArchetype, labelOf, specOf } from './archetypes.js';
 import { streamChat } from './llm.js';
 
 export const PERSONA_FIELDS = ['name', 'description', 'personality', 'scenario', 'first_mes', 'mes_example'];
@@ -40,6 +40,25 @@ function constraintBlock(opts, lang) {
   const r = findArchetype(ROLES, opts.roleId);
   const hard = [];
   const soft = [];
+
+  // 「已有角色」模式：不是自由创作，而是回忆 + 整理。要求忠实，并且**允许它说不认识** ——
+  // 不认识却说认识，出来的一定是一张套着名字的通用卡，那比失败更糟。
+  if (opts.mode === 'known') {
+    const charName = String(opts.charName || '').trim();
+    const work = String(opts.work || '').trim();
+    const strict = opts.fidelity !== 'loose';
+    if (charName) hard.push(t('persona.knownChar', { v: charName }));
+    if (work) hard.push(t('persona.knownWork', { v: work }));
+    hard.push(t('persona.knownFidelity', { v: strict ? t('persona.knownStrict') : t('persona.knownLoose') }));
+    hard.push(t('persona.knownRule'));
+    hard.push(t('persona.knownUnknown'));
+    const parts0 = t('persona.knownHeader') + '\n' + hard.join('\n');
+    const relLines0 = relationshipLines(opts, lang);
+    return relLines0.length
+      ? parts0 + '\n\n' + t('persona.relHeader') + '\n' + relLines0.join('\n')
+      : parts0;
+  }
+
   if (p) {
     const line = t('persona.linePersonality', { v: labelOf(p, lang) + ' —— ' + specOf(p, lang) });
     (opts.lockPersonality === false ? soft : hard).push(line);
@@ -51,7 +70,20 @@ function constraintBlock(opts, lang) {
   const parts = [];
   if (hard.length) parts.push(t('persona.lockHeader') + '\n' + hard.join('\n') + '\n' + t('persona.lockRule'));
   if (soft.length) parts.push(t('persona.softHeader') + '\n' + soft.join('\n') + '\n' + t('persona.softRule'));
+  // 对话者的身份是硬约束：同一句台词，「恋人」和「刚认识的人」说出来的样子完全不同
+  const relLines = relationshipLines(opts, lang);
+  if (relLines.length) parts.push(t('persona.relHeader') + '\n' + relLines.join('\n') + '\n' + t('persona.relRule'));
   return parts.join('\n\n');
+}
+
+/** 对话者（用户）在这段关系里是谁 */
+function relationshipLines(opts, lang) {
+  const out = [];
+  const rel = findArchetype(RELATIONSHIPS, opts.relationId);
+  if (rel && rel.id !== 'any') out.push(t('persona.relLine', { v: labelOf(rel, lang) + ' —— ' + specOf(rel, lang) }));
+  const who = String(opts.userName || '').trim();
+  if (who) out.push(t('persona.relName', { v: who }));
+  return out;
 }
 
 /** 名字/性别/年龄/其它要求 —— 用户明确写了的，就必须照做 */
@@ -78,12 +110,30 @@ export function buildPersonaMessages(input) {
   const lang = getLang();
   const langName = LANG_NAME[lang] || 'English';
 
-  const blocks = [t('persona.system', { lang })];
+  const known = opts.mode === 'known';
+  // 关键：两种模式的「底稿」必须不同。共用一份「创造一个角色」的提示词时，
+  // 模型会照字面执行 —— 于是你输入「凉宫春日」，它给你编一个潜水员出来。
+  const blocks = [known ? t('persona.systemKnown', { lang: langName }) : t('persona.system', { lang: langName })];
   const c = constraintBlock(opts, lang);
   if (c) blocks.push(c);
 
-  const seed = String(opts.seed || '').trim();
   const lines = [];
+  if (known) {
+    const nm = String(opts.charName || '').trim();
+    const wk = String(opts.work || '').trim();
+    if (nm) lines.push(t('persona.knownAsk', { v: nm }));
+    if (wk) lines.push(t('persona.knownAskWork', { v: wk }));
+    const kReqs = requirementLines(opts, lang);
+    if (kReqs.length) lines.push(t('persona.reqHeader'), ...kReqs.map((x) => '- ' + x));
+    // 已有角色模式绝不能给「随机灵感」：那等于让模型改去编一个新角色
+    lines.push(t('persona.knownGo'));
+    return [
+      { role: 'system', content: blocks.join('\n\n') },
+      { role: 'user', content: lines.join('\n') },
+    ];
+  }
+
+  const seed = String(opts.seed || '').trim();
   const reqs = requirementLines(opts, lang);
   if (reqs.length) lines.push(t('persona.reqHeader'), ...reqs.map((x) => '- ' + x));
   lines.push(seed ? t('persona.hintLine', { seed }) : t('persona.hintNone') + ' ' + t('persona.hintRandom', { v: randomHint() }));
@@ -135,6 +185,21 @@ export async function withPersonaBudget(userMax, run) {
 }
 
 /**
+ * 解析结果分三种，而不只是「成功 / 失败」：
+ *   card    —— 拿到可用角色卡
+ *   unknown —— 模型明确表示它不认识这个角色（我们已经要求它这么说，而不是硬编）
+ *   bad     —— 输出根本没法用
+ * 区分 unknown 的意义在于提示词完全不同：前者要告诉用户「换个写法」，后者才是「再试一次」。
+ */
+export function parsePersonaOutcome(raw) {
+  const text = String(raw == null ? '' : raw);
+  if (!text.trim()) return { kind: 'bad' };
+  if (/"unknown"\s*:\s*true/i.test(text)) return { kind: 'unknown' };
+  const card = parsePersonaResponse(text);
+  return card ? { kind: 'card', card } : { kind: 'bad' };
+}
+
+/**
  * 生成一张角色卡（两个入口共用：角色编辑器里的快捷键、设置里的人设生成室）。
  *
  * 这里把两种「其实只是额度不够」的失败自己扛掉，不让用户看到「再试一次吧」：
@@ -151,8 +216,14 @@ export async function generatePersonaCard(settings, options) {
       onDelta: (d) => { out += d; },
       onFinish: (info) => { truncated = !!(info && info.finishReason === 'length'); },
     });
-    const card = parsePersonaResponse(out);
-    if (card) return card;
+    const r = parsePersonaOutcome(out);
+    if (r.kind === 'card') return r.card;
+    if (r.kind === 'unknown') {
+      // 不认识就是不认识：绝不重试、绝不硬编一张卡出来（重试只会烧钱，还可能逼出幻觉）
+      const e = new Error(t('studio.unknownChar'));
+      e.code = 'UNKNOWN_CHARACTER';
+      throw e;
+    }
     const err = new Error(t('char.genFail'));
     err.code = truncated ? 'TRUNCATED_REPLY' : 'UNPARSABLE';
     throw err;

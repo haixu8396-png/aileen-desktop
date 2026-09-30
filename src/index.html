@@ -137,21 +137,45 @@
   <div class="modal-box wide">
     <h3 data-i18n="studio.title">✨ Persona Studio</h3>
     <p class="hint" data-i18n="studio.intro"></p>
-    <label class="studio-seed"><span data-i18n="studio.seed">One line of inspiration</span>
-      <input id="pa-seed" data-i18n-ph="studio.seedPh" placeholder="e.g. a night-shift librarian who hates silence" /></label>
-    <div class="arch-group">
-      <div class="arch-head">
-        <span class="arch-title" data-i18n="studio.personality">Personality archetype</span>
-        <label class="arch-lock" data-i18n-title="studio.lockTip"><input type="checkbox" id="pa-lock-p" checked /><span data-i18n="studio.lock">Lock</span></label>
+    <div class="studio-mode">
+      <span class="arch-title" data-i18n="studio.mode">Mode</span>
+      <label class="studio-radio"><input type="radio" name="pa-mode" id="pa-mode-original" value="original" checked /><span data-i18n="studio.modeOriginal">Original character</span></label>
+      <label class="studio-radio"><input type="radio" name="pa-mode" id="pa-mode-known" value="known" /><span data-i18n="studio.modeKnown">Existing character (anime / game / novel)</span></label>
+    </div>
+    <div id="pa-known-block" class="hidden">
+      <div class="form-grid">
+        <label><span data-i18n="studio.charName">Character name</span><input id="pa-char" data-i18n-ph="studio.charNamePh" /></label>
+        <label><span data-i18n="studio.work">From which work</span><input id="pa-work" data-i18n-ph="studio.workPh" /></label>
+        <label><span data-i18n="studio.fidelity">Fidelity</span><select id="pa-fidelity">
+          <option value="strict" data-i18n="studio.fidelityStrict">Strictly faithful</option>
+          <option value="loose" data-i18n="studio.fidelityLoose">Room to improvise</option>
+        </select></label>
       </div>
-      <div id="pa-personalities" class="arch-grid"></div>
+    </div>
+    <div id="pa-original-block">
+      <label class="studio-seed"><span data-i18n="studio.seed">One line of inspiration</span>
+        <input id="pa-seed" data-i18n-ph="studio.seedPh" placeholder="e.g. a night-shift librarian who hates silence" /></label>
+      <div class="arch-group">
+        <div class="arch-head">
+          <span class="arch-title" data-i18n="studio.personality">Personality archetype</span>
+          <label class="arch-lock" data-i18n-title="studio.lockTip"><input type="checkbox" id="pa-lock-p" checked /><span data-i18n="studio.lock">Lock</span></label>
+        </div>
+        <div id="pa-personalities" class="arch-grid"></div>
+      </div>
+      <div class="arch-group">
+        <div class="arch-head">
+          <span class="arch-title" data-i18n="studio.role">Role archetype</span>
+          <label class="arch-lock" data-i18n-title="studio.lockTip"><input type="checkbox" id="pa-lock-r" checked /><span data-i18n="studio.lock">Lock</span></label>
+        </div>
+        <div id="pa-roles" class="arch-grid"></div>
+      </div>
     </div>
     <div class="arch-group">
-      <div class="arch-head">
-        <span class="arch-title" data-i18n="studio.role">Role archetype</span>
-        <label class="arch-lock" data-i18n-title="studio.lockTip"><input type="checkbox" id="pa-lock-r" checked /><span data-i18n="studio.lock">Lock</span></label>
+      <div class="arch-head"><span class="arch-title" data-i18n="studio.relHeader">You, to them</span></div>
+      <div class="form-grid">
+        <label><span data-i18n="studio.rel">Who are you to them</span><select id="pa-rel"></select></label>
+        <label><span data-i18n="studio.userName">What they should call you</span><input id="pa-user" data-i18n-ph="studio.userNamePh" /></label>
       </div>
-      <div id="pa-roles" class="arch-grid"></div>
     </div>
     <details class="studio-opt">
       <summary data-i18n="studio.optional">Optional</summary>

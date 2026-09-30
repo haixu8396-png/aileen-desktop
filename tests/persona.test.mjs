@@ -1,6 +1,6 @@
 // 模型返回的 JSON 从来不可靠 —— 这些用例都是线上真会遇到的形态
 import { describe, it, expect } from 'vitest';
-import { parsePersonaResponse, PERSONA_FIELDS, personaBudgets, withPersonaBudget, buildPersonaMessages } from '../src/lib/persona.js';
+import { parsePersonaResponse, parsePersonaOutcome, PERSONA_FIELDS, personaBudgets, withPersonaBudget, buildPersonaMessages } from '../src/lib/persona.js';
 import { setLang } from '../src/lib/i18n.js';
 
 const full = { name: '阿岚', description: '一句话', personality: '你是……', scenario: '场景', first_mes: '你好', mes_example: '阿岚: 嗨\nUser: 嗨' };
@@ -230,5 +230,85 @@ describe('buildPersonaMessages · 原型锁定', () => {
     const m = buildPersonaMessages({ seed: '   ' });
     expect(m[1].content.length).toBeGreaterThan(20);
     expect(m[1].content).not.toMatch(/灵感：\s*$/m);
+  });
+});
+describe('buildPersonaMessages · 已有角色 / 对话者身份', () => {
+  it('已有角色模式：角色名、作品、忠实度，以及「不认识就别编」的协议', () => {
+    setLang('zh');
+    const m = buildPersonaMessages({ mode: 'known', charName: '凉宫春日', work: '凉宫春日的忧郁', fidelity: 'strict', seed: '' });
+    const sys = m[0].content;
+    expect(sys).toContain('已有角色');
+    expect(sys).toContain('凉宫春日');
+    expect(sys).toContain('凉宫春日的忧郁');
+    expect(sys).toContain('严格照搬');
+    expect(sys).toContain('unknown');        // 不认识时只回 {"unknown": true}
+    expect(sys).not.toContain('性格原型');    // 已有角色模式不该再拿原型约束
+    setLang('en');
+  });
+
+  it('已有角色 + 适度演绎 → 口径明显不同', () => {
+    setLang('zh');
+    const strict = buildPersonaMessages({ mode: 'known', charName: 'X', fidelity: 'strict' })[0].content;
+    const loose = buildPersonaMessages({ mode: 'known', charName: 'X', fidelity: 'loose' })[0].content;
+    expect(strict).toContain('严格照搬');
+    expect(loose).toContain('补一点细节');
+    expect(loose).not.toContain('严格照搬');
+    expect(loose).not.toBe(strict);
+    setLang('en');
+  });
+
+  it('已有角色模式不再需要原型，但关系照样生效', () => {
+    setLang('zh');
+    const sys = buildPersonaMessages({ mode: 'known', charName: 'X', relationId: 'lover' })[0].content;
+    expect(sys).toContain('恋人');
+    expect(sys).toContain('对话者');
+    setLang('en');
+  });
+
+  it('对话者身份会写成硬约束，并带上这层关系该有的语气', () => {
+    setLang('zh');
+    const m = buildPersonaMessages({ relationId: 'lover', userName: '小满', seed: 'x' });
+    const sys = m[0].content;
+    expect(sys).toContain('恋人');
+    expect(sys).toContain('吃醋');    // 关系自带的具体语气约束，不是光有个标签
+    expect(sys).toContain('小满');
+    setLang('en');
+  });
+
+  it('关系选「不限」时不会写进提示词', () => {
+    setLang('zh');
+    const sys = buildPersonaMessages({ relationId: 'any', seed: 'x' })[0].content;
+    expect(sys).not.toContain('对话者与你的关系');
+    setLang('en');
+  });
+
+  it('关系也有具体约束数据（不是空壳）', () => {
+    const sys = buildPersonaMessages({ relationId: 'spouse', userName: '' })[0].content;
+    expect(sys.length).toBeGreaterThan(200);
+  });
+});
+
+describe('parsePersonaOutcome · 三种结果', () => {
+  it('模型回 {"unknown": true} → unknown（而不是「再试一次」）', () => {
+    expect(parsePersonaOutcome('{"unknown": true}')).toEqual({ kind: 'unknown' });
+    expect(parsePersonaOutcome('好的\n\u0060\u0060\u0060json\n{"unknown":true}\n\u0060\u0060\u0060')).toEqual({ kind: 'unknown' });
+  });
+
+  it('正常卡 → card', () => {
+    const raw = JSON.stringify({ name: '阿岚', personality: '你是阿岚' });
+    const r = parsePersonaOutcome(raw);
+    expect(r.kind).toBe('card');
+    expect(r.card.name).toBe('阿岚');
+  });
+
+  it('垃圾输出 → bad', () => {
+    expect(parsePersonaOutcome('我不知道该说什么').kind).toBe('bad');
+    expect(parsePersonaOutcome('').kind).toBe('bad');
+    expect(parsePersonaOutcome(null).kind).toBe('bad');
+  });
+
+  it('字段正文里出现 unknown 这个词，不算「不认识」', () => {
+    const raw = JSON.stringify({ name: 'X', personality: '你喜欢 unknown 这个单词，也喜欢 unknown 这种感觉' });
+    expect(parsePersonaOutcome(raw).kind).toBe('card');
   });
 });

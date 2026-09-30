@@ -7,8 +7,13 @@
 </p>
 
 <p align="center">
-  致敬 <a href="https://www.youtube.com/channel/UCLHmLrj4pHHg3-iBJn_CqxA">Neuro-sama</a>，
-  灵感来自 <a href="https://github.com/moeru-ai/airi">moeru-ai/Airi</a>。
+  喜欢的角色，说出名字就能请进来 ——<b>性格、经历、说话方式，它替你写成一张能直接用的角色卡</b>；<br/>
+  也可以只给一句灵感，捏一个只属于你的。
+</p>
+
+<p align="center">
+  灵感来自 <a href="https://www.youtube.com/channel/UCLHmLrj4pHHg3-iBJn_CqxA">Neuro-sama</a>，
+  致敬 <a href="https://github.com/moeru-ai/airi">moeru-ai/Airi</a>。
 </p>
 
 <p align="center">
@@ -159,9 +164,9 @@ tests/                单元测试
 
 ### 站在谁的肩膀上
 
-没有 **[moeru-ai/Airi](https://github.com/moeru-ai/airi)**，就不会有 AILEEN。是它让「开源的 AI 伴侣」听上去像一件真事而不是一个愿望。这个仓库大大方方地照着 Airi 学 —— 说明的写法、做事的习惯，以及那份「虚拟角色值得被认真做」的笃定。如果你还没看过 Airi，先把这页关掉去看它。那么多 star 不是白来的。
+致敬 **[moeru-ai/Airi](https://github.com/moeru-ai/airi)** —— 没有它，就不会有 AILEEN。是它让「开源的 AI 伴侣」听上去像一件真事而不是一个愿望。这个仓库大大方方地照着 Airi 学 —— 说明的写法、做事的习惯，以及那份「虚拟角色值得被认真做」的笃定。如果你还没看过 Airi，先把这页关掉去看它。那么多 star 不是白来的。
 
-也致敬 **[Neuro-sama](https://www.youtube.com/channel/UCLHmLrj4pHHg3-iBJn_CqxA)** —— 这位 AI 主播证明了：一个有声线、有记忆、有性格的角色，真的能让你忘记自己在看软件。那就是标杆。AILEEN 只是朝它伸了伸手，而且离得还远。
+而这一切的起点是 **[Neuro-sama](https://www.youtube.com/channel/UCLHmLrj4pHHg3-iBJn_CqxA)** —— 这位 AI 主播证明了：一个有声线、有记忆、有性格的角色，真的能让你忘记自己在看软件。那就是标杆。AILEEN 只是朝它伸了伸手，而且离得还远。
 
 ### 用到的开源项目
 

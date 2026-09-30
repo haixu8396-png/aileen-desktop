@@ -37,7 +37,7 @@ import { openMcModal, bindMc } from './lib/minecraft.js';
 import { createMarkerParser } from './lib/marker-parser.js';
 import { createReplyPacer } from './lib/reply-pacer.js';
 import { parsePersonaResponse, buildPersonaMessages } from './lib/persona.js';
-import { openPersonaStudio, closePersonaStudio, bindPersonaStudio } from './lib/persona-studio.js';
+import { openPersonaStudio, closePersonaStudio, bindPersonaStudio, studioFormOptions } from './lib/persona-studio.js';
 import { openChessModal, bindChess } from './lib/chess.js';
 import { t, setLang, getLang, applyI18n, LANGS } from './lib/i18n.js';
 
@@ -629,6 +629,11 @@ window.__AILEEN_PROBE_PACER = () => {
 window.__AILEEN_OPEN = (name) => {
   const table = {
     persona: openPersonaStudio,
+    'persona-known': () => {
+      openPersonaStudio();
+      const r = document.getElementById('pa-mode-known');
+      if (r) r.click();
+    },
     perform: openPerformModal,
     char: () => openCharModal(null, null),
     llm: openLlmModal,
@@ -675,6 +680,34 @@ window.__AILEEN_PROBE_STUDIO = () => {
   if (offChip) offChip.click();
   const onChip = document.querySelector('#pa-personalities .arch-chip.on');
   out.unpicked = !!(onChip && onChip.dataset.archId === '');
+
+  // 「已有角色」模式：字段要跟着换，而且选的东西必须真的进提示词
+  const knownRadio = document.getElementById('pa-mode-known');
+  if (knownRadio) knownRadio.click();
+  out.knownVisible = !document.getElementById('pa-known-block').classList.contains('hidden');
+  out.originalHidden = document.getElementById('pa-original-block').classList.contains('hidden');
+  const charEl = document.getElementById('pa-char');
+  if (charEl) charEl.value = '凉宫春日';
+  const workEl = document.getElementById('pa-work');
+  if (workEl) workEl.value = '凉宫春日的忧郁';
+  if (offChip) offChip.click();   // 顺手清掉刚才选的原型
+  const relEl = document.getElementById('pa-rel');
+  out.relOptions = relEl ? relEl.querySelectorAll('option').length : 0;
+  if (relEl) relEl.value = 'lover';
+  const userEl = document.getElementById('pa-user');
+  if (userEl) userEl.value = '小满';
+  const opts = typeof studioFormOptions === 'function' ? studioFormOptions() : null;
+  out.formMode = opts ? opts.mode : null;
+  out.formChar = opts ? opts.charName : null;
+  out.formRel = opts ? opts.relationId : null;
+  out.formUser = opts ? opts.userName : null;
+  const knownSys = opts ? buildPersonaMessages(opts)[0].content : '';
+  out.knownPromptOk = knownSys.indexOf(t('persona.knownHeader')) >= 0 && knownSys.indexOf('凉宫春日') >= 0 && knownSys.indexOf('unknown') >= 0;
+  out.relPromptOk = knownSys.indexOf(t('persona.relHeader')) >= 0 && knownSys.indexOf('小满') >= 0;
+  out.knownNoArchetype = knownSys.indexOf(t('persona.lockHeader')) < 0;
+  const backRadio = document.getElementById('pa-mode-original');
+  if (backRadio) backRadio.click();
+  out.backToOriginal = !document.getElementById('pa-original-block').classList.contains('hidden');
   closeSubModal('modal-persona');
   document.getElementById('modal-menu').classList.add('hidden');
   return out;

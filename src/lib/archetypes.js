@@ -214,6 +214,106 @@ export const ROLES = [
   },
 ];
 
+// 对话者（用户）与角色的关系：同一句台词，关系不同，称呼、距离感和边界都不一样
+export const RELATIONSHIPS = [
+  {
+    id: 'any',
+    icon: '·',
+    label: { en: 'Unspecified', ja: '指定しない', zh: '不限' },
+    spec: { en: '', ja: '', zh: '' },
+  },
+  {
+    id: 'friend',
+    icon: '🤝',
+    label: { en: 'Friend', ja: '友達', zh: '朋友' },
+    spec: {
+      en: 'Familiar but not intimate: casual, jokes allowed, neither clingy nor formal.',
+      ja: '気軽な友人。冗談は言うが距離は保ち、ベタベタも他人行儀もしない。',
+      zh: '熟识但不越界：说话随意、可以开玩笑，既不黏人也不客套。',
+    },
+  },
+  {
+    id: 'close',
+    icon: '💞',
+    label: { en: 'Close friend', ja: '親友', zh: '挚友' },
+    spec: {
+      en: 'Can say anything, including the awkward parts; will call out your problems precisely because you will not walk away.',
+      ja: '何でも話せる間柄。気まずい部分も含めて。離れていかないと分かっているから、はっきり指摘する。',
+      zh: '什么都能说，包括难堪的部分；会直接指出你的问题 —— 正因为知道你不会因此走掉。',
+    },
+  },
+  {
+    id: 'lover',
+    icon: '💗',
+    label: { en: 'Lover', ja: '恋人', zh: '恋人' },
+    spec: {
+      en: 'Affectionate names, sulking and a little jealousy; even arguments carry reluctance, and closeness is taken for granted.',
+      ja: '親密な呼び方。甘えも嫉妬もある。言い争っても見捨てる気はなく、近さは当たり前。',
+      zh: '称呼亲昵，会撒娇也会吃醋；吵架时仍然舍不得，亲近是理所当然的事。',
+    },
+  },
+  {
+    id: 'spouse',
+    icon: '💍',
+    label: { en: 'Partner / spouse', ja: '伴侶・夫婦', zh: '伴侣 / 夫妻' },
+    spec: {
+      en: 'Already sharing a life: knows your routines and bad habits, bickering is daily ritual, understanding needs no explanation.',
+      ja: 'すでに生活を共にしている。生活リズムも悪癖も知り尽くし、口喧嘩は日常、以心伝心が当たり前。',
+      zh: '已经在一起生活：熟悉彼此的作息和坏习惯，拌嘴是日常，默契到不需要解释。',
+    },
+  },
+  {
+    id: 'family',
+    icon: '🏠',
+    label: { en: 'Family', ja: '家族', zh: '家人' },
+    spec: {
+      en: 'Bound by blood or upbringing: care hides inside nagging, fights never really separate you, and there is a seniority to respect.',
+      ja: '血縁や育ての縁。気遣いは小言に混ざり、喧嘩しても本当には離れない。上下の距離感がある。',
+      zh: '血缘或养育的牵绊：关心夹在唠叨里，吵完也不会真的分开，有长幼的分寸。',
+    },
+  },
+  {
+    id: 'rival',
+    icon: '⚡',
+    label: { en: 'Rival', ja: 'ライバル', zh: '对手' },
+    spec: {
+      en: 'Each other is the benchmark: never concedes out loud, privately respects you; competing is how you talk, and winning feels oddly hollow.',
+      ja: '互いが基準。口では負けを認めず、内心では認めている。張り合うことが会話で、勝つと妙に空しい。',
+      zh: '互为标杆：嘴上不认输，心里承认对方；较劲就是交流方式，赢了反而有点空。',
+    },
+  },
+  {
+    id: 'mentor',
+    icon: '🎓',
+    label: { en: 'Mentor', ja: '師匠・先輩', zh: '师父 / 前辈' },
+    spec: {
+      en: 'They are the one guiding you: nitpicking and demanding, yet never actually letting you fall.',
+      ja: 'あなたを指導する立場。粗探しも厳しい要求もあるが、本当に見捨てはしない。',
+      zh: '对方是指导你的人：会挑毛病、要求严格，但从不真的放任你摔下去。',
+    },
+  },
+  {
+    id: 'partner',
+    icon: '🧭',
+    label: { en: 'Partner in arms', ja: '相棒', zh: '搭档 / 同伴' },
+    spec: {
+      en: 'Side by side: effortless division of labour, business before pleasantries, trust built one finished job at a time.',
+      ja: '並んで何かをする間柄。役割分担は自然で、世間話より先に仕事。信頼は一つずつ成し遂げて積み上がる。',
+      zh: '并肩做事的关系：分工默契，先做事后寒暄，信任是一次次完成任务攒出来的。',
+    },
+  },
+  {
+    id: 'stranger',
+    icon: '🚪',
+    label: { en: 'Stranger', ja: '他人', zh: '刚认识的人' },
+    spec: {
+      en: 'Just met: polite but guarded, still sizing each other up, on formal terms.',
+      ja: '出会ったばかり。礼儀はあるが距離があり、互いに探り探りで、呼び方もまだ他人行儀。',
+      zh: '刚认识：礼貌但有距离，还在互相试探，称呼也带着生分。',
+    },
+  },
+];
+
 export const GENDERS = [
   { id: 'any', label: { en: 'Any', ja: '指定しない', zh: '不限' } },
   { id: 'female', label: { en: 'Female', ja: '女性', zh: '女' } },

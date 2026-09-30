@@ -9,14 +9,29 @@
 // 生成的是草稿，不是成品。
 // ============================================================
 import { t, getLang } from './i18n.js';
-import { PERSONALITIES, ROLES, GENDERS, labelOf } from './archetypes.js';
+import { PERSONALITIES, ROLES, GENDERS, RELATIONSHIPS, labelOf } from './archetypes.js';
 import { generatePersonaCard } from './persona.js';
 import { getSettings } from './settings.js';
 import { $, toast } from './dom.js';
 import { hooks } from './state.js';
 import { openCharModal, applyPersonaToEditor } from './characters-ui.js';
 
-const sel = { personalityId: '', roleId: '', genderId: 'any' };
+const sel = { mode: 'original', personalityId: '', roleId: '', genderId: 'any', relationId: 'any' };
+
+/** 原创 / 已有角色两个模式切换：各自只显示自己需要的字段，不摆一堆用不上的东西 */
+export function setStudioMode(mode) {
+  sel.mode = mode === 'known' ? 'known' : 'original';
+  const known = $('pa-known-block');
+  const original = $('pa-original-block');
+  if (known) known.classList.toggle('hidden', sel.mode !== 'known');
+  if (original) original.classList.toggle('hidden', sel.mode !== 'original');
+  const r1 = $('pa-mode-original');
+  const r2 = $('pa-mode-known');
+  if (r1) r1.checked = sel.mode === 'original';
+  if (r2) r2.checked = sel.mode === 'known';
+  const char = $('pa-char');
+  if (char) char.focus();
+}
 
 function chipEntries(list) {
   const lang = getLang();
@@ -44,18 +59,25 @@ function renderChips(box, list, current, onPick) {
   }
 }
 
-function renderGender() {
-  const box = $('pa-gender');
+function fillSelect(box, list, current) {
   if (!box) return;
   const lang = getLang();
   box.innerHTML = '';
-  for (const g of GENDERS) {
+  for (const x of list) {
     const o = document.createElement('option');
-    o.value = g.id;
-    o.textContent = labelOf(g, lang);
+    o.value = x.id;
+    o.textContent = labelOf(x, lang);
     box.appendChild(o);
   }
-  box.value = sel.genderId;
+  box.value = current;
+}
+
+function renderGender() {
+  fillSelect($('pa-gender'), GENDERS, sel.genderId);
+}
+
+function renderRelation() {
+  fillSelect($('pa-rel'), RELATIONSHIPS, sel.relationId);
 }
 
 function renderAll() {
@@ -68,6 +90,8 @@ function renderAll() {
     renderAll();
   });
   renderGender();
+  renderRelation();
+  setStudioMode(sel.mode);
 }
 
 export function openPersonaStudio() {
@@ -81,8 +105,15 @@ export function closePersonaStudio() {
   if (m) m.classList.add('hidden');
 }
 
-function formOptions() {
+/** 表单 → 生成选项。导出是为了让自检能验证「界面上选的东西真的进了提示词」。 */
+export function studioFormOptions() {
   return {
+    mode: sel.mode,
+    charName: ($('pa-char') || {}).value || '',
+    work: ($('pa-work') || {}).value || '',
+    fidelity: ($('pa-fidelity') || {}).value || 'strict',
+    relationId: ($('pa-rel') || {}).value || 'any',
+    userName: ($('pa-user') || {}).value || '',
     seed: ($('pa-seed') || {}).value || '',
     personalityId: sel.personalityId,
     roleId: sel.roleId,
@@ -107,7 +138,7 @@ export async function generateFromStudio() {
   if (btn) { btn.disabled = true; btn.textContent = t('studio.busy'); }
   try {
     // 额度和重试策略都在 generatePersonaCard 里（和编辑器那颗生成按钮完全同一套）
-    const p = await generatePersonaCard(s, formOptions());
+    const p = await generatePersonaCard(s, studioFormOptions());
     // 先开一张空白卡，再把结果填进去 —— 后面的「改、存」都走已有的编辑器逻辑
     closePersonaStudio();
     openCharModal(null, null);
@@ -127,6 +158,16 @@ export function bindPersonaStudio() {
   if (gen) gen.onclick = () => { generateFromStudio(); };
   const seed = $('pa-seed');
   if (seed) seed.addEventListener('keydown', (e) => { if (e.key === 'Enter') generateFromStudio(); });
+  const char = $('pa-char');
+  if (char) char.addEventListener('keydown', (e) => { if (e.key === 'Enter') generateFromStudio(); });
+  const r1 = $('pa-mode-original');
+  if (r1) r1.onchange = () => setStudioMode('original');
+  const r2 = $('pa-mode-known');
+  if (r2) r2.onchange = () => setStudioMode('known');
+  const rel = $('pa-rel');
+  if (rel) rel.onchange = () => { sel.relationId = rel.value; };
+  const gender = $('pa-gender');
+  if (gender) gender.onchange = () => { sel.genderId = gender.value; };
 }
 
 // 自检钩子：验证「锁定」确实改变了发给模型的提示词（而不只是界面上有个勾）

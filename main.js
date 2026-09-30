@@ -977,7 +977,13 @@ function createWindow() {
                 && studioDetail.hasLock === true && studioDetail.hasSeed === true
                 && studioDetail.lockedHasRule === true && studioDetail.softHasRule === true
                 && studioDetail.lockedNotSoft === true && studioDetail.canUnpick === true
-                && studioDetail.unpicked === true && !!studioDetail.picked;
+                && studioDetail.unpicked === true && !!studioDetail.picked
+                && studioDetail.knownVisible === true && studioDetail.originalHidden === true
+                && studioDetail.relOptions >= 9 && studioDetail.formMode === 'known'
+                && studioDetail.formChar === '凉宫春日' && studioDetail.formRel === 'lover'
+                && studioDetail.formUser === '小满'
+                && studioDetail.knownPromptOk === true && studioDetail.relPromptOk === true
+                && studioDetail.knownNoArchetype === true && studioDetail.backToOriginal === true;
             } catch (err) { window.__AILEEN_ERRORS.push('studioTest: ' + String((err && err.message) || err)); }
             // 行为断言⑪：自动生成人设 —— 解析器容错 + 生成结果能回填进编辑器
             let personaOk = false;

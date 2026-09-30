@@ -7,8 +7,13 @@
 </p>
 
 <p align="center">
-  <a href="https://www.youtube.com/channel/UCLHmLrj4pHHg3-iBJn_CqxA">Neuro-sama</a> へのオマージュ。
-  <a href="https://github.com/moeru-ai/airi">moeru-ai/Airi</a> にインスパイアされて。
+  好きなキャラクターを、名前を言うだけで招き入れられます ——<b>性格も、これまでの経緯も、話し方も、そのまま使えるカードとして書き出します</b>。<br/>
+  ひと言のヒントから、自分だけの誰かを作ることもできます。
+</p>
+
+<p align="center">
+  <a href="https://www.youtube.com/channel/UCLHmLrj4pHHg3-iBJn_CqxA">Neuro-sama</a> にインスパイアされ、
+  <a href="https://github.com/moeru-ai/airi">moeru-ai/Airi</a> に敬意を表します。
 </p>
 
 <p align="center">
@@ -159,9 +164,9 @@ tests/                ユニットテスト
 
 ### その肩の上に
 
-AILEEN は **[moeru-ai/Airi](https://github.com/moeru-ai/airi)** なしには存在しませんでした。「オープンソースの AI コンパニオン」を願望ではなく現実のものとして見せてくれたプロジェクトであり、このリポジトリは堂々と Airi に倣っています —— README の構成も、習慣も、バーチャルキャラクターを丁寧に作る価値があるという確信も。もし Airi をまだ見ていないなら、このタブを閉じてあちらを開いてください。あのスターの数は伊達ではありません。
+**[moeru-ai/Airi](https://github.com/moeru-ai/airi)** に敬意を表します —— AILEEN はこれなしには存在しませんでした。「オープンソースの AI コンパニオン」を願望ではなく現実のものとして見せてくれたプロジェクトであり、このリポジトリは堂々と Airi に倣っています —— README の構成も、習慣も、バーチャルキャラクターを丁寧に作る価値があるという確信も。もし Airi をまだ見ていないなら、このタブを閉じてあちらを開いてください。あのスターの数は伊達ではありません。
 
-そして **[Neuro-sama](https://www.youtube.com/channel/UCLHmLrj4pHHg3-iBJn_CqxA)** へ。声と記憶と人格を持ったキャラクターが、ソフトを見ていることを忘れさせる――それを証明してみせた AI VTuber です。それが基準です。AILEEN はそこへ手を伸ばした小さな試みで、まだ遠く及びません。
+そして、その発想の源は **[Neuro-sama](https://www.youtube.com/channel/UCLHmLrj4pHHg3-iBJn_CqxA)**。声と記憶と人格を持ったキャラクターが、ソフトを見ていることを忘れさせる――それを証明してみせた AI VTuber です。それが基準です。AILEEN はそこへ手を伸ばした小さな試みで、まだ遠く及びません。
 
 ### 使わせてもらっているもの
 

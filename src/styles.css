@@ -716,7 +716,10 @@ button.icon-btn.small { width: 30px; height: 30px; font-size: 14px; }
 .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 .form-grid .full { grid-column: 1 / -1; }
 
-/* ---- 人设生成室：原型选择 ---- */
+/* ---- 人设生成室：模式 / 原型 / 关系 ---- */
+.studio-mode { display: flex; align-items: center; flex-wrap: wrap; gap: 14px; margin: 12px 0 4px; }
+.studio-radio { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; cursor: pointer; user-select: none; }
+.studio-radio input { accent-color: #ff7eb3; }
 .studio-seed { display: flex; flex-direction: column; gap: 6px; font-size: 13px; color: var(--muted); }
 .arch-group { margin-top: 14px; }
 .arch-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 8px; }
