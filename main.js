@@ -825,6 +825,15 @@ function createWindow() {
         try {
           const SELFTEST_DIR = process.env.AILEEN_SELFTEST_DIR || path.join(USER_DATA_DIR, 'selftest');
           fs.mkdirSync(SELFTEST_DIR, { recursive: true });
+          // AILEEN_SELFTEST_SHOT=<弹窗名> 时先把那个弹窗打开再截图，方便肉眼看排版（例如 char 看人设生成那一行）
+          const shotModal = process.env.AILEEN_SELFTEST_SHOT;
+          if (shotModal) {
+            const payload = '(function(){var m=document.getElementById("modal-" + ' + JSON.stringify(shotModal)
+              + '); if(!m) return false; m.classList.remove("hidden"); return true;})()';
+            const okShot = await win.webContents.executeJavaScript(payload).catch(() => false);
+            console.log('[selftest] shot modal ' + shotModal + ': ' + okShot);
+            await new Promise((r) => setTimeout(r, 600));
+          }
           const img = await win.webContents.capturePage();
           fs.writeFileSync(path.join(SELFTEST_DIR, 'shot.png'), img.toPNG());
           console.log('[selftest] saved shot.png to ' + SELFTEST_DIR);
@@ -955,6 +964,28 @@ function createWindow() {
             // 行为断言⑩：界面没有被隐形元素遮挡（「点都点不了」探测器）
             // 用 elementFromPoint 在几个关键位置做命中测试，命中的元素必须落在 #app 里。
             // 如果某个固定定位的弹窗/遮罩没被正确隐藏，这里就会抓到。
+            // 行为断言⑪：自动生成人设 —— 解析器容错 + 生成结果能回填进编辑器
+            let personaOk = false;
+            let personaDetail = null;
+            try {
+              const parseProbe = typeof window.__AILEEN_PROBE_PERSONA === 'function' ? window.__AILEEN_PROBE_PERSONA() : null;
+              let pcOpened = false;
+              let filled = '';
+              if (typeof window.__AILEEN_PROBE_PERSONA_APPLY === 'function') {
+                document.getElementById('btn-new-card').click();
+                pcOpened = !document.getElementById('modal-char').classList.contains('hidden');
+                window.__AILEEN_PROBE_PERSONA_APPLY({ name: 'PROBE', description: 'D', personality: 'P', scenario: 'S', first_mes: 'F', mes_example: 'M' });
+                filled = ['f-name', 'f-desc', 'f-personality', 'f-scenario', 'f-first', 'f-example'].map((id) => document.getElementById(id).value).join('|');
+                document.getElementById('f-cancel').click();
+              }
+              personaDetail = {
+                parsed: parseProbe, opened: pcOpened, filled,
+                hasSeed: !!document.getElementById('f-seed'),
+                hasBtn: !!document.getElementById('f-generate'),
+              };
+              personaOk = !!parseProbe && parseProbe.name === '阿岚' && !parseProbe.scenario
+                && pcOpened && filled === 'PROBE|D|P|S|F|M' && personaDetail.hasSeed && personaDetail.hasBtn;
+            } catch (err) { window.__AILEEN_ERRORS.push('personaTest: ' + String((err && err.message) || err)); }
             let uiBlockedBy = [];
             try {
               // 先回到「静止状态」：把所有弹窗关掉，再测有没有东西挡住界面
@@ -1155,6 +1186,8 @@ function createWindow() {
               pacerProbeDetail,
               performOk,
               performDetail,
+              personaOk,
+              personaDetail,
               uiBlockedBy,
               sideCollapseOk,
               searchFilterOk,

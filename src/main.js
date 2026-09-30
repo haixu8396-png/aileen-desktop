@@ -23,7 +23,7 @@ import {
 import {
   renderCharList, renderEmptyState, selectCharacter, refreshCharacters, findChar,
   openCharMenuAt, closeCharMenu, duplicateCard, deleteCard,
-  openQuickModal, saveQuickModal, openCharModal, closeCharModal, saveCharModal, populateModelSelect, setCharFilter,
+  openQuickModal, saveQuickModal, openCharModal, closeCharModal, saveCharModal, populateModelSelect, setCharFilter, generatePersona, applyPersonaToEditor,
 } from './lib/characters-ui.js';
 import {
   openLlmModal, saveLlmModal, openTtsModal, saveTtsModal, openSttModal, saveSttModal,
@@ -36,6 +36,7 @@ import { startVoiceLoop, stopVoiceLoop } from './lib/voice.js';
 import { openMcModal, bindMc } from './lib/minecraft.js';
 import { createMarkerParser } from './lib/marker-parser.js';
 import { createReplyPacer } from './lib/reply-pacer.js';
+import { parsePersonaResponse } from './lib/persona.js';
 import { openChessModal, bindChess } from './lib/chess.js';
 import { t, setLang, getLang, applyI18n, LANGS } from './lib/i18n.js';
 
@@ -149,6 +150,9 @@ function bindCharEditor() {
     const res = await window.api.exportCharacter(card);
     if (res) toast('已导出到 ' + res);
   };
+  const genBtn = $('f-generate');
+  if (genBtn) genBtn.onclick = generatePersona;
+
   $('f-avatar-btn').onclick = async () => {
     const res = await window.api.chooseAvatar();
     if (res) {
@@ -615,6 +619,16 @@ window.__AILEEN_PROBE_PACER = () => {
   p.push("ay:2{'|'}>算了没事");
   return p.finish().then(() => ({ text, breaks: breaks.length, waits }));
 };
+
+// 自检钩子：人设解析（围栏 + 废话 + 字符串里的大括号 + 空字段丢弃）
+window.__AILEEN_PROBE_PERSONA = () => parsePersonaResponse(
+  '好的，这是为你设计的角色：\n```json\n'
+  + '{"name":"阿岚","description":"d","personality":"p{含括号}","scenario":"   ","first_mes":"f","mes_example":"m"}'
+  + '\n```\n希望你喜欢！'
+);
+
+// 自检钩子：把生成结果回填进编辑器
+window.__AILEEN_PROBE_PERSONA_APPLY = (p) => { applyPersonaToEditor(p); return true; };
 
 // 自检钩子
 window.__AILEEN_MODEL_READY = () => {

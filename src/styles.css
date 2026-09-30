@@ -534,6 +534,12 @@ button.icon-btn.small { width: 30px; height: 30px; font-size: 14px; }
 .lang-switch button:hover { border-color: var(--accent); color: var(--text); }
 .lang-switch button.on { background: var(--accent); border-color: var(--accent); color: #fff; }
 
+/* ---------- 角色卡：自动生成人设 ---------- */
+.persona-bar { display: flex; gap: 8px; margin-bottom: 12px; }
+.persona-bar input { flex: 1; min-width: 0; }
+.persona-bar button { flex: none; white-space: nowrap; }
+.persona-bar button:disabled { opacity: 0.6; cursor: progress; }
+
 /* ---------- 国际象棋 ---------- */
 .chess-layout { display: flex; gap: 16px; align-items: flex-start; }
 .chess-left { flex: none; }

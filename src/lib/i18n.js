@@ -96,6 +96,11 @@ export const EN = {
   "llm.test": "🔌 Test connection",
   "llm.temperature": "Temperature",
   "llm.maxTokens": "Max output tokens",
+  "llm.needKey": "No API Key configured — open ⚙ Settings and fill it in.",
+  "llm.onlyReasoning": "The model spent the whole output budget on thinking and never wrote a reply. Raise “Max output tokens” in Chat Settings (currently {n}) and try again.",
+  "llm.hitLimit": "The reply hit the output limit ({n} tokens) before any text was written. Raise “Max output tokens” and try again.",
+  "llm.emptyReply": "The model returned nothing. Try again.",
+  "llm.streamFailed": "The stream stopped midway: {v}",
   "llm.hint": "Picking a provider auto-fills the endpoint and model. “Fetch models” calls GET /models and fills the suggestions.<br>📷 Screen vision needs a multimodal model, e.g. Qwen qwen-vl-plus / OpenAI gpt-4o / Zhipu glm-4v / Xiaomi MiMo-VL.",
   "llm.save": "Save",
   "tts.title": "🔊 Text-to-Speech (TTS)",
@@ -370,7 +375,17 @@ export const EN = {
   "prompt.narration.rich": "Write parenthetical asides freely — short notes about your character's actions, expressions and inner state, such as （手指在桌沿敲了两下）or （其实有点高兴，但没说）. Keep each one brief and stay in your own voice. Still vary them: reaching for the same shape every time is worse than holding back.",
   "prompt.pacing.off": "Send your reply as a single message. Do not use delay tokens.",
   "perform.saved": "Performance settings saved",
-  "prompt.pacing.rareNote": "At most one such break in a reply, and most replies should have none."
+  "prompt.pacing.rareNote": "At most one such break in a reply, and most replies should have none.",
+  "char.genPlaceholder": "One line of inspiration (leave blank and I'll pick one)",
+  "char.genBtn": "✨ Generate",
+  "char.genBusy": "Writing…",
+  "char.genOk": "Persona generated — review it and save",
+  "char.genFail": "The model didn't return a usable persona. Try again.",
+  "char.genNeedKey": "Generating a persona needs an API key — opening Chat Settings",
+  "char.genOverwrite": "Generating will overwrite what you've already written in these fields. Continue?",
+  "persona.system": "You design character cards for a desktop AI companion. Given a short hint, invent ONE complete and specific character — never a generic assistant.\n\nReply with ONLY a JSON object. No prose, no explanation, no code fences.\n\n{\n  \"name\": \"their name — short and memorable\",\n  \"description\": \"one line, under 20 words\",\n  \"personality\": \"3-6 sentences written as instructions to the character (start with 'You are...'): how they think, how they speak, what they like and dislike, their verbal habits.\",\n  \"scenario\": \"1-3 sentences: where and when the user meets them\",\n  \"first_mes\": \"the first thing they say, in character, 1-3 sentences\",\n  \"mes_example\": \"two lines — '<name>: ...' and 'User: ...' — showing their voice\"\n}\n\nRules:\n- Be concrete. Specific details beat adjectives.\n- Give them a flaw, a contradiction or an odd habit. Flawless characters are forgettable.\n- Vary the archetype every time. Do not default to a cheerful helpful assistant.\n- Write everything in {lang}.\n- Never mention AI, models, prompts, or being an assistant.",
+  "persona.user": "The hint is: {seed}\n\nInvent the character now.",
+  "persona.hints": "a retired deep-sea diver who talks to machines|a night-shift librarian who hates silence|a small-town mechanic with a secret|an ex-idol who now runs a noodle stand|a fox spirit who just discovered the internet|a burnt-out astronaut who never left the ground|a piano tuner who hears feelings|an over-polite ghost"
 };
 
 export const LANGS = [

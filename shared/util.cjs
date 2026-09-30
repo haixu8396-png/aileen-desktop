@@ -193,4 +193,4 @@ function normalizeSettings(raw, defaults) {
   };
 }
 
-module.exports = { deepMerge, sanitizeFileName, isHttpUrl, isInsidePath, normalizeSettings };
+module.exports = { deepMerge, sanitizeFileName, isHttpUrl, isInsidePath, normalizeSettings, UI_LANGS };

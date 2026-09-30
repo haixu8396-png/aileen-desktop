@@ -329,6 +329,9 @@ export async function runAssistantReply(userContent, forceSpeak, image) {
       settings: s,
       signal: state.abortCtrl.signal,
       onDelta: (d) => pacer.push(d),
+      // 推理模型会先想几秒再开口。这段时间一个正文增量都没有，
+      // 不处理的话界面是死的 —— 让人以为卡住了。
+      onReasoning: () => { if (!curText && !segments.length) setTyping(true); },
     });
   } catch (err) {
     streamErr = err;

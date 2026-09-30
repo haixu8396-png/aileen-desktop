@@ -67,6 +67,7 @@ jobs:
           if (-not $diag.pacerProbeOk) { throw ('对话内核：回复节奏控制不可用 → ' + ($diag.pacerProbeDetail | ConvertTo-Json -Compress)) }
           if (-not $diag.performOk) { throw ('表演设置不可调（弹窗打不开或保存不生效）→ ' + ($diag.performDetail | ConvertTo-Json -Compress)) }
           if (@($diag.uiBlockedBy).Count -gt 0) { throw ('界面被隐形元素遮挡，鼠标点不动 → ' + ($diag.uiBlockedBy -join ', ')) }
+          if (-not $diag.personaOk) { throw ('自动生成人设不可用（解析或回填失败）→ ' + ($diag.personaDetail | ConvertTo-Json -Compress)) }
           if (-not $diag.sideCollapseOk) { throw '界面：侧栏折叠不可用' }
           if (-not $diag.searchFilterOk) { throw '界面：角色搜索没有真正过滤列表' }
           if ($diag.jaMissingKeys -gt 0) { throw ('i18n：日文下仍有 ' + $diag.jaMissingKeys + ' 处回退成了 key') }
@@ -137,6 +138,7 @@ jobs:
           if (-not $diag.pacerProbeOk) { throw ('对话内核：回复节奏控制不可用 → ' + ($diag.pacerProbeDetail | ConvertTo-Json -Compress)) }
           if (-not $diag.performOk) { throw ('表演设置不可调（弹窗打不开或保存不生效）→ ' + ($diag.performDetail | ConvertTo-Json -Compress)) }
           if (@($diag.uiBlockedBy).Count -gt 0) { throw ('界面被隐形元素遮挡，鼠标点不动 → ' + ($diag.uiBlockedBy -join ', ')) }
+          if (-not $diag.personaOk) { throw ('自动生成人设不可用（解析或回填失败）→ ' + ($diag.personaDetail | ConvertTo-Json -Compress)) }
           if (-not $diag.sideCollapseOk) { throw '界面：侧栏折叠不可用' }
           if (-not $diag.searchFilterOk) { throw '界面：角色搜索没有真正过滤列表' }
           if ($diag.jaMissingKeys -gt 0) { throw ('i18n：日文下仍有 ' + $diag.jaMissingKeys + ' 处回退成了 key') }

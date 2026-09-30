@@ -9,6 +9,8 @@ import { $, toast, scrollBottom, avatarUrl } from './dom.js';
 import { renderMessages, saveChatFor, loadChatFor, clearChatFor, ttsSettingsForCharacter, setBusy } from './chat.js';
 import { setStageModelIndex, updateStageModelName, syncOverlayModel } from './stage.js';
 import { t } from './i18n.js';
+import { streamChat } from './llm.js';
+import { buildPersonaMessages, parsePersonaResponse, withPersonaBudget } from './persona.js';
 
 export function findChar(file) {
   return state.characters.find((c) => c.file === file);
@@ -277,6 +279,80 @@ export function openCharModal(card, file) {
   $('f-avatar-preview').src = avatarUrl(state.editorCard.avatar);
   $('f-delete').classList.toggle('hidden', !state.editorFile);
   $('modal-char').classList.remove('hidden');
+}
+
+// ---------------- 自动生成人设 ----------------
+
+export function applyPersonaToEditor(p) {
+  if (!state.editorCard) state.editorCard = emptyCard();
+  const pairs = [
+    ['name', 'f-name'], ['description', 'f-desc'], ['personality', 'f-personality'],
+    ['scenario', 'f-scenario'], ['first_mes', 'f-first'], ['mes_example', 'f-example'],
+  ];
+  for (const [field, id] of pairs) {
+    if (typeof p[field] !== 'string') continue;
+    state.editorCard[field] = p[field];
+    const el = $(id);
+    if (el) el.value = p[field];
+  }
+  // 生成的人设不再塞自定义系统提示词：留空，让 buildSystemPrompt 按卡片内容自动拼
+  const title = $('char-modal-title');
+  if (title) title.textContent = t('char.edit', { name: state.editorCard.name || '' });
+}
+
+// 只有「会覆盖用户已经写下的文字」时才需要多问一句；空编辑器直接生成，不打扰。
+function personaWouldOverwrite(p) {
+  const pairs = [
+    ['name', 'f-name'], ['description', 'f-desc'], ['personality', 'f-personality'],
+    ['scenario', 'f-scenario'], ['first_mes', 'f-first'], ['mes_example', 'f-example'],
+  ];
+  return pairs.some(([field, id]) => {
+    if (typeof p[field] !== 'string') return false;
+    const el = $(id);
+    const cur = el ? el.value.trim() : '';
+    return !!cur && cur !== p[field];
+  });
+}
+
+export async function generatePersona() {
+  const s = getSettings();
+  if (!s || !s.llm || !s.llm.apiKey) {
+    toast(t('char.genNeedKey'));
+    if (hooks.openLlmModal) hooks.openLlmModal();
+    return;
+  }
+  const btn = $('f-generate');
+  const seedEl = $('f-seed');
+  const seed = seedEl ? seedEl.value.trim() : '';
+  const label = btn ? btn.textContent : '';
+  if (btn) { btn.disabled = true; btn.textContent = t('char.genBusy'); }
+  try {
+    const messages = buildPersonaMessages(seed);
+    // 写一整张角色卡比日常闲聊费 token 得多，而且推理模型的开销是随机的：
+    // 同一句话，有时想 600 字就动笔，有时想 3000 字还没开口。
+    // 所以这里做两件事：先按比用户设置更宽的最低额度起步（不动用户自己的设置），
+    // 万一思考把额度吃光了，就翻倍再来一次 —— 用户看到的仍然只是「一次生成」，
+    // 不用自己去搞明白 max_tokens 是什么。
+    const out = await withPersonaBudget(s.llm.maxTokens, async (budget) => {
+      let acc = '';
+      await streamChat({
+        messages,
+        settings: { ...s, llm: { ...s.llm, maxTokens: budget } },
+        onDelta: (d) => { acc += d; },
+      });
+      return acc;
+    });
+    const p = parsePersonaResponse(out);
+    if (!p) throw new Error(t('char.genFail'));
+    // 生成的是草稿不是圣旨：先问一句，别把用户手写的东西悄悄吃掉
+    if (personaWouldOverwrite(p) && !confirm(t('char.genOverwrite'))) return;
+    applyPersonaToEditor(p);
+    toast(t('char.genOk'));
+  } catch (err) {
+    toast(String((err && err.message) || err), true);
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = label || t('char.genBtn'); }
+  }
 }
 
 export function closeCharModal() {
