@@ -625,6 +625,27 @@ window.__AILEEN_PROBE_PACER = () => {
   return p.finish().then(() => ({ text, breaks: breaks.length, waits }));
 };
 
+// 自检钩子：按名字打开某个界面（截图核对排版用）
+window.__AILEEN_OPEN = (name) => {
+  const table = {
+    persona: openPersonaStudio,
+    perform: openPerformModal,
+    char: () => openCharModal(null, null),
+    llm: openLlmModal,
+    tts: openTtsModal,
+    stt: openSttModal,
+    model: openModelModal,
+    theme: openThemeModal,
+    menu: openSettingsMenu,
+  };
+  const fn = table[name];
+  if (fn) { fn(); return true; }
+  const m = document.getElementById('modal-' + name);
+  if (!m) return false;
+  m.classList.remove('hidden');
+  return true;
+};
+
 // 自检钩子：人设生成室（入口能开、原型能选、锁定真的改变了发给模型的提示词）
 window.__AILEEN_PROBE_STUDIO = () => {
   const out = {};

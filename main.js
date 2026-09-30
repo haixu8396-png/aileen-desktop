@@ -830,11 +830,12 @@ function createWindow() {
           // AILEEN_SELFTEST_SHOT=<弹窗名> 时先把那个弹窗打开再截图，方便肉眼看排版（例如 char 看人设生成那一行）
           const shotModal = process.env.AILEEN_SELFTEST_SHOT;
           if (shotModal) {
-            const payload = '(function(){var m=document.getElementById("modal-" + ' + JSON.stringify(shotModal)
-              + '); if(!m) return false; m.classList.remove("hidden"); return true;})()';
-            const okShot = await win.webContents.executeJavaScript(payload).catch(() => false);
+            // 走渲染层自己的 open 函数（这样表单/选项才会被真正填好），没有的才退化成直接显示
+            const okShot = await win.webContents.executeJavaScript(
+              'window.__AILEEN_OPEN ? window.__AILEEN_OPEN(' + JSON.stringify(shotModal) + ') : false',
+            ).catch(() => false);
             console.log('[selftest] shot modal ' + shotModal + ': ' + okShot);
-            await new Promise((r) => setTimeout(r, 600));
+            await new Promise((r) => setTimeout(r, 800));
           }
           const img = await win.webContents.capturePage();
           fs.writeFileSync(path.join(SELFTEST_DIR, 'shot.png'), img.toPNG());
