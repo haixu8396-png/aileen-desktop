@@ -69,20 +69,24 @@ button.icon-btn.mic.recording { background: var(--danger); color: #fff; animatio
 @keyframes pulse { 50% { transform: scale(1.08); } }
 button.icon-btn.tts-on { color: var(--accent); border-color: var(--accent); }
 
-#app { display: grid; grid-template-columns: 232px 1fr 400px; height: 100vh; }
+/* 关键：grid 必须把行高钉死，否则内容一多，整行会被撑到窗口之外，
+   而 body 是 overflow:hidden —— 结果就是消息区既不出现滚动条也滚不动。
+   flex/grid 的子项默认 min-height:auto（不肯缩到内容以下），所以下面几处都要显式 min-height:0。 */
+#app { display: grid; grid-template-columns: 232px 1fr 400px; grid-template-rows: minmax(0, 1fr); height: 100vh; }
 
 /* ---------- 侧栏 ---------- */
 #sidebar {
   background: var(--panel);
   border-right: 1px solid var(--line);
   display: flex; flex-direction: column;
+  min-height: 0;
   padding: 14px 12px;
 }
 .logo { font-size: 20px; font-weight: 800; padding: 2px 4px 12px; letter-spacing: 0.5px; }
 .logo .logo-heart { color: var(--accent); }
 .logo em { color: var(--accent2); font-style: normal; }
 .list-label { font-size: 12px; color: var(--muted); margin: 10px 4px 6px; }
-.char-list { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 6px; }
+.char-list { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 6px; }
 .char-item {
   display: flex; align-items: center; gap: 10px;
   padding: 8px 10px;
@@ -99,7 +103,7 @@ button.icon-btn.tts-on { color: var(--accent); border-color: var(--accent); }
 .sidebar-foot button { flex: 1; font-size: 12px; }
 
 /* ---------- 聊天 ---------- */
-#chat-panel { display: flex; flex-direction: column; min-width: 0; }
+#chat-panel { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
 #chat-header {
   display: flex; align-items: center; gap: 12px;
   padding: 12px 18px;
@@ -112,7 +116,7 @@ button.icon-btn.tts-on { color: var(--accent); border-color: var(--accent); }
 .chat-title span { font-size: 12px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .chat-actions { display: flex; gap: 8px; }
 
-.messages { flex: 1; overflow-y: auto; padding: 18px; display: flex; flex-direction: column; gap: 14px; }
+.messages { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 18px; display: flex; flex-direction: column; gap: 14px; }
 .msg { max-width: 78%; padding: 11px 14px; border-radius: 14px; line-height: 1.65; word-break: break-word; }
 .msg.user {
   align-self: flex-end;
@@ -297,7 +301,7 @@ button.realtime-btn { height: 34px; padding: 0 11px; font-size: 12.5px; border-r
 }
 
 /* ---------- 舞台 ---------- */
-#stage-panel { display: flex; flex-direction: column; background: var(--panel); border-left: 1px solid var(--line); }
+#stage-panel { display: flex; flex-direction: column; min-height: 0; background: var(--panel); border-left: 1px solid var(--line); }
 .stage-head {
   display: flex; align-items: center; justify-content: space-between;
   padding: var(--sp-3) var(--sp-3) var(--sp-2);

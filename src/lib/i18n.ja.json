@@ -140,7 +140,7 @@
   "model.close": "閉じる",
   "model.localList": "ディスク上のモデル",
   "model.delete": "削除",
-  "model.deleteConfirm": "「{name}」をディスクから削除しますか？フォルダごと完全に消え、元に戻せません。",
+  "model.deleteConfirm": "「{name}」をごみ箱に移動しますか？あとで元に戻せます。",
   "model.deleteInUse": "{n} 枚のキャラクターカードがこのモデルを参照しています。削除後は別のモデルに切り替わります。",
   "model.deleted": "「{name}」を削除しました",
   "model.deleteFailed": "削除に失敗しました：{msg}",

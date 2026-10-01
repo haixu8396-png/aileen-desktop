@@ -140,7 +140,7 @@
   "model.close": "关闭",
   "model.localList": "本地模型（在磁盘上）",
   "model.delete": "删除",
-  "model.deleteConfirm": "把「{name}」从磁盘上删掉？整个文件夹会一起删除，没法撤销。",
+  "model.deleteConfirm": "把「{name}」移到回收站？反悔了还能从回收站捞回来。",
   "model.deleteInUse": "有 {n} 张角色卡在用这个模型，删掉后它们会自动改用其它模型。",
   "model.deleted": "已删除「{name}」",
   "model.deleteFailed": "删除失败：{msg}",

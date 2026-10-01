@@ -655,10 +655,59 @@ window.__AILEEN_PROBE_NOMODEL = async () => {
   return out;
 };
 
+// 自检钩子：聊天消息区必须真的能上下滚动。
+// 以前这里是个硬伤：grid 行高没约束 + flex 子项 min-height:auto，
+// 消息一多整块被撑到窗口外面，被 body 的 overflow:hidden 裁掉 —— 没滚动条也滚不动。
+window.__AILEEN_PROBE_SCROLL = (keep) => {
+  const box = document.getElementById('messages');
+  if (!box) return null;
+  const cs = getComputedStyle(box);
+  const before = box.scrollTop;
+  const added = [];
+  for (let i = 0; i < 30; i += 1) {
+    const d = document.createElement('div');
+    d.className = 'msg assistant';
+    d.textContent = 'scroll-probe-' + i + ' ' + '滚动测试内容'.repeat(20);
+    box.appendChild(d);
+    added.push(d);
+  }
+  const out = {
+    overflowY: cs.overflowY,
+    boxH: box.clientHeight,
+    winH: window.innerHeight,
+    fitsWindow: box.clientHeight <= window.innerHeight,
+    contentTaller: box.scrollHeight > box.clientHeight + 50,
+  };
+  box.scrollTop = box.scrollHeight;
+  out.canScrollDown = box.scrollTop > 0;
+  box.scrollTop = 0;
+  out.canScrollUp = box.scrollTop === 0;
+  if (!keep) {
+    for (const d of added) d.remove();
+    box.scrollTop = before;
+  }
+  return out;
+};
+
+// 自检钩子：截图用 —— 把聊天塞满，肉眼确认滚动条
+window.__AILEEN_FILL_CHAT = () => {
+  const box = document.getElementById('messages');
+  if (!box) return false;
+  for (let i = 0; i < 26; i += 1) {
+    const d = document.createElement('div');
+    d.className = 'msg assistant';
+    d.textContent = '第 ' + (i + 1) + ' 条：' + '这是一条用来把聊天区撑满的消息，检查滚动条是否出现。'.repeat(2);
+    box.appendChild(d);
+  }
+  box.scrollTop = 0;
+  return true;
+};
+
 // 自检钩子：按名字打开某个界面（截图核对排版用）
 window.__AILEEN_OPEN = (name) => {
   const table = {
     persona: openPersonaStudio,
+    'chat-scroll': () => { window.__AILEEN_FILL_CHAT(); },
     'persona-known': () => {
       openPersonaStudio();
       const r = document.getElementById('pa-mode-known');

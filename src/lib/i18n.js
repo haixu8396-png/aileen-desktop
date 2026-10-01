@@ -150,7 +150,7 @@ export const EN = {
   "model.close": "Close",
   "model.localList": "Models on disk",
   "model.delete": "Delete",
-  "model.deleteConfirm": "Delete “{name}” from disk? The folder is removed for good, and this cannot be undone.",
+  "model.deleteConfirm": "Move \u201c{name}\u201d to the Recycle Bin? If you change your mind you can restore it from there.",
   "model.deleteInUse": "{n} character card(s) point at this model; after deleting they will fall back to another model.",
   "model.deleted": "Deleted {name}",
   "model.deleteFailed": "Delete failed: {msg}",

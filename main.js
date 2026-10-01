@@ -967,6 +967,15 @@ function createWindow() {
             // 行为断言⑩：界面没有被隐形元素遮挡（「点都点不了」探测器）
             // 用 elementFromPoint 在几个关键位置做命中测试，命中的元素必须落在 #app 里。
             // 如果某个固定定位的弹窗/遮罩没被正确隐藏，这里就会抓到。
+            // 行为断言⑭：聊天消息区必须真的能上下滚动（内容撑高后仍被限制在窗口内）
+            let scrollOk = false;
+            let scrollDetail = null;
+            try {
+              scrollDetail = typeof window.__AILEEN_PROBE_SCROLL === 'function' ? window.__AILEEN_PROBE_SCROLL() : null;
+              scrollOk = !!scrollDetail && /auto|scroll/.test(String(scrollDetail.overflowY))
+                && scrollDetail.contentTaller === true && scrollDetail.canScrollDown === true
+                && scrollDetail.canScrollUp === true && scrollDetail.fitsWindow === true;
+            } catch (err) { window.__AILEEN_ERRORS.push('scrollTest: ' + String((err && err.message) || err)); }
             // 行为断言⑬：不使用模型 —— 这一档必须真的把舞台清空
             let noModelOk = false;
             let noModelDetail = null;
@@ -1222,6 +1231,8 @@ function createWindow() {
               studioDetail,
               noModelOk,
               noModelDetail,
+              scrollOk,
+              scrollDetail,
               uiBlockedBy,
               sideCollapseOk,
               searchFilterOk,
@@ -1269,6 +1280,8 @@ function createWindow() {
           try {
             // CI 用的是全新数据目录，一个模型都没有 —— 先记下来，后面决定哪些断言可以跳过
             rep.modelsAvailable = scanModels(MODELS_DIR, '').length > 0;
+            // 删除测试跑完之后，用户自己的模型必须一个不少（这条是为一次真实事故加的）
+            const modelsBefore = scanModels(MODELS_DIR, '').map((m) => m.file).sort().join('|');
             const tmpDir = path.join(MODELS_DIR, '__selftest_del');
             fs.mkdirSync(tmpDir, { recursive: true });
             fs.writeFileSync(path.join(tmpDir, 'model.json'), '{"version":"Sample 1.0.0"}');
@@ -1283,6 +1296,7 @@ function createWindow() {
             );
             rep.modelDeleteGuard = guard;
             rep.modelDeleteGuardOk = Array.isArray(guard) && guard.every((x) => x[1] === 'blocked');
+            rep.modelsSurvived = scanModels(MODELS_DIR, '').map((m) => m.file).sort().join('|') === modelsBefore;
             rep.charactersDirIntact = fs.existsSync(CHARACTERS_DIR);
           } catch (err) { rep.errors.push('model delete: ' + String((err && err.message) || err)); }
           // F11 全屏：1) 菜单里必须真的绑了 F11；2) 全屏开关本身必须有效
@@ -1529,21 +1543,25 @@ function registerIpc() {
   // 删除本地模型：连同磁盘上的文件夹一起删。
   // 这是唯一一个会真删用户文件的接口，所以路径校验必须死板：
   // 只接受 models/ 下第一层目录名，绝不允许越出 models 之外。
-  ipcMain.handle('models:delete', (_e, target) => {
+  ipcMain.handle('models:delete', async (_e, target) => {
     const raw = String((target && (target.dir || target.file || target.name)) || '').trim();
     if (!raw) throw new Error('无效的模型路径');
+    const modelsRoot = path.normalize(MODELS_DIR);
     const first = raw.split(/[\\/]+/).filter(Boolean)[0];
     if (!first || first === '.' || first === '..') throw new Error('无效的模型路径');
-    const modelsRoot = path.normalize(MODELS_DIR);
     const dir = path.normalize(path.join(MODELS_DIR, first));
     if (dir === modelsRoot || !dir.startsWith(modelsRoot + path.sep)) {
       throw new Error('拒绝操作 models 目录以外的路径');
     }
+    // 必须正好是「当前真的扫到的某个模型」的顶层目录 —— 不是「像模型」就行。
+    // 这样即便以后参数被拼错，也不可能顺手指向别的东西。
+    const known = scanModels(MODELS_DIR, '').some((m) => String(m.file).split('/')[0] === first);
+    if (!known) throw new Error('这个目录不在模型列表里，已中止');
     if (!fs.existsSync(dir)) throw new Error('模型文件夹不存在');
-    // 二次保险：确认它真的是个模型目录，别让手滑删掉别的什么
-    const looksLikeModel = scanModels(dir, '').length > 0;
-    if (!looksLikeModel) throw new Error('这个文件夹里没有 Live2D 模型文件，已中止');
-    fs.rmSync(dir, { recursive: true, force: true });
+    if (scanModels(dir, '').length === 0) throw new Error('这个文件夹里没有 Live2D 模型文件，已中止');
+    // 删到回收站，而不是 fs.rmSync 彻底抹掉：这是唯一会动用户文件的接口，
+    // 误删要能捞回来。之前用硬删除，用户手一抖模型就真没了。
+    await shell.trashItem(dir);
     return scanModels(MODELS_DIR, '');
   });
 
