@@ -777,3 +777,119 @@ button.icon-btn.small { width: 30px; height: 30px; font-size: 14px; }
 ::-webkit-scrollbar { width: 8px; height: 8px; }
 ::-webkit-scrollbar-thumb { background: #33384a; border-radius: 4px; }
 ::-webkit-scrollbar-thumb:hover { background: #444a60; }
+
+/* ---------- Agent 任务面板 ---------- */
+/* 进 Agent 模式时整个界面转蓝：主色、次色、强调边一起换，关掉就还原。
+   为什么挂在 <html> 上而不是 #app：Agent 面板和一堆弹窗都在 #app **之外**，
+   挂在 #app 上的话它们继承不到新变量 —— 表现就是「变量变了但按钮还是旧色」。
+   挂 html 则所有元素都能继承。
+   之所以用「同一组变量换值」而不是给每个元素写一套蓝样式：
+   界面里所有强调色都读 --accent / --accent2，换这两个就等于全站换色。 */
+:root {
+  --accent-agent: #3d8bfd;
+  --accent-agent2: #56c8f5;
+  --line-agent: #24405f;
+}
+html.agent-mode {
+  --accent: var(--accent-agent);
+  --accent2: var(--accent-agent2);
+  --line: var(--line-agent);
+}
+/* 主按钮的第二个渐变端点也要换，否则会留一截紫色尾巴 */
+html.agent-mode button.primary {
+  background: linear-gradient(135deg, var(--accent-agent), var(--accent-agent2));
+}
+/* 面板自己的蓝框：比主题色浅一点，避免和页面强调色抢 */
+.agent-box { width: 680px; max-width: 92vw; border: 1px solid var(--accent-agent); }
+/* Agent 模式下把整体遮罩换成带蓝调的浅遮罩：默认那层 72% 黑会把「界面转蓝」
+   整个盖掉，而转蓝这件事恰恰是要让用户看见的。只改 Agent 这一个面板。 */
+#agent-panel { background: rgba(9, 20, 38, 0.55); }
+/* Agent 弹窗里的表单自己一组规则：设置弹窗那套 .form-col / .full 不作用于这里 */
+.agent-box label { display: flex; flex-direction: column; gap: 6px; font-size: 13px; color: var(--muted); }
+.agent-box label.check { flex-direction: row; align-items: center; color: var(--text); }
+.agent-box textarea { width: 100%; min-height: 84px; resize: vertical; box-sizing: border-box; }
+.agent-line { display: flex; align-items: center; gap: 10px; margin: 10px 0; }
+.agent-line.hidden { display: none; }
+.agent-line input { flex: 1; }
+.agent-label { color: var(--muted); font-size: 13px; flex: 0 0 auto; }
+.agent-workspace {
+  flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-size: 12px; color: var(--accent2); background: var(--panel2);
+  border: 1px solid var(--line); border-radius: 8px; padding: 6px 10px;
+}
+.agent-actions { display: flex; flex-wrap: wrap; gap: 8px; margin: 10px 0 6px; }
+.agent-actions:last-of-type { margin-bottom: 0; }
+.agent-statusline { display: flex; align-items: center; gap: 10px; margin: 2px 0 8px; }
+.agent-status {
+  font-size: 12px; padding: 4px 10px; border-radius: 999px;
+  background: var(--panel2); border: 1px solid var(--line); color: var(--text);
+}
+.agent-approval {
+  border: 1px solid var(--accent-agent, #3d8bfd); border-radius: 12px;
+  background: rgba(61, 139, 253, 0.10); padding: 12px; margin: 8px 0;
+}
+.agent-approval.hidden { display: none; }
+.agent-approval-head { display: flex; align-items: center; gap: 8px; font-size: 13px; margin-bottom: 6px; }
+.agent-approval-text { margin: 0 0 4px; font-size: 13px; color: var(--text); word-break: break-all; }
+.agent-risk {
+  font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 999px;
+  background: var(--panel2); border: 1px solid var(--line);
+}
+.agent-risk.risk-low { color: #7fd6a0; border-color: #2f6b47; }
+.agent-risk.risk-medium { color: #ffd479; border-color: #6b5a2f; }
+.agent-risk.risk-high { color: #ff9aa6; border-color: #6b2f38; }
+.agent-log {
+  height: 220px; overflow-y: auto; padding: 10px 12px; margin-top: 6px;
+  background: var(--bg); border: 1px solid var(--line); border-radius: 12px;
+  font-size: 12px; line-height: 1.55; font-family: ui-monospace, "Cascadia Mono", Consolas, monospace;
+}
+.agent-log-line { white-space: pre-wrap; word-break: break-word; margin-bottom: 3px; }
+.agent-log-info { color: var(--muted); }
+.agent-log-step { color: var(--accent2); }
+.agent-log-tool { color: var(--text); }
+.agent-log-ok { color: #7fd6a0; }
+.agent-log-err { color: #ff9aa6; }
+.agent-log-warn { color: #ffd479; }
+.agent-log-answer {
+  color: var(--text); background: var(--panel2); border-left: 2px solid var(--accent-agent, #3d8bfd);
+  padding: 6px 10px; border-radius: 6px; margin: 6px 0;
+}
+
+/* ---------- Agent Control Dashboard（接管原 Live2D 展台区域） ---------- */
+#agent-dashboard {
+  display: flex; flex-direction: column; gap: 8px;
+  flex: 1; min-height: 0; padding: 10px; overflow-y: auto;
+}
+#agent-dashboard.hidden { display: none; }
+.agent-dash-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.agent-dash-title { font-size: 13px; font-weight: 600; color: var(--accent-agent, #3d8bfd); }
+.agent-dash-sec { display: flex; flex-direction: column; gap: 4px; }
+.agent-dash-label { font-size: 11px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); }
+.agent-dash-task {
+  font-size: 13px; color: var(--text); background: var(--panel2);
+  border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px;
+  word-break: break-word; max-height: 90px; overflow-y: auto;
+}
+.agent-dash-now { font-size: 12px; color: var(--accent2); min-height: 18px; word-break: break-word; }
+/* Dashboard 里的日志比弹窗里矮一些 —— 右边这块本来就窄 */
+#agent-dashboard .agent-log { height: 170px; margin-top: 0; }
+.agent-dash-tools { display: flex; flex-direction: column; gap: 2px; font-size: 12px; color: var(--muted); }
+.agent-tool-row.ok { color: #7fd6a0; }
+.agent-tool-row.err { color: #ff9aa6; }
+.agent-dash-screen {
+  font-size: 12px; color: var(--muted); background: var(--bg);
+  border: 1px dashed var(--line); border-radius: 8px; padding: 8px; min-height: 40px;
+}
+.agent-dash-screen-meta { margin-bottom: 6px; color: var(--accent2); }
+.agent-dash-shot { width: 100%; border-radius: 6px; border: 1px solid var(--line); display: block; }
+/* 状态色：一眼看出在干活 / 等确认 / 出事 */
+.status-thinking, .status-planning { color: var(--accent-agent2, #56c8f5); }
+.status-working, .status-using_tool { color: #ffd479; }
+.status-waiting_approval { color: var(--accent-agent, #3d8bfd); border-color: var(--accent-agent, #3d8bfd); }
+.status-paused { color: #ffd479; }
+.status-completed, .status-success { color: #7fd6a0; }
+.status-failed, .status-error { color: #ff9aa6; }
+.status-cancelled { color: var(--muted); }
+/* 侧栏的电脑控制开关：开着的状态要显眼，否则用户会忘了自己开着 */
+#btn-computer.computer-on { color: var(--accent-agent, #3d8bfd); border-color: var(--accent-agent, #3d8bfd); }
+#stage-panel.agent-controlling { border-left-color: var(--accent-agent, #3d8bfd); }

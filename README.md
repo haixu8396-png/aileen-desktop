@@ -23,7 +23,7 @@
 </p>
 
 <p align="center">
-  <a href="./LICENSE"><img src="https://img.shields.io/badge/license-MIT-ff7eb3.svg"></a>
+  <a href="./LICENSE"><img src="https://img.shields.io/badge/license-PolyForm%20Noncommercial%201.0.0-ff7eb3.svg"></a>
   <a href="../../releases"><img src="https://img.shields.io/github/downloads/haixu8396-png/aileen-desktop/total?color=38b0de"></a>
   <a href="#install"><img src="https://img.shields.io/badge/platform-Windows-9aa0b4.svg"></a>
   <a href="#interface--languages"><img src="https://img.shields.io/badge/languages-English%20%C2%B7%20日本語%20%C2%B7%20简体中文-a78bfa.svg"></a>
@@ -92,6 +92,41 @@ Hand it a screenshot of any window or monitor and ask what it thinks. We use it 
 
 **Chess.** Five difficulty levels, play as white or black, undo, flip the board, and let your character comment on the position while you think. It is the cheapest way to give a companion something to have opinions about.
 
+## And it remembers
+
+Your character keeps a memory of what happened between you — not the whole transcript replayed forever, but the parts that mattered, brought back when they are relevant. Say something once and you should not have to say it again.
+
+**Knowledge base.** Drop in your own files — text, Markdown, HTML, JSON, PDF — and they get chunked, stored locally, and the passages that matter are pulled into the conversation. The PDF reading is written from scratch; nothing extra was installed to read your documents.
+
+Both run on a small **embedding model** you pick in Settings → 🧠 Memory & Knowledge (OpenAI, SiliconFlow, Alibaba Bailian, Zhipu, a local Ollama, or any compatible endpoint), so retrieval works **by meaning** rather than by keyword. No embedding model configured? It still works — retrieval falls back to keyword matching, entirely offline.
+
+What is remembered stays on your machine, in the same data folder as everything else, and only the two folders that belong to it are writable.
+
+> [!NOTE]
+> The embedding key is treated like every other key in the app: the page never sees it. The request goes out from the main process, and the renderer only gets a boolean saying "a key is set".
+
+## And then let it actually *do* things
+
+Everything so far happens inside the app. This is the part where it steps out and uses the computer.
+
+Flip on **🖥 Computer control** in the sidebar and the ordinary chat box becomes the entry point — you keep talking to your character exactly as before. The difference is that it can now go and do the thing instead of telling you how:
+
+> **You:** open the browser and look up AILEEN for me
+>
+> **AILEEN:** Sure — let me take a look.
+>
+> *the stage on the right turns into a control dashboard, and it starts working*
+
+It reads and edits files, runs commands, checks git, reads the screen, moves the mouse, types, opens apps, and switches windows. Then it reports back **in its own voice** — the same character, the same way of talking. Not a robot saying "Task completed successfully."
+
+**Nothing happens without your say-so.** Reading is free; anything that touches the machine — moving the mouse, typing, running a command, opening a program — stops and asks first, every time. That "must ask" cannot be turned off in settings, deliberately.
+
+> [!IMPORTANT]
+> While it is working, the right-hand stage becomes the **Agent Control Dashboard**: the task, the current step, a timestamped operation log, every tool call, the screen it captured, and the approval buttons. Your chat stays your chat — the tool logs never get stuffed into the message bubbles.
+
+> [!NOTE]
+> If the character has a personality, the agent keeps it. The character prompt is always the first thing the model sees, whether it is chatting, playing chess, or operating the desktop. It is not allowed to quietly become a generic coding assistant when it picks up tools — there is a hard check that aborts the run if the persona goes missing.
+
 ## And off the leash of the window
 
 The floating stage lifts your character out of the app and onto your desktop: a frameless, transparent, always-on-top window containing nothing but them.
@@ -142,18 +177,24 @@ On Windows, `build-installer.bat` does the same thing.
 ### Project layout
 
 ```
-main.js               Electron main process — windows, IPC, settings, local model server
+main.js               Electron main process — app lifecycle and wiring
 preload.js            the contextBridge API surface
 mc-bot.cjs            Minecraft bot
-shared/               helpers shared by the main process and the tests
-src/                  the interface
-  main.js             entry point and event wiring
+shared/               helpers shared by the main process, the renderer and the tests
+  ipc-guard.cjs       who is allowed to call IPC
+  ipc-validate.cjs    what they are allowed to pass
+  ipc-schemas.cjs     one validation rule per channel
+  llm.cjs             streaming chat core (API keys never leave the main process)
+  agent-ipc.cjs       what the agent's tools are allowed to do to your machine
+src/
+  main/               main-process modules
+    self-test.cjs     diagnostics — runs only when AILEEN_SELFTEST=1
+    server/           the tiny local static server for models and avatars
+  agent/              the agent core: runtime, planner, tools, permissions, executor
+  lib/                the interface — state, dom, stage, chat, characters, modals,
+                      voice, minecraft, chess, agent-dashboard, agent-ui, i18n
   overlay.*           the floating stage window
-  lib/                state, dom, stage, chat, characters, modals, voice,
-                      minecraft, chess, i18n
-  lib/i18n.ja.json    Japanese strings
-  lib/i18n.zh.json    Simplified Chinese strings
-tests/                unit tests
+tests/                unit / integration / e2e (see tests/README.md)
 ```
 
 ### One thing that surprises people
@@ -186,4 +227,10 @@ The Live2D Cubism Core runtime is covered by Live2D's own licence. Every Live2D 
 
 ## License
 
-MIT — see [LICENSE](./LICENSE). Take it, change it, ship it.
+**PolyForm Noncommercial License 1.0.0** — see [LICENSE](./LICENSE).
+
+Short version, in plain words (the licence text is what actually counts): use it, change it, share it, run it for yourself, your friends, your study, your hobby projects, your school, your charity. Personal and noncommercial use is exactly what this licence is for.
+
+What it does not give you is the right to sell it or build a commercial product on it. If you want to do that, come and talk to us first — see the contact details in [SECURITY.md](./SECURITY.md).
+
+We changed this from MIT in 0.7.0. Anyone who took a copy while it was MIT keeps those MIT rights for that copy — licences do not reach backwards.

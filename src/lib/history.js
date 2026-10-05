@@ -1,3 +1,5 @@
+import { sha256Hex } from './hash.js';
+
 // ============================================================
 // 对话上下文装配
 //
@@ -78,13 +80,35 @@ export function buildSummaryRequest(older, label) {
 }
 
 /**
- * 摘要缓存：同一段前缀只会去让模型总结一次。
- * key 用「条数 + 最后一条的内容长度」就够区分了，不必做哈希。
+ * 摘要缓存的 key。
+ *
+ * 以前是「条数 + 总字数 + 最后一条长度」—— 这是个**会撞车的指纹**：
+ * 两段完全不同的对话，只要长度凑巧一样，就会被当成同一段，
+ * 于是 A 段对话的摘要被塞进 B 段对话的上下文里，角色开始胡说。
+ * 更糟的是人设换了、语言换了、压缩参数改了，key 照样不变，摘要会被复用。
+ *
+ * 现在改成对「真正会影响摘要结果的东西」做 SHA-256：
+ * 逐条 role+content、角色卡（含 persona/system prompt）、拼好的 system 提示词、
+ * 界面语言、保留轮数、以及摘要自身的 system 提示词。
+ * key 变了就重新总结，一样就命中缓存 —— 行为可预测，且不会串味。
  */
-export function summaryKey(messages) {
+export function summaryKey(messages, context) {
   const list = Array.isArray(messages) ? messages : [];
-  const last = list.length ? String(list[list.length - 1].content || '') : '';
-  let sum = 0;
-  for (const m of list) sum += String((m && m.content) || '').length;
-  return list.length + ':' + sum + ':' + last.length;
+  const ctx = context && typeof context === 'object' ? context : {};
+  const lines = [];
+  for (const m of list) {
+    lines.push(String((m && m.role) || '') + '\u0000' + String((m && m.content) || ''));
+  }
+  const payload = [
+    'summarykey-v2',
+    'count=' + list.length,
+    lines.join('\u0001'),
+    'character=' + (ctx.character || ''),
+    'persona=' + (ctx.persona || ''),
+    'system=' + (ctx.system || ''),
+    'lang=' + (ctx.lang || ''),
+    'keepTurns=' + (ctx.keepTurns == null ? '' : ctx.keepTurns),
+    'summarySystem=' + (ctx.summarySystem || ''),
+  ].join('\u0002');
+  return sha256Hex(payload);
 }

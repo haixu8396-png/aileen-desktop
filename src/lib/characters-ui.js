@@ -1,7 +1,7 @@
 // ============================================================
 // 角色卡 UI 控制器：列表、右键/更多菜单、编辑器、快捷更换模型语音
 // ============================================================
-import { getSettings, deepMerge } from './settings.js';
+import { getSettings, deepMerge, hasApiKey } from './settings.js';
 import { emptyCard, cardFileName } from './characters.js';
 import { escapeHtml } from './markdown.js';
 import { state, hooks, tts } from './state.js';
@@ -315,7 +315,7 @@ function personaWouldOverwrite(p) {
 
 export async function generatePersona() {
   const s = getSettings();
-  if (!s || !s.llm || !s.llm.apiKey) {
+  if (!hasApiKey('llm')) {
     toast(t('char.genNeedKey'));
     if (hooks.openLlmModal) hooks.openLlmModal();
     return;

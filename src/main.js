@@ -10,7 +10,8 @@
 //   voice.js           实时语音对话
 // ============================================================
 import { loadSettings, getSettings, saveSettings } from './lib/settings.js';
-import { LLM_PROVIDERS, presetLlmBase, state, hooks, tts, stt } from './lib/state.js';
+import { streamChat } from './lib/llm.js';
+import { LLM_PROVIDERS, presetLlmBase, presetEmbeddingBase, state, hooks, tts, stt } from './lib/state.js';
 import { $, toast, autoGrowInput } from './lib/dom.js';
 import { escapeHtml } from './lib/markdown.js';
 import {
@@ -32,6 +33,7 @@ import {
   applyTheme, openThemeModal, saveThemeModal, setAttachUI, openScreenPicker,
   openSettingsMenu, openFromMenu, closeSubModal, markActivePreset, setMenuSub, refreshChatStatus,
   openPerformModal, savePerformModal,
+  openEmbeddingModal, saveEmbeddingModal, fetchEmbeddingModels, testEmbedding,
 } from './lib/modals.js';
 import { startVoiceLoop, stopVoiceLoop } from './lib/voice.js';
 import { openMcModal, bindMc } from './lib/minecraft.js';
@@ -40,6 +42,10 @@ import { createReplyPacer } from './lib/reply-pacer.js';
 import { parsePersonaResponse, buildPersonaMessages } from './lib/persona.js';
 import { openPersonaStudio, closePersonaStudio, bindPersonaStudio, studioFormOptions } from './lib/persona-studio.js';
 import { openChessModal, bindChess } from './lib/chess.js';
+import { initAgentUI, injectAgentEvent } from './lib/agent-ui.js';
+import { initAgentDashboard, onAgentEvent, dashboardState, resetDashboard } from './lib/agent-dashboard.js';
+import { createToolRegistry, TOOL_SPECS, withBaseExecutors } from './agent/tool-registry.js';
+import { buildPersonaSystemPrompt, personaPosition, assertPersonaPreserved } from './agent/context-engine.js';
 import { t, setLang, getLang, applyI18n, LANGS } from './lib/i18n.js';
 
 // 错误收集（供自检诊断使用）
@@ -109,6 +115,12 @@ async function boot() {
   bindDropImage();
   bindMc();
   bindChess();
+  initAgentUI();
+  // Agent 事件的总出口：Dashboard 负责画，chat.js 只负责发
+  hooks.agentEvent = (type, payload) => {
+    try { onAgentEvent(type, payload); } catch (err) { console.warn('[agent] dashboard 事件处理失败', err && err.message); }
+  };
+  initAgentDashboard();
   bindAppMenu();
   refreshChatStatus();
   buildLangSwitch();
@@ -178,6 +190,29 @@ function bindSettingsModals() {
   $('btn-llm-test').onclick = testLlmConnection;
   $('btn-tts-fetch').onclick = fetchTtsVoices;
   $('btn-stt-fetch').onclick = fetchSttModels;
+
+  // 嵌入模型（记忆 / 知识库）
+  $('s-embed-cancel').onclick = () => closeSubModal('modal-embedding');
+  $('s-embed-save').onclick = saveEmbeddingModal;
+  $('btn-embed-fetch').onclick = fetchEmbeddingModels;
+  $('btn-embed-test').onclick = testEmbedding;
+  $('s-embed-provider').addEventListener('change', (e) => {
+    const p = e.target.value;
+    if (p === 'custom') {
+      $('s-embed-custom-url').checked = true;
+      $('wrap-embed-base').classList.remove('hidden');
+    }
+    // 换供应商时把地址与模型换成该家的默认值（用户仍可改）
+    if (!presetEmbeddingBase(p)) return;
+    if (!$('s-embed-custom-url').checked) {
+      $('s-embed-base').value = presetEmbeddingBase(p);
+      const modelEl = $('s-embed-model');
+      if (modelEl) modelEl.value = presetEmbeddingModel(p) || modelEl.value;
+    }
+  });
+  $('s-embed-custom-url').addEventListener('change', (e) => {
+    $('wrap-embed-base').classList.toggle('hidden', !e.target.checked);
+  });
 
   // 供应商切换 / 自定义地址开关
   $('s-llm-provider').addEventListener('change', (e) => {
@@ -463,6 +498,7 @@ function bindEvents() {
     'modal-theme': openThemeModal,
     'modal-perform': openPerformModal,
     'modal-persona': openPersonaStudio,
+    'modal-embedding': openEmbeddingModal,
   };
   document.querySelectorAll('#modal-menu .menu-list button[data-target]').forEach((btn) => {
     btn.onclick = () => openFromMenu(btn.dataset.target, menuOpeners[btn.dataset.target]);
@@ -655,6 +691,27 @@ window.__AILEEN_PROBE_NOMODEL = async () => {
   return out;
 };
 
+// 自检钩子（默认关闭，需要设置 AILEEN_SELFTEST_LIVE_LLM=1）：
+// 真打一次 API，验证「渲染层 → 主进程 → 服务商 → 渲染层」这条新链路能流式回来。
+// 这一步不能用 mock 代替 —— 密钥现在只在主进程，链路断了只有真跑才发现。
+window.__AILEEN_PROBE_LIVE_LLM = async () => {
+  let out = '';
+  let think = 0;
+  let finish = null;
+  try {
+    await streamChat({
+      messages: [{ role: 'user', content: '只回答两个字：收到' }],
+      settings: getSettings(),
+      onDelta: (d) => { out += d; },
+      onReasoning: (r) => { think += String(r || '').length; },
+      onFinish: (i) => { finish = i; },
+    });
+    return { ok: true, chars: out.length, head: out.slice(0, 30), reasoningChars: think, finish: finish && finish.finishReason };
+  } catch (err) {
+    return { ok: false, message: String((err && err.message) || err), code: err && err.code };
+  }
+};
+
 // 自检钩子：聊天消息区必须真的能上下滚动。
 // 以前这里是个硬伤：grid 行高没约束 + flex 子项 min-height:auto，
 // 消息一多整块被撑到窗口外面，被 body 的 overflow:hidden 裁掉 —— 没滚动条也滚不动。
@@ -718,9 +775,13 @@ window.__AILEEN_OPEN = (name) => {
     llm: openLlmModal,
     tts: openTtsModal,
     stt: openSttModal,
+    embed: openEmbeddingModal,
     model: openModelModal,
     theme: openThemeModal,
     menu: openSettingsMenu,
+    agent: () => { const b = $('btn-agent'); if (b) b.click(); return true; },
+    // Dashboard 不是弹窗，它是常驻在右侧展台区域的；这里把它摆成「正在执行 + 等确认」
+    dashboard: () => (typeof window.__AILEEN_PREVIEW_DASHBOARD === 'function' ? window.__AILEEN_PREVIEW_DASHBOARD() : false),
   };
   const fn = table[name];
   if (fn) { fn(); return true; }
@@ -728,6 +789,233 @@ window.__AILEEN_OPEN = (name) => {
   if (!m) return false;
   m.classList.remove('hidden');
   return true;
+};
+
+/**
+ * 自检用的测试接口。
+ * 把「人格是否保留」「Dashboard 是否由状态驱动」这类断言需要的东西暴露出来，
+ * 让主进程的探针不用猜 DOM 结构。只在自检流程里被读，正常运行不使用。
+ */
+window.__AILEEN_AGENT_TEST = {
+  /** 用当前角色卡拼一次 Agent 提示词，回报人格的位置与长度 */
+  personaPosition() {
+    const card = state.current && state.current.data ? state.current.data : {};
+    const reg = createToolRegistry();
+    reg.registerAll(withBaseExecutors(TOOL_SPECS));
+    const tools = reg.list();
+    const prompt = buildPersonaSystemPrompt({ card, tools, workspace: '' });
+    const pos = personaPosition(card, prompt);
+    let assertOk = false;
+    try { assertPersonaPreserved(card, prompt); assertOk = true; } catch { assertOk = false; }
+    return {
+      found: pos.found,
+      first: pos.first,
+      personaChars: pos.personaChars,
+      promptChars: pos.promptChars,
+      toolCount: tools.length,
+      assertOk,
+      // 卡片自带 system_prompt 时，人格就是它
+      builtInPrompt: !!(card && card.system_prompt && String(card.system_prompt).trim()),
+    };
+  },
+  dashboard: {
+    init: () => initAgentDashboard(),
+    state: () => dashboardState(),
+    event: (type, payload) => onAgentEvent(type, payload),
+    reset: () => resetDashboard(),
+  },
+  /** 自检用：读当前 agent 设置（开关状态） */
+  agentSettings() {
+    return (getSettings() && getSettings().agent) || {};
+  },
+};
+
+/**
+ * 自检钩子：Agent 面板。
+ * 刻意**不真跑 LLM**（那要花用户的额度），只插一条审批请求，
+ * 检查：面板能开、控件在、审批卡片能画出来、按钮点得动。
+ */
+window.__AILEEN_PROBE_AGENT = async () => {
+  const out = {};
+  const panel = document.getElementById('agent-panel');
+  window.__AILEEN_OPEN('agent');
+  out.panelOpen = !!panel && !panel.classList.contains('hidden');
+  for (const id of ['ag-task', 'ag-start', 'ag-pause', 'ag-resume', 'ag-cancel', 'ag-approval', 'ag-log', 'ag-status', 'ag-workspace']) {
+    out[id] = !!document.getElementById(id);
+  }
+  out.workspaceLabel = (document.getElementById('ag-workspace') || {}).textContent || '';
+  // 走和真实事件同一条路注入一条 HIGH 风险审批，看卡片与按钮
+  injectAgentEvent('approval_request', { id: 'probe-1', name: 'run_command', riskLevel: 'HIGH', preview: '要执行命令：npm run build', args: {} });
+  out.approvalVisible = !document.getElementById('ag-approval').classList.contains('hidden');
+  out.approvalText = (document.getElementById('ag-approval-text') || {}).textContent || '';
+  out.approvalRisk = (document.getElementById('ag-approval-risk') || {}).textContent || '';
+  out.logLines = document.getElementById('ag-log').childElementCount;
+  // Agent 模式的主色必须真的转蓝（改了 CSS 没生效的话这里会露出来）
+  // 注意：--accent 在 Agent 模式下是 var(--accent-agent) 这样的**变量引用**，
+  // getComputedStyle 会原样返回文本而不是解析结果 —— 所以读链尾那个确定值。
+  const rootEl = document.documentElement;
+  out.agentModeClass = !!(rootEl && rootEl.classList && rootEl.classList.contains('agent-mode'));
+  const rootStyle = rootEl ? getComputedStyle(rootEl) : null;
+  out.accentAgentVar = rootStyle ? rootStyle.getPropertyValue('--accent-agent').trim().toLowerCase() : '';
+  out.accentInAgentMode = out.accentAgentVar;
+  out.accentIsBlue = out.accentAgentVar === '#3d8bfd';
+  // 主按钮必须真的跟着变（曾经只有 CSS 变量变了、按钮还是旧色）
+  const startBtn = document.getElementById('ag-start');
+  out.startBtnColor = startBtn ? getComputedStyle(startBtn).backgroundImage.toLowerCase() : '';
+  out.startBtnIsBlue = /61,\s*139,\s*253|3d8bfd/.test(out.startBtnColor);
+  // 审批卡片故意留着不收：自检截图要看到它。
+  // 截图之后由下面的 _AFTER 再点「拒绝」并断言卡片真的消失。
+  return out;
+};
+
+// 截图前的视觉准备：把审批卡片摆出来（只为截图，不影响断言）
+window.__AILEEN_PREVIEW_APPROVAL = () => {
+  window.__AILEEN_OPEN('agent');
+  injectAgentEvent('approval_request', {
+    id: 'preview-1', name: 'run_command', riskLevel: 'HIGH', preview: '要执行命令：npm run build', args: {},
+  });
+  return true;
+};
+
+// 自检钩子：点亮「电脑控制」开关要**立刻**发生两件事
+//   1) 整个界面转蓝（主色 + 按钮）
+//   2) 右侧 Live2D 立刻换成 Dashboard（不用等发消息）
+// 验完把设置还原，避免影响后面的断言。
+window.__AILEEN_PROBE_COMPUTER_TOGGLE = async () => {
+  const out = {};
+  const app = window.__AILEEN_AGENT_TEST;
+  if (!app) { out.error = '测试接口未暴露'; return out; }
+  const btn = document.getElementById('btn-computer');
+  const dash = document.getElementById('agent-dashboard');
+  const stage = document.getElementById('stage-container');
+  if (!btn || !dash || !stage) { out.error = '控件缺失'; return out; }
+  const rootEl = document.documentElement;
+
+  // 基线：确保「开关关掉 + 没有任务在跑」——否则开关的语义测不准
+  app.dashboard.reset();
+  if (app.agentSettings().computerUse === true) { btn.click(); await new Promise((r) => setTimeout(r, 80)); }
+  out.baselineDashboardHidden = dash.classList.contains('hidden');
+  out.baselineStageVisible = !stage.classList.contains('hidden');
+
+  btn.click();
+  await new Promise((r) => setTimeout(r, 60));
+
+  out.settingOn = app.agentSettings().computerUse === true;
+  out.btnText = btn.textContent;
+  out.btnHighlighted = btn.classList.contains('computer-on');
+  out.modeClassOn = rootEl.classList.contains('agent-mode');
+  out.accentBlue = getComputedStyle(rootEl).getPropertyValue('--accent-agent').trim().toLowerCase() === '#3d8bfd';
+  out.startBtnBlue = /61,\s*139,\s*253|3d8bfd/.test(getComputedStyle(document.getElementById('ag-start')).backgroundImage.toLowerCase());
+  out.dashboardShown = !dash.classList.contains('hidden');       // ← 立刻出现
+  out.stageHidden = stage.classList.contains('hidden');           // ← Live2D 让位
+  out.hintShown = (document.getElementById('dash-now') || {}).textContent || '';
+
+  // 关掉 → 两样都要退回去
+  btn.click();
+  await new Promise((r) => setTimeout(r, 60));
+  out.afterOff = {
+    settingOff: app.agentSettings().computerUse !== true,
+    modeClassOff: !rootEl.classList.contains('agent-mode'),
+    dashboardHidden: dash.classList.contains('hidden'),
+    stageBack: !stage.classList.contains('hidden'),
+  };
+
+  // 收尾：明确落到「关」的干净状态，不依赖探针开始时读到什么
+  //（自检是流水线，后面的断言要一个确定的起点）
+  if (app.agentSettings().computerUse === true) { btn.click(); await new Promise((r) => setTimeout(r, 80)); }
+  app.dashboard.reset();
+  return out;
+};
+
+// 自检钩子：Agent Control Dashboard + 人格保留（不跑 LLM，不花额度）
+// 这条守的是本轮最硬的要求：状态驱动 Dashboard、Live2D 让位、以及
+// **角色人格在 Agent 提示词里原样保留**。
+window.__AILEEN_PROBE_DASHBOARD = () => {
+  const out = {};
+  const app = window.__AILEEN_AGENT_TEST;
+  if (!app) { out.error = '测试接口未暴露'; return out; }
+
+  // ---- 1) 人格保留 ----
+  const pos = app.personaPosition();
+  out.personaFound = pos.found === true;
+  out.personaFirst = pos.first === true;
+  out.personaChars = pos.personaChars;
+  out.builtInPrompt = pos.builtInPrompt === true;
+  out.promptChars = pos.promptChars;
+  out.toolCount = pos.toolCount;
+  out.assertOk = pos.assertOk === true;
+
+  // ---- 2) Dashboard 由状态驱动 ----
+  // 先复位：上一个预览（截图用的）会留下可见态，不复位的话
+  // 「跑之前应该是隐藏的」这条基线断言拿到的是脏状态。
+  app.dashboard.init();
+  app.dashboard.reset();
+  const before = app.dashboard.state();
+  out.hiddenBeforeRun = before.visible === false;
+
+  app.dashboard.event('run_created', { run_id: 'probe', task: '打开浏览器搜索 AILEEN', maxRounds: 20 });
+  app.dashboard.event('status', { status: 'planning' });
+  app.dashboard.event('step', { step: 1, phase: 'llm' });
+  app.dashboard.event('status', { status: 'thinking' });
+  app.dashboard.event('tool_call', { name: 'window_list', riskLevel: 'LOW' });
+  app.dashboard.event('tool_result', { name: 'window_list', ok: true, summary: '记事本 / Chrome' });
+  app.dashboard.event('status', { status: 'using_tool' });
+  app.dashboard.event('approval_request', { id: 'ap-probe', name: 'mouse_click', riskLevel: 'HIGH', preview: '要点击鼠标left' });
+
+  const mid = app.dashboard.state();
+  out.visibleDuringRun = mid.visible === true;
+  out.stageHiddenDuringRun = mid.stageHidden === true;   // Live2D 必须让位
+  out.taskShown = mid.task;
+  out.logLines = mid.logLines;
+  out.approvalShown = mid.approvalVisible === true;
+  out.statusText = mid.status;
+
+  // ---- 3) 取消之后 Live2D 要回来 ----
+  app.dashboard.event('status', { status: 'cancelled' });
+  app.dashboard.event('finished', { status: 'cancelled' });
+  const after = app.dashboard.state();
+  out.approvalHiddenAfterFinish = after.approvalVisible === false;
+  return out;
+};
+
+// 自检钩子：Dashboard 可见时把审批卡片摆出来（截图用）
+window.__AILEEN_PREVIEW_DASHBOARD = () => {
+  const app = window.__AILEEN_AGENT_TEST;
+  if (!app) return false;
+  app.dashboard.init();
+  // 先把上一次预览可能留下的运行态清掉（否则「跑完要还原」这类判断会拿到脏状态）
+  app.dashboard.event('finished', { status: 'completed' });
+  app.dashboard.event('run_created', { run_id: 'preview', task: '打开浏览器搜索 AILEEN 并告诉我结果', maxRounds: 20 });
+  app.dashboard.event('status', { status: 'using_tool' });
+  app.dashboard.event('step', { step: 2, phase: 'tool', tool: 'open_application' });
+  app.dashboard.event('tool_call', { name: 'window_list', riskLevel: 'LOW' });
+  app.dashboard.event('tool_result', { name: 'window_list', ok: true, summary: '记事本 / Chrome / 资源管理器' });
+  app.dashboard.event('tool_call', { name: 'open_application', riskLevel: 'HIGH' });
+  app.dashboard.event('status', { status: 'waiting_approval' });
+  app.dashboard.event('approval_request', { id: 'preview-ap', name: 'open_application', riskLevel: 'HIGH', preview: '要打开程序或网址：https://example.com' });
+  return true;
+};
+
+// 自检钩子：Agent 面板的交互收尾（审批卡片的拒绝按钮要真的接上）
+// 单独一个函数是为了让「截图」发生在本函数之前 —— 截图时卡片还在。
+window.__AILEEN_PROBE_AGENT_AFTER = () => {
+  const out = {};
+  const box = document.getElementById('ag-approval');
+  out.visibleBeforeReject = !!box && !box.classList.contains('hidden');
+  const reject = document.getElementById('ag-reject');
+  out.hasReject = !!reject;
+  if (reject) reject.click();
+  out.hiddenAfterReject = !!box && box.classList.contains('hidden');
+  // 关掉面板后主色要还原（蓝色只属于 Agent 模式）
+  const panel = document.getElementById('agent-panel');
+  const rootEl = document.documentElement;
+  const closeBtn = document.getElementById('ag-close');
+  if (closeBtn) closeBtn.click();
+  else if (panel) panel.classList.add('hidden');
+  out.panelHiddenAfterClose = !!panel && panel.classList.contains('hidden');
+  out.modeClassAfterClose = !(rootEl && rootEl.classList && rootEl.classList.contains('agent-mode'));
+  out.accentRestored = out.modeClassAfterClose;
+  return out;
 };
 
 // 自检钩子：人设生成室（入口能开、原型能选、锁定真的改变了发给模型的提示词）

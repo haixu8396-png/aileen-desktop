@@ -25,6 +25,32 @@ export function presetLlmBase(provider) {
   return (p && p.baseUrl) || '';
 }
 
+/**
+ * 嵌入模型供应商预设（长期记忆 / 知识库的语义检索用）。
+ *
+ * 为什么单独一份、不共用 LLM 的预设：算向量用便宜的小模型就够，
+ * 而且各家「哪个模型能算向量」和「哪个模型能对话」经常不是同一个。
+ * 默认给的都是各自平台上的主流嵌入模型，用户可以自己改。
+ */
+export const EMBEDDING_PROVIDERS = {
+  openai: { label: 'OpenAI', baseUrl: 'https://api.openai.com/v1', model: 'text-embedding-3-small' },
+  siliconflow: { label: '硅基流动', baseUrl: 'https://api.siliconflow.cn/v1', model: 'BAAI/bge-m3' },
+  qwen: { label: '阿里云百炼', baseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1', model: 'text-embedding-v3' },
+  zhipu: { label: '智谱 GLM', baseUrl: 'https://open.bigmodel.cn/api/paas/v4', model: 'embedding-3' },
+  ollama: { label: 'Ollama 本地', baseUrl: 'http://localhost:11434/v1', model: 'nomic-embed-text' },
+  custom: { label: '自定义', baseUrl: '', model: '' },
+};
+
+export function presetEmbeddingBase(provider) {
+  const p = EMBEDDING_PROVIDERS[provider];
+  return (p && p.baseUrl) || '';
+}
+
+export function presetEmbeddingModel(provider) {
+  const p = EMBEDDING_PROVIDERS[provider];
+  return (p && p.model) || '';
+}
+
 /** 可变运行时状态 */
 export const state = {
   appInfo: null,
@@ -67,4 +93,6 @@ export const hooks = {
   rebuildLive2D: () => {},
   openLlmModal: () => {},
   setAttachUI: () => {},
+  /** Agent 事件出口：由 main.js 指到 Agent Control Dashboard */
+  agentEvent: () => {},
 };

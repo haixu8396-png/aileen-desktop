@@ -60,6 +60,9 @@ function isInsidePath(child, parent) {
 const LLM_PROVIDERS = ['deepseek', 'openai', 'moonshot', 'siliconflow', 'groq', 'zhipu', 'qwen', 'xiaomi', 'openrouter', 'ollama', 'custom'];
 const TTS_PROVIDERS = ['web', 'openai', 'fish', 'xiaomi'];
 const STT_PROVIDERS = ['openai', 'xiaomi', 'web'];
+// 嵌入模型供应商：只用于「长期记忆 / 知识库」的语义检索。
+// 与对话用的 LLM 分开配置 —— 算向量用便宜的小模型就够。
+const EMBEDDING_PROVIDERS = ['openai', 'siliconflow', 'qwen', 'zhipu', 'ollama', 'custom'];
 const TTS_LANGS = ['zh', 'en', 'ja', 'es'];
 const STT_LANGS = ['auto', 'zh', 'en', 'ja', 'es'];
 const UI_LANGS = ['en', 'ja', 'zh'];
@@ -105,6 +108,10 @@ function normalizeSettings(raw, defaults) {
   const mc = pick('mc');
   const chess = pick('chess');
   const stage = pick('stage');
+  const agent = pick('agent');
+  const embedding = pick('embedding');
+  const memoryCfg = pick('memoryCfg');
+  const knowledgeCfg = pick('knowledgeCfg');
 
   const extraModels = Array.isArray(r.extraModels)
     ? r.extraModels
@@ -120,7 +127,9 @@ function normalizeSettings(raw, defaults) {
       provider: asOneOf(llm.provider, LLM_PROVIDERS, 'deepseek'),
       baseUrl: asUrl(llm.baseUrl),
       customBaseUrl: asBool(llm.customBaseUrl, false),
-      apiKey: asStr(llm.apiKey, 300),
+      // 4000 而不是 300：现在这里存的是 safeStorage 密文（safe:v1: + base64），
+      // 300 会把密钥截断成一个解不开的串 —— 那等于把用户的 Key 弄丢。
+      apiKey: asStr(llm.apiKey, 4000),
       model: asStr(llm.model, 120),
       temperature: asNum(llm.temperature, 0, 2, 0.8),
       maxTokens: Math.round(asNum(llm.maxTokens, 1, 8192, 1024)),
@@ -130,7 +139,7 @@ function normalizeSettings(raw, defaults) {
       language: asOneOf(tts.language, TTS_LANGS, 'zh'),
       baseUrl: asUrl(tts.baseUrl),
       customBaseUrl: asBool(tts.customBaseUrl, false),
-      apiKey: asStr(tts.apiKey, 300),
+      apiKey: asStr(tts.apiKey, 4000),   // 同上：这里是密文，不是明文
       model: asStr(tts.model, 120),
       voice: asStr(tts.voice, 200),
       rate: asNum(tts.rate, 0.25, 4, 1),
@@ -141,7 +150,7 @@ function normalizeSettings(raw, defaults) {
       language: asOneOf(stt.language, STT_LANGS, 'zh'),
       baseUrl: asUrl(stt.baseUrl),
       customBaseUrl: asBool(stt.customBaseUrl, false),
-      apiKey: asStr(stt.apiKey, 300),
+      apiKey: asStr(stt.apiKey, 4000),   // 同上：这里是密文，不是明文
       model: asStr(stt.model, 120),
     },
     behavior: {
@@ -190,7 +199,52 @@ function normalizeSettings(raw, defaults) {
     stage: {
       scale: asNum(stage.scale, 0.15, 1.5, 0.3),
     },
+    // 长期记忆与知识库的语义检索：**与对话用的 LLM 分开配置**
+    // （算向量用便宜的小模型就够，没必要用对话模型）
+    embedding: {
+      // 关掉也能用：检索退化成关键词匹配（离线可用，只是语义能力弱）
+      enabled: asBool(embedding.enabled, true),
+      provider: asOneOf(embedding.provider, EMBEDDING_PROVIDERS, 'openai'),
+      baseUrl: asUrl(embedding.baseUrl),
+      customBaseUrl: asBool(embedding.customBaseUrl, false),
+      // 与其他分组一致：这里存的是 safeStorage 密文，不是明文
+      apiKey: asStr(embedding.apiKey, 4000),
+      model: asStr(embedding.model, 120),
+      // 一次请求最多带多少条文本算向量（太大容易被服务端拒）
+      batchSize: Math.round(asNum(embedding.batchSize, 1, 64, 16)),
+    },
+    // 长期记忆：与 Chat History 分开（History = 发生过什么；Memory = 什么值得记住）
+    memoryCfg: {
+      enabled: asBool(memoryCfg.enabled, true),
+      maxContextTokens: Math.round(asNum(memoryCfg.maxContextTokens, 0, 8000, 800)),
+      minImportance: asNum(memoryCfg.minImportance, 0, 1, 0.45),
+      // 每个角色一份记忆（关掉就是全局共享一份）
+      perCharacter: asBool(memoryCfg.perCharacter, true),
+    },
+    // 知识库：外部资料，只读检索
+    knowledgeCfg: {
+      enabled: asBool(knowledgeCfg.enabled, true),
+      maxContextTokens: Math.round(asNum(knowledgeCfg.maxContextTokens, 0, 12000, 1200)),
+      topK: Math.round(asNum(knowledgeCfg.topK, 1, 20, 5)),
+      chunkTokens: Math.round(asNum(knowledgeCfg.chunkTokens, 100, 2000, 500)),
+      chunkOverlapTokens: Math.round(asNum(knowledgeCfg.chunkOverlapTokens, 0, 500, 80)),
+    },
+    // Coding Agent（第一版：单 Agent + Tool Calling）
+    // 只认这两个字段：workspace 是绑定目录，requireMedium 决定
+    // 「写文件 / 打补丁 / git commit」要不要用户点头。
+    // **刻意没有** allowHighRisk / whitelist 之类的字段：
+    // HIGH 风险（跑命令、删除、push）永远要确认，不允许从设置里绕过去。
+    agent: {
+      workspace: asStr(agent.workspace, 500),
+      requireMedium: asBool(agent.requireMedium, true),
+      // 电脑控制总开关：开 = 对话走 Agent（Chat 作入口），关 = 纯聊天。
+      // 它只决定「要不要给模型工具」，不绕过任何权限。
+      computerUse: asBool(agent.computerUse, false),
+    },
   };
 }
 
-module.exports = { deepMerge, sanitizeFileName, isHttpUrl, isInsidePath, normalizeSettings, UI_LANGS };
+module.exports = {
+  deepMerge, sanitizeFileName, isHttpUrl, isInsidePath, normalizeSettings, UI_LANGS,
+  LLM_PROVIDERS, TTS_PROVIDERS, STT_PROVIDERS, EMBEDDING_PROVIDERS,
+};

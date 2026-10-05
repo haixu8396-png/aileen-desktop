@@ -1,14 +1,15 @@
 {
   "name": "aileen",
   "productName": "AILEEN",
-  "version": "0.6.6",
-  "description": "桌面 AI 伴侣：Live2D 角色 + 多模型 LLM 对话 + 语音 + 屏幕视觉 + Minecraft/国际象棋，本地运行、数据私有",
-  "license": "MIT",
+  "version": "0.7.0",
+  "description": "桌面 AI 伴侣：Live2D 角色 + 多模型 LLM 对话 + 语音 + 屏幕视觉 + 电脑控制 + Minecraft/国际象棋，本地运行、数据私有",
+  "license": "PolyForm-Noncommercial-1.0.0",
   "author": "AILEEN Contributors",
   "main": "main.js",
   "scripts": {
     "build": "vite build",
     "test": "vitest run",
+    "lint": "node scripts/lint.mjs",
     "start": "npm run build && electron .",
     "dev": "npm run build && electron .",
     "pack": "npm run build && electron-builder --dir",

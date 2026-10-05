@@ -1,11 +1,48 @@
 // ============================================================
 // 设置类弹窗控制器：对话/TTS/STT 设置、外观调色、屏幕视觉、设置菜单
 // ============================================================
-import { getSettings, saveSettings } from './settings.js';
-import { state, presetLlmBase } from './state.js';
+import { getSettings, saveSettings, hasApiKey } from './settings.js';
+import { state, presetLlmBase, presetEmbeddingBase, presetEmbeddingModel } from './state.js';
 import { $, toast } from './dom.js';
 import { escapeHtml } from './markdown.js';
 import { t } from './i18n.js';
+
+// ---------------- API Key 字段（只写） ----------------
+//
+// 渲染层拿不到明文密钥，所以输入框平时是空的；已配置时填一个掩码。
+// 语义（三种状态都要让用户能表达清楚）：
+//   · 掩码原样不动  → 不改动已有密钥
+//   · 填新字符串    → 覆盖
+//   · 把输入框清空  → 删除密钥（否则用户没有任何办法撤销一个配错的 Key）
+const KEY_MASK = '\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022';
+
+function setKeyField(id, group) {
+  const el = $(id);
+  if (!el) return;
+  const configured = hasApiKey(group);
+  el.value = configured ? KEY_MASK : '';
+  el.placeholder = configured ? t('llm.keyKeepHint') : 'sk-…';
+}
+
+/** 用户这次在输入框里真正输入的新密钥（什么都没输 / 只有掩码 → 空） */
+function typedKey(id) {
+  const el = $(id);
+  const v = el ? el.value.trim() : '';
+  return (!v || v === KEY_MASK) ? '' : v;
+}
+
+/** 送进设置的 apiKey 值：'' = 保持不变，SECRET_CLEAR = 清除，其它 = 新密钥 */
+function keyPatch(id, group) {
+  const el = $(id);
+  const v = el ? el.value.trim() : '';
+  if (v === KEY_MASK) return '';
+  if (v === '') return hasApiKey(group) ? window.api.SECRET_CLEAR : '';
+  return v;
+}
+
+function errText(err) {
+  return String((err && err.message) ? err.message : err);
+}
 
 // ---------------- 对话设置 ----------------
 export function openLlmModal() {
@@ -16,7 +53,7 @@ export function openLlmModal() {
   $('s-llm-custom-url').checked = custom;
   $('wrap-llm-base').classList.toggle('hidden', !custom);
   $('s-llm-base').value = s.llm.baseUrl || presetLlmBase(prov);
-  $('s-llm-key').value = s.llm.apiKey || '';
+  setKeyField('s-llm-key', 'llm');
   $('s-llm-model').value = s.llm.model || '';
   $('s-llm-temp').value = s.llm.temperature ?? 0.8;
   $('s-llm-max').value = s.llm.maxTokens ?? 1024;
@@ -32,7 +69,7 @@ export function saveLlmModal() {
     provider,
     customBaseUrl: custom,
     baseUrl: custom ? $('s-llm-base').value.trim() : presetLlmBase(provider),
-    apiKey: $('s-llm-key').value.trim(),
+    apiKey: keyPatch('s-llm-key', 'llm'),
     model: $('s-llm-model').value.trim(),
     temperature: parseFloat($('s-llm-temp').value) || 0.8,
     maxTokens: parseInt($('s-llm-max').value, 10) || 1024,
@@ -54,7 +91,7 @@ export function openTtsModal() {
   $('s-tts-custom-url').checked = custom;
   $('wrap-tts-base').classList.toggle('hidden', !(isOpenai && custom));
   $('s-tts-base').value = s.tts.baseUrl || 'https://api.openai.com/v1';
-  $('s-tts-key').value = s.tts.apiKey || '';
+  setKeyField('s-tts-key', 'tts');
   $('s-tts-model').value = s.tts.model || '';
   $('s-tts-voice').value = s.tts.voice || '';
   $('s-tts-rate').value = String(s.tts.rate ?? 1);
@@ -73,7 +110,7 @@ export function saveTtsModal() {
     language: $('s-tts-language').value,
     customBaseUrl: custom,
     baseUrl: custom ? $('s-tts-base').value.trim() : 'https://api.openai.com/v1',
-    apiKey: $('s-tts-key').value.trim(),
+    apiKey: keyPatch('s-tts-key', 'tts'),
     model: $('s-tts-model').value.trim(),
     voice: $('s-tts-voice').value.trim(),
     rate: parseFloat($('s-tts-rate').value) || 1,
@@ -96,7 +133,7 @@ export function openSttModal() {
   $('s-stt-custom-url').checked = custom;
   $('wrap-stt-base').classList.toggle('hidden', !(isOpenai && custom));
   $('s-stt-base').value = s.stt.baseUrl || 'https://api.openai.com/v1';
-  $('s-stt-key').value = s.stt.apiKey || '';
+  setKeyField('s-stt-key', 'stt');
   $('s-stt-model').value = s.stt.model || '';
   $('modal-stt').classList.remove('hidden');
 }
@@ -111,13 +148,123 @@ export function saveSttModal() {
     language: $('s-stt-language').value,
     customBaseUrl: custom,
     baseUrl: custom ? $('s-stt-base').value.trim() : 'https://api.openai.com/v1',
-    apiKey: $('s-stt-key').value.trim(),
+    apiKey: keyPatch('s-stt-key', 'stt'),
     model: $('s-stt-model').value.trim(),
   };
   saveSettings(next).then(() => {
     toast(t('stt.saved'));
     closeSubModal('modal-stt');
   });
+}
+
+// ---------------- 嵌入模型设置（长期记忆 / 知识库） ----------------
+/**
+ * 打开「记忆与知识库」设置。
+ *
+ * 这里的东西只影响**语义检索**：关掉之后记忆与知识库仍然可用，
+ * 只是检索退化成关键词匹配（离线可用，语义弱一些）。
+ */
+export function openEmbeddingModal() {
+  const s = getSettings();
+  const e = s.embedding || {};
+  const mem = s.memoryCfg || {};
+  const know = s.knowledgeCfg || {};
+  $('s-embed-enabled').checked = e.enabled !== false;
+  $('s-embed-provider').value = e.provider || 'openai';
+  const custom = !!e.customBaseUrl || e.provider === 'custom';
+  $('s-embed-custom-url').checked = custom;
+  $('wrap-embed-base').classList.toggle('hidden', !custom);
+  $('s-embed-base').value = e.baseUrl || presetEmbeddingBase(e.provider || 'openai');
+  setKeyField('s-embed-key', 'embedding');
+  $('s-embed-model').value = e.model || presetEmbeddingModel(e.provider || 'openai');
+  $('s-mem-perchar').value = mem.perCharacter === false ? 'no' : 'yes';
+  $('s-mem-tokens').value = mem.maxContextTokens ?? 800;
+  $('s-know-tokens').value = know.maxContextTokens ?? 1200;
+  $('modal-embedding').classList.remove('hidden');
+}
+
+export function saveEmbeddingModal() {
+  const s = getSettings();
+  const provider = $('s-embed-provider').value;
+  const custom = $('s-embed-custom-url').checked || provider === 'custom';
+  const next = { ...s };
+  next.embedding = {
+    enabled: $('s-embed-enabled').checked,
+    provider,
+    customBaseUrl: custom,
+    baseUrl: custom ? $('s-embed-base').value.trim() : presetEmbeddingBase(provider),
+    apiKey: keyPatch('s-embed-key', 'embedding'),
+    model: $('s-embed-model').value.trim(),
+    batchSize: (s.embedding && s.embedding.batchSize) || 16,
+  };
+  next.memoryCfg = {
+    ...(s.memoryCfg || {}),
+    perCharacter: $('s-mem-perchar').value === 'yes',
+    maxContextTokens: parseInt($('s-mem-tokens').value, 10) || 0,
+  };
+  next.knowledgeCfg = {
+    ...(s.knowledgeCfg || {}),
+    maxContextTokens: parseInt($('s-know-tokens').value, 10) || 0,
+  };
+  saveSettings(next).then(() => {
+    toast(t('embed.saved'));
+    closeSubModal('modal-embedding');
+  });
+}
+
+/** 取当前表单里的 embedding 连接参数（「先测再存」用，不必先保存） */
+function embeddingFormPayload() {
+  return {
+    baseUrl: $('s-embed-base').value.trim() || presetEmbeddingBase($('s-embed-provider').value),
+    model: $('s-embed-model').value.trim(),
+    // 只写语义：掩码不动=不传（由主进程用已保存的 Key）
+    apiKey: typedKey('s-embed-key'),
+  };
+}
+
+export async function fetchEmbeddingModels() {
+  const btn = $('btn-embed-fetch');
+  try {
+    if (btn) btn.disabled = true;
+    const res = await window.api.embeddingListModels(embeddingFormPayload());
+    const list = (res && res.models) || [];
+    const dl = $('dl-embed-models');
+    if (dl) {
+      dl.innerHTML = '';
+      for (const id of list.slice(0, 200)) {
+        const opt = document.createElement('option');
+        opt.value = id;
+        dl.appendChild(opt);
+      }
+    }
+    const suggested = (res && res.suggested) || [];
+    if (!list.length) {
+      toast(t('embed.noModels'), true);
+    } else if (suggested.length && !$('s-embed-model').value.trim()) {
+      // 有像嵌入模型的就先填上，省得用户自己挑
+      $('s-embed-model').value = suggested[0];
+      toast(t('embed.fetched', { n: list.length }));
+    } else {
+      toast(t('embed.fetched', { n: list.length }));
+    }
+  } catch (err) {
+    toast(errText(err), true);
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
+export async function testEmbedding() {
+  const btn = $('btn-embed-test');
+  try {
+    if (btn) btn.disabled = true;
+    const res = await window.api.embeddingTest(embeddingFormPayload());
+    toast(t('embed.testOk', { n: (res && res.dimensions) || '?' }));
+  } catch (err) {
+    toast(errText(err), true);
+  } finally {
+    if (btn) btn.disabled = false;
+  }
 }
 
 // ---------------- 设置菜单导航 ----------------
@@ -159,7 +306,7 @@ export function refreshChatStatus() {
   const dot = $('chat-status');
   if (!dot) return;
   const s = getSettings();
-  const ok = !!(s && s.llm && s.llm.apiKey);
+  const ok = hasApiKey('llm');
   dot.classList.toggle('off', !ok);
   dot.title = ok ? t('chat.statusReady') : t('chat.statusNoKey');
 }
@@ -183,6 +330,8 @@ export function refreshMenuSubtitles() {
   sub('menu-sub-theme', ((s.theme && s.theme.primary) || '#ff7eb3'));
   const b = s.behavior || {};
   sub('menu-sub-perform', t('perform.' + (b.narration || 'natural')) + ' · ' + t('perform.' + (b.pacing || 'natural')));
+  const emb = s.embedding || {};
+  sub('menu-sub-embedding', emb.enabled === false ? t('embed.off') : (emb.model || t('embed.builtin')));
   refreshChatStatus();
 }
 
@@ -226,42 +375,31 @@ function effectiveLlmBase() {
 
 export async function fetchLlmModels() {
   const baseUrl = effectiveLlmBase();
-  const apiKey = $('s-llm-key').value.trim();
   if (!baseUrl) { toast(t('llm.needBaseUrl'), true); return; }
   try {
-    const headers = { 'Content-Type': 'application/json' };
-    if (apiKey) headers.Authorization = 'Bearer ' + apiKey;
-    const res = await fetch(baseUrl.replace(/\/+$/, '') + '/models', { headers });
-    if (!res.ok) throw new Error('HTTP ' + res.status);
-    const j = await res.json();
-    const ids = (j.data || []).map((m) => m.id || m).filter(Boolean);
-    if (!ids.length) throw new Error('no models');
+    // 请求在主进程发（带上刚输入的密钥，或已保存的那把）
+    const ids = await window.api.llmListModels({ baseUrl, apiKey: typedKey('s-llm-key') });
     fillDatalist('dl-llm-models', ids);
     toast(t('llm.fetched', { n: ids.length }));
   } catch (err) {
-    toast(t('llm.fetchFailed', { msg: (err && err.message ? err.message : err) }), true);
+    toast(t('llm.fetchFailed', { msg: errText(err) }), true);
   }
 }
 
 export async function testLlmConnection() {
   const baseUrl = effectiveLlmBase();
-  const apiKey = $('s-llm-key').value.trim();
   if (!baseUrl) { toast(t('llm.missingBaseUrl'), true); return; }
   toast(t('llm.testing'));
   try {
-    const headers = { 'Content-Type': 'application/json' };
-    if (apiKey) headers.Authorization = 'Bearer ' + apiKey;
-    const res = await fetch(baseUrl.replace(/\/+$/, '') + '/models', { headers });
-    if (!res.ok) throw new Error('HTTP ' + res.status);
+    await window.api.llmTest({ baseUrl, apiKey: typedKey('s-llm-key') });
     toast(t('llm.testOk'));
   } catch (err) {
-    toast(t('llm.testFailed', { msg: (err && err.message ? err.message : err) }), true);
+    toast(t('llm.testFailed', { msg: errText(err) }), true);
   }
 }
 
 export async function fetchTtsVoices() {
   const provider = $('s-tts-provider').value;
-  const apiKey = $('s-tts-key').value.trim();
   if (provider === 'web') {
     const voices = window.speechSynthesis.getVoices();
     if (voices.length) { fillDatalist('dl-tts-voices', voices.map((v) => v.name)); toast(t('tts.voicesLoaded')); return; }
@@ -269,17 +407,12 @@ export async function fetchTtsVoices() {
     return;
   }
   if (provider === 'fish') {
-    if (!apiKey) { toast(t('tts.needFishKey'), true); return; }
     try {
-      const res = await fetch('https://api.fish.audio/v1/voices', { headers: { Authorization: 'Bearer ' + apiKey } });
-      if (!res.ok) throw new Error('HTTP ' + res.status);
-      const j = await res.json();
-      const items = (j.data || j.voices || []).map((v) => (v._id || v.id || '') + ' · ' + (v.title || v.name || '')).filter(Boolean);
-      if (!items.length) throw new Error('账号下没有可用音色');
+      const items = await window.api.ttsListVoices({ apiKey: typedKey('s-tts-key') });
       fillDatalist('dl-tts-voices', items);
       toast(t('tts.gotVoices', { n: items.length }));
     } catch (err) {
-      toast(t('tts.voiceFailed', { msg: (err && err.message ? err.message : err) }), true);
+      toast(t('tts.voiceFailed', { msg: errText(err) }), true);
     }
     return;
   }
@@ -301,20 +434,13 @@ export async function fetchSttModels() {
   if (provider === 'web') { toast(t('stt.webNoModel')); return; }
   const custom = $('s-stt-custom-url').checked;
   const baseUrl = custom ? $('s-stt-base').value.trim() : 'https://api.openai.com/v1';
-  const apiKey = $('s-stt-key').value.trim();
   if (!baseUrl) { toast(t('llm.needBaseUrl'), true); return; }
   try {
-    const headers = { 'Content-Type': 'application/json' };
-    if (apiKey) headers.Authorization = 'Bearer ' + apiKey;
-    const res = await fetch(baseUrl.replace(/\/+$/, '') + '/models', { headers });
-    if (!res.ok) throw new Error('HTTP ' + res.status);
-    const j = await res.json();
-    const ids = (j.data || []).map((m) => m.id || m).filter(Boolean);
-    if (!ids.length) throw new Error('no models');
+    const ids = await window.api.sttListModels({ baseUrl, apiKey: typedKey('s-stt-key') });
     fillDatalist('dl-stt-models', ids);
     toast(t('stt.gotModels', { n: ids.length }));
   } catch (err) {
-    toast(t('llm.fetchFailed', { msg: (err && err.message ? err.message : err) }), true);
+    toast(t('llm.fetchFailed', { msg: errText(err) }), true);
   }
 }
 
@@ -377,15 +503,16 @@ function cancelThemePreview() {
   if (!themeSnapshot) return;
   applyTheme(themeSnapshot);
   themeSnapshot = null;
-  const t = getSettings().theme || {};
-  if ($('t-primary')) $('t-primary').value = t.primary || '#ff7eb3';
-  if ($('t-secondary')) $('t-secondary').value = t.secondary || '#38b0de';
+  const theme = getSettings().theme || {};
+  if ($('t-primary')) $('t-primary').value = theme.primary || '#ff7eb3';
+  if ($('t-secondary')) $('t-secondary').value = theme.secondary || '#38b0de';
   markActivePreset();
 }
 
 export function openThemeModal() {
-  const t = getSettings().theme || {};
-  themeSnapshot = { primary: t.primary || '#ff7eb3', secondary: t.secondary || '#38b0de' };
+  // 同样别用 t 做局部变量名（遮蔽 i18n 的 t）
+  const theme = getSettings().theme || {};
+  themeSnapshot = { primary: theme.primary || '#ff7eb3', secondary: theme.secondary || '#38b0de' };
   $('t-primary').value = themeSnapshot.primary;
   $('t-secondary').value = themeSnapshot.secondary;
   renderThemePresets();

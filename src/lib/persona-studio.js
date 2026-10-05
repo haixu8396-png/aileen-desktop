@@ -11,7 +11,7 @@
 import { t, getLang } from './i18n.js';
 import { PERSONALITIES, ROLES, GENDERS, RELATIONSHIPS, labelOf } from './archetypes.js';
 import { generatePersonaCard } from './persona.js';
-import { getSettings } from './settings.js';
+import { getSettings, hasApiKey } from './settings.js';
 import { $, toast } from './dom.js';
 import { hooks } from './state.js';
 import { openCharModal, applyPersonaToEditor } from './characters-ui.js';
@@ -128,7 +128,7 @@ export function studioFormOptions() {
 
 export async function generateFromStudio() {
   const s = getSettings();
-  if (!s || !s.llm || !s.llm.apiKey) {
+  if (!hasApiKey('llm')) {
     toast(t('char.genNeedKey'));
     if (hooks.openLlmModal) hooks.openLlmModal();
     return;

@@ -2,6 +2,8 @@
 // 小米仅支持 wav/mp3，因此为其使用 WAV（PCM16）录音器
 const WEB_LANGS = { auto: 'zh-CN', zh: 'zh-CN', en: 'en-US', ja: 'ja-JP', es: 'es-ES' };
 
+
+
 function blobToBase64(blob) {
   return new Promise((resolve, reject) => {
     const fr = new FileReader();
@@ -195,57 +197,22 @@ export class STT {
   }
 
   // ---------- 识别请求 ----------
+  //
+  // 录音留在渲染层（要用麦克风与 AudioContext），但**发请求在主进程**：
+  // STT 接口要带 API Key，渲染层不允许持有。这里只把音频字节送上去，拿回文本。
+  // 语言码映射也一并搬到主进程（shared/ai-langs.cjs），那边有单测盯着
+  // 「不能把日语/西语当成英语」这件事。
   async _transcribe(blob, format, settings) {
-    const { baseUrl, apiKey, model, language } = settings.stt;
-    const provider = settings.stt.provider;
-    if (provider === 'xiaomi') {
-      if (!apiKey) throw new Error('STT（小米）未配置 API Key');
-      const b64 = await blobToBase64(blob);
-      const mime = format === 'wav' ? 'audio/wav' : 'audio/mpeg';
-      const asrLang = language === 'auto' ? 'auto' : (language === 'zh' ? 'zh' : 'en');
-      const res = await fetch('https://api.xiaomimimo.com/v1/chat/completions', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + apiKey },
-        body: JSON.stringify({
-          model: model || 'mimo-v2.5-asr',
-          messages: [{
-            role: 'user',
-            content: [{
-              type: 'input_audio',
-              input_audio: { data: 'data:' + mime + ';base64,' + b64, format },
-            }],
-          }],
-          asr_options: { language: asrLang },
-          stream: false,
-        }),
-      });
-      if (!res.ok) {
-        let detail = '';
-        try { detail = await res.text(); } catch { /* ignore */ }
-        throw new Error('小米 ASR HTTP ' + res.status + ' ' + detail.slice(0, 200));
-      }
-      const j = await res.json();
-      const text = j && j.choices && j.choices[0] && j.choices[0].message && j.choices[0].message.content;
-      if (!text) throw new Error('小米 ASR 未返回识别文本');
-      return text;
-    }
-    // openai 兼容
-    if (!apiKey) throw new Error('STT 未配置 API Key');
-    const fd = new FormData();
-    fd.append('file', blob, 'recording.' + (format === 'wav' ? 'wav' : 'webm'));
-    fd.append('model', model || 'whisper-1');
-    if (language && language !== 'auto') fd.append('language', language);
-    const res = await fetch((baseUrl || 'https://api.openai.com/v1').replace(/\/+$/, '') + '/audio/transcriptions', {
-      method: 'POST',
-      headers: { Authorization: 'Bearer ' + apiKey },
-      body: fd,
+    const stt = settings.stt || {};
+    const dataBase64 = await blobToBase64(blob);
+    if (!dataBase64) throw new Error('未捕获到声音');
+    const res = await window.api.sttTranscribe({
+      provider: stt.provider,
+      format,
+      dataBase64,
+      language: stt.language,
+      model: stt.model,
     });
-    if (!res.ok) {
-      let detail = '';
-      try { detail = await res.text(); } catch { /* ignore */ }
-      throw new Error('STT HTTP ' + res.status + ' ' + detail.slice(0, 200));
-    }
-    const j = await res.json();
-    return (j && (j.text || j.output)) || '';
+    return (res && res.text) || '';
   }
 }

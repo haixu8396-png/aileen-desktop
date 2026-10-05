@@ -2,15 +2,27 @@
 // AILEEN — Electron 主进程
 // 职责: 窗口管理 / 本地静态文件服务(模型与头像) / 角色卡与设置持久化
 // ============================================================
-const { app, BrowserWindow, ipcMain, dialog, shell, desktopCapturer, screen, Menu } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, shell, desktopCapturer, screen, Menu, safeStorage } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const http = require('http');
 const crypto = require('crypto');
+const { pathToFileURL } = require('url');
 
 const { sanitizeFileName, deepMerge, isInsidePath, normalizeSettings } = require('./shared/util.cjs');
+const { makeSenderGuard } = require('./shared/ipc-guard.cjs');
+const { streamChatCore, trimBase } = require('./shared/llm.cjs');
+const { registerAiIpc } = require('./shared/ai-ipc.cjs');
+const { registerAgentIpc } = require('./shared/agent-ipc.cjs');
+const { xiaomiAsrLang } = require('./shared/ai-langs.cjs');
 const mcBot = require('./mc-bot.cjs');
 const { menuText } = require('./shared/menu-i18n.cjs');
+// 自检逻辑单独一份（src/main/self-test.cjs）—— 生产代码里不留断言
+const { attachSelfTest } = require('./src/main/self-test.cjs');
+const { startStaticServer } = require('./src/main/server/static-server.cjs');
+const { createSettingsStore } = require('./src/main/storage/settings-store.cjs');
+const { registerEmbeddingIpc } = require('./shared/embedding-ipc.cjs');
+const { registerStoreIpc } = require('./shared/store-ipc.cjs');
 
 const APP_ROOT = __dirname;
 const DIST_INDEX = path.join(APP_ROOT, 'dist', 'index.html');
@@ -106,6 +118,34 @@ const DEFAULT_SETTINGS = {
     banter: false,
     fenStack: [],
   },
+  // 长期记忆与知识库的语义检索（与对话用的 LLM 分开配置）
+  embedding: {
+    enabled: true,                                  // 关掉退化关键词检索
+    provider: 'openai',
+    baseUrl: 'https://api.openai.com/v1',
+    customBaseUrl: false,
+    apiKey: '',
+    model: 'text-embedding-3-small',
+    batchSize: 16,
+  },
+  memoryCfg: {         // 长期记忆（关于用户与 AI 的关系）
+    enabled: true,
+    maxContextTokens: 800,
+    minImportance: 0.45,
+    perCharacter: true,                             // 每个角色一份记忆
+  },
+  knowledgeCfg: {      // 知识库（外部资料 / 文档）
+    enabled: true,
+    maxContextTokens: 1200,
+    topK: 5,
+    chunkTokens: 500,
+    chunkOverlapTokens: 80,
+  },
+  agent: {           // Coding Agent（第一版：单 Agent + Tool Calling）
+    workspace: '',           // 空 = 用默认工作区（见 registerAgentIpc）
+    requireMedium: true,     // 写文件/打补丁/git commit 是否要确认
+    computerUse: false,      // 电脑控制总开关：开 = 对话走 Agent（Chat 作入口）
+  },
 };
 
 function ensureDirs() {
@@ -114,143 +154,50 @@ function ensureDirs() {
   }
 }
 
-function readSettings() {
-  ensureDirs();
-  let raw = {};
-  try {
-    raw = JSON.parse(fs.readFileSync(SETTINGS_FILE, 'utf8'));
-  } catch {
-    raw = {};
-  }
-  // 白名单 + 类型/范围校验：未知字段丢弃，脏数据不会长期留存
-  return normalizeSettings(deepMerge(DEFAULT_SETTINGS, raw), DEFAULT_SETTINGS);
-}
+// ------------------------------------------------------------
+// 设置与 API Key 存储 —— 实现在 src/main/storage/settings-store.cjs
+//
+// 这里只负责「把依赖接上」：数据目录、默认设置、safeStorage、脱敏规则。
+// 密钥相关的三条边界（明文兼容/加密落盘/渲染层永远拿脱敏副本）都在那个文件里。
+// ------------------------------------------------------------
+const { SECRET_PATHS, SECRET_PREFIX, SECRET_CLEAR, redactSecrets, resolveSecretPatch } = require('./shared/secrets.cjs');
 
-function copyDirRec(src, dst) {
-  if (!fs.existsSync(src)) return;
-  for (const e of fs.readdirSync(src, { withFileTypes: true })) {
-    const s = path.join(src, e.name);
-    const d = path.join(dst, e.name);
-    if (e.isDirectory()) {
-      fs.mkdirSync(d, { recursive: true });
-      copyDirRec(s, d);
-    } else if (e.isFile() && !fs.existsSync(d)) {
-      fs.copyFileSync(s, d);
-    }
-  }
-}
+const settingsStore = createSettingsStore({
+  settingsFile: SETTINGS_FILE,
+  dataDir: DATA_DIR,
+  modelsDir: MODELS_DIR,
+  charactersDir: CHARACTERS_DIR,
+  appRoot: APP_ROOT,
+  defaultSettings: DEFAULT_SETTINGS,
+  ensureDirs,
+  safeStorage,
+  secrets: { SECRET_PATHS, SECRET_PREFIX, redactSecrets },
+  log: (msg) => console.log('[settings] ' + msg),
+});
 
-// 首次启动时，把历史版本的数据迁移到当前数据目录，之后以当前目录为准
-function migrateLegacyData() {
-  try {
-    // 历史数据位置：旧版 D 盘目录、旧版 %APPDATA%\Elysia、旧版应用目录
-    const legacyRoots = [
-      'D:/ElysiaData',
-      path.join(process.env.APPDATA || '', 'Elysia'),
-      APP_ROOT,
-    ].filter((p) => p && p !== USER_DATA_DIR);
-
-    const hasSettings = () => fs.existsSync(SETTINGS_FILE);
-    const hasChars = () => fs.existsSync(CHARACTERS_DIR) && fs.readdirSync(CHARACTERS_DIR).some((n) => n.endsWith('.json'));
-    // 注意：models/ 里只有 README.txt 时不算「已有模型」，否则会挡住旧版本模型的迁移
-    const hasModels = () => fs.existsSync(MODELS_DIR) &&
-      fs.readdirSync(MODELS_DIR).some((n) => n !== 'README.txt' && !n.startsWith('.'));
-
-    for (const root of legacyRoots) {
-      if (!fs.existsSync(root)) continue;
-      const legacySettings = path.join(root, 'data', 'settings.json');
-      if (!hasSettings() && fs.existsSync(legacySettings)) {
-        fs.copyFileSync(legacySettings, SETTINGS_FILE);
-      }
-      const legacyChars = path.join(root, 'characters');
-      if (!hasChars() && fs.existsSync(legacyChars)) {
-        copyDirRec(legacyChars, CHARACTERS_DIR);
-      }
-      const legacyModels = path.join(root, 'models');
-      if (!hasModels() && fs.existsSync(legacyModels)) {
-        copyDirRec(legacyModels, MODELS_DIR);
-      }
-    }
-  } catch (err) {
-    console.error('[migrate]', err);
-  }
-}
-
-function writeSettings(settings) {
-  ensureDirs();
-  const current = readSettings();
-  // 与现有设置合并后统一规范化：数组整体替换、未知字段丢弃、越界值收敛
-  const next = normalizeSettings(deepMerge(current, settings || {}), DEFAULT_SETTINGS);
-  fs.writeFileSync(SETTINGS_FILE, JSON.stringify(next, null, 2), 'utf8');
-  return next;
-}
+const {
+  encryptionAvailable,
+  settingsForRenderer,
+  migrateSecretsToEncrypted,
+  readSettings,
+  writeSettings,
+  migrateLegacyData,
+} = settingsStore;
 
 // ------------------------------------------------------------
-// 本地静态文件服务（Live2D 模型 / 头像），解决 file:// 下 fetch/wasm 受限问题
+// 本地静态文件服务（Live2D 模型 / 头像）—— 实现在 src/main/server/static-server.cjs
 // ------------------------------------------------------------
-const MIME = {
-  '.json': 'application/json',
-  '.png': 'image/png',
-  '.jpg': 'image/jpeg',
-  '.jpeg': 'image/jpeg',
-  '.gif': 'image/gif',
-  '.webp': 'image/webp',
-  '.svg': 'image/svg+xml',
-  '.moc3': 'application/octet-stream',
-  '.mtn': 'application/octet-stream',
-  '.tga': 'application/octet-stream',
-  '.txt': 'text/plain; charset=utf-8',
-  '.ogg': 'audio/ogg',
-  '.mp3': 'audio/mpeg',
-  '.wav': 'audio/wav',
-};
-
 let modelServer = null;
 let modelBaseUrl = 'http://127.0.0.1:0';
 
-function startModelServer() {
-  return new Promise((resolve) => {
-    modelServer = http.createServer((req, res) => {
-      res.setHeader('Access-Control-Allow-Origin', '*');
-      const urlPath = decodeURIComponent((req.url || '/').split('?')[0]);
-      let filePath = null;
-      if (urlPath.startsWith('/models/')) {
-        filePath = path.join(MODELS_DIR, urlPath.slice('/models/'.length));
-      } else if (urlPath.startsWith('/avatars/')) {
-        filePath = path.join(AVATARS_DIR, urlPath.slice('/avatars/'.length));
-      }
-      if (!filePath) {
-        res.writeHead(404, { 'Content-Type': 'text/plain' });
-        res.end('not found');
-        return;
-      }
-      const resolved = path.normalize(filePath);
-      const insideModels = resolved === MODELS_DIR || resolved.startsWith(MODELS_DIR + path.sep);
-      const insideAvatars = resolved === AVATARS_DIR || resolved.startsWith(AVATARS_DIR + path.sep);
-      if (!insideModels && !insideAvatars) {
-        res.writeHead(403, { 'Content-Type': 'text/plain' });
-        res.end('forbidden');
-        return;
-      }
-      fs.stat(resolved, (err, st) => {
-        if (err || !st.isFile()) {
-          res.writeHead(404, { 'Content-Type': 'text/plain' });
-          res.end('not found');
-          return;
-        }
-        const ext = path.extname(resolved).toLowerCase();
-        res.writeHead(200, {
-          'Content-Type': MIME[ext] || 'application/octet-stream',
-          'Cache-Control': 'no-cache',
-        });
-        fs.createReadStream(resolved).pipe(res);
-      });
-    });
-    modelServer.listen(0, '127.0.0.1', () => {
-      modelBaseUrl = 'http://127.0.0.1:' + modelServer.address().port;
-      resolve();
-    });
+async function startModelServer() {
+  const srv = await startStaticServer({
+    modelsDir: MODELS_DIR,
+    avatarsDir: AVATARS_DIR,
+    log: (msg) => console.log('[server] ' + msg),
   });
+  modelServer = srv.server;
+  modelBaseUrl = srv.baseUrl;
 }
 
 // ------------------------------------------------------------
@@ -570,13 +517,13 @@ function toggleOverlayWindow() {
 }
 
 function registerOverlayIpc() {
-  ipcMain.handle('overlay:status', () => ({
+  handle('overlay:status', () => ({
     visible: !!(overlayWin && !overlayWin.isDestroyed() && overlayWin.isVisible()),
     interactive: overlayInteractive,
   }));
-  ipcMain.handle('overlay:toggle', () => toggleOverlayWindow());
-  ipcMain.handle('overlay:hide', () => { destroyOverlayWindow(); return false; });
-  ipcMain.handle('overlay:hitArea', (_e, rect) => {
+  handle('overlay:toggle', () => toggleOverlayWindow());
+  handle('overlay:hide', () => { destroyOverlayWindow(); return false; });
+  handle('overlay:hitArea', (_e, rect) => {
     if (!rect || typeof rect !== 'object') { overlayHit = null; return null; }
     overlayHit = {
       x: Number(rect.x) || 0,
@@ -586,7 +533,7 @@ function registerOverlayIpc() {
     };
     return overlayHit;
   });
-  ipcMain.handle('overlay:setIgnore', (_e, ignore) => {
+  handle('overlay:setIgnore', (_e, ignore) => {
     overlayIgnoreRequests.push({ at: Date.now(), ignore: !!ignore, inHit: overlayCursorInHit() });
     if (overlayIgnoreRequests.length > 40) overlayIgnoreRequests.shift();
     // 渲染层要求「接收鼠标」时，主进程用真实光标位置复核一遍：
@@ -598,30 +545,30 @@ function registerOverlayIpc() {
     setOverlayIgnore(!!ignore);
     return overlayIgnoring;
   });
-  ipcMain.handle('overlay:interactive', (_e, on) => {
+  handle('overlay:interactive', (_e, on) => {
     overlayInteractive = !!on;
     // 只影响本次运行，不写进设置（见上面的理由）
     setOverlayIgnore(!overlayShouldCapture());
     broadcastOverlayState();
     return overlayInteractive;
   });
-  ipcMain.handle('overlay:setModel', (_e, model) => {
+  handle('overlay:setModel', (_e, model) => {
     overlayModel = model && model.url ? { url: String(model.url), name: String(model.name || '') } : null;
     if (overlayWin && !overlayWin.isDestroyed()) overlayWin.webContents.send('overlay:model', overlayModel);
     return true;
   });
-  ipcMain.handle('overlay:getState', () => ({
+  handle('overlay:getState', () => ({
     model: overlayModel,
     overlay: overlaySettings(),
     theme: readSettings().theme || {},
     language: readSettings().language || 'en',
   }));
-  ipcMain.handle('overlay:resize', async (_e, payload) => {
+  handle('overlay:resize', async (_e, payload) => {
     const dw = Math.round((payload && payload.dw) || 0);
     const dh = Math.round((payload && payload.dh) || 0);
     return resizeOverlayBy(dw, dh);
   });
-  ipcMain.handle('overlay:reset', async () => {
+  handle('overlay:reset', async () => {
     if (!overlayWin || overlayWin.isDestroyed()) return null;
     const width = 380;
     const height = 640;
@@ -631,7 +578,7 @@ function registerOverlayIpc() {
     writeSettings({ overlay: { x: null, y: null, width, height } });
     return await applyOverlayBounds({ x, y, width, height });
   });
-  ipcMain.handle('overlay:dragStart', () => {
+  handle('overlay:dragStart', () => {
     if (!overlayWin || overlayWin.isDestroyed()) return false;
     const pt = screen.getCursorScreenPoint();
     const b = overlayWin.getBounds();
@@ -640,14 +587,14 @@ function registerOverlayIpc() {
     setOverlayIgnore(false);
     return true;
   });
-  ipcMain.handle('overlay:dragMove', () => {
+  handle('overlay:dragMove', () => {
     if (!overlayDrag || !overlayWin || overlayWin.isDestroyed()) return false;
     const pt = screen.getCursorScreenPoint();
     overlayWin.setPosition(Math.round(pt.x - overlayDrag.dx), Math.round(pt.y - overlayDrag.dy));
     armDragTimeout();
     return true;
   });
-  ipcMain.handle('overlay:dragEnd', () => {
+  handle('overlay:dragEnd', () => {
     if (overlayDragTimer) { clearTimeout(overlayDragTimer); overlayDragTimer = null; }
     overlayDrag = null;
     persistOverlayBounds();
@@ -775,14 +722,14 @@ function buildAppMenu(lang) {
 // Minecraft AI 伙伴（mineflayer, MIT）IPC
 // ------------------------------------------------------------
 function registerMcIpc() {
-  ipcMain.handle('mc:connect', (_e, opts) => mcBot.connect(opts));
-  ipcMain.handle('mc:disconnect', () => mcBot.disconnect());
-  ipcMain.handle('mc:status', () => mcBot.status());
-  ipcMain.handle('mc:say', (_e, text) => mcBot.say(text));
-  ipcMain.handle('mc:follow', (_e, name) => mcBot.follow(name));
-  ipcMain.handle('mc:stopFollow', () => mcBot.stopFollow());
-  ipcMain.handle('mc:step', (_e, payload) => mcBot.step(payload && payload.dir, payload && payload.ms));
-  ipcMain.handle('mc:jump', () => mcBot.jump());
+  handle('mc:connect', (_e, opts) => mcBot.connect(opts));
+  handle('mc:disconnect', () => mcBot.disconnect());
+  handle('mc:status', () => mcBot.status());
+  handle('mc:say', (_e, text) => mcBot.say(text));
+  handle('mc:follow', (_e, name) => mcBot.follow(name));
+  handle('mc:stopFollow', () => mcBot.stopFollow());
+  handle('mc:step', (_e, payload) => mcBot.step(payload && payload.dir, payload && payload.ms));
+  handle('mc:jump', () => mcBot.jump());
 }
 
 function createWindow() {
@@ -814,663 +761,118 @@ function createWindow() {
     ));
   }
 
-  // 自检模式：AILEEN_SELFTEST=1 时加载完成后截图 + 收集诊断信息并退出（用于无头验证）
-  if (process.env.AILEEN_SELFTEST) {
-    const consoleLines = [];
-    win.webContents.on('console-message', (event, ...args) => {
-      const params = args[0];
-      const message = params && typeof params === 'object' && 'message' in params ? params.message : args[1];
-      consoleLines.push(String(message));
-    });
-    win.webContents.on('did-finish-load', () => {
-      setTimeout(async () => {
-        try {
-          const SELFTEST_DIR = process.env.AILEEN_SELFTEST_DIR || path.join(USER_DATA_DIR, 'selftest');
-          fs.mkdirSync(SELFTEST_DIR, { recursive: true });
-          // AILEEN_SELFTEST_SHOT=<弹窗名> 时先把那个弹窗打开再截图，方便肉眼看排版（例如 char 看人设生成那一行）
-          const shotModal = process.env.AILEEN_SELFTEST_SHOT;
-          if (shotModal) {
-            // 走渲染层自己的 open 函数（这样表单/选项才会被真正填好），没有的才退化成直接显示
-            const okShot = await win.webContents.executeJavaScript(
-              'window.__AILEEN_OPEN ? window.__AILEEN_OPEN(' + JSON.stringify(shotModal) + ') : false',
-            ).catch(() => false);
-            console.log('[selftest] shot modal ' + shotModal + ': ' + okShot);
-            await new Promise((r) => setTimeout(r, 800));
-          }
-          const img = await win.webContents.capturePage();
-          fs.writeFileSync(path.join(SELFTEST_DIR, 'shot.png'), img.toPNG());
-          console.log('[selftest] saved shot.png to ' + SELFTEST_DIR);
-        } catch (e) {
-          console.error('[selftest] capture failed:', e);
-        }
-        try {
-          const diag = await win.webContents.executeJavaScript(`(async () => {
-            await new Promise((r) => setTimeout(r, 400));
-            const q = (s) => document.querySelectorAll(s);
-            const stage = document.getElementById('stage-container');
-            const canvas = stage ? stage.querySelector('canvas') : null;
-            // 点击测试：新建角色按钮 → 角色弹窗应打开
-            let modalOpensOnNewCard = false;
-            const newCardBtn = document.getElementById('btn-new-card');
-            if (newCardBtn) {
-              newCardBtn.click();
-              modalOpensOnNewCard = !document.getElementById('modal-char').classList.contains('hidden');
-              const cancel = document.getElementById('f-cancel');
-              if (cancel) cancel.click();
-            }
-            // 点击测试：设置菜单 → 各设置弹窗
-            const modalOpens = { menu: false, llm: false, tts: false, stt: false, model: false, theme: false, perform: false };
-            const menuBtn = document.getElementById('btn-settings-menu');
-            if (menuBtn) {
-              menuBtn.click();
-              modalOpens.menu = !document.getElementById('modal-menu').classList.contains('hidden');
-            }
-            document.querySelectorAll('#modal-menu .menu-list button[data-target]').forEach((btn) => {
-              const target = btn.dataset.target;
-              btn.click();
-              if (target) modalOpens[target.replace('modal-', '')] = !document.getElementById(target).classList.contains('hidden');
-            });
-            // 收尾：强制关掉被点开的弹窗，回到干净状态再做行为断言
-            ['modal-about', 'modal-llm', 'modal-tts', 'modal-stt', 'modal-model', 'modal-theme', 'modal-perform', 'modal-persona', 'modal-menu'].forEach((id) => {
-              const el = document.getElementById(id);
-              if (el) el.classList.add('hidden');
-            });
-            // 行为断言①：从设置菜单进子页面，关闭后应退回菜单（旧版会直接甩回聊天界面）
-            let subModalReturnsToMenu = false;
-            const llmEntry = document.querySelector('#modal-menu .menu-list button[data-target="modal-llm"]');
-            if (llmEntry) {
-              llmEntry.click();
-              const llmWasOpen = !document.getElementById('modal-llm').classList.contains('hidden');
-              document.getElementById('s-llm-cancel').click();
-              subModalReturnsToMenu = llmWasOpen && !document.getElementById('modal-menu').classList.contains('hidden');
-            }
-            // 行为断言②：外观调色是即时预览，「取消」必须把颜色还原（旧版取消后颜色不回滚）
-            let themeCancelRestores = false;
-            const themeEntry = document.querySelector('#modal-menu .menu-list button[data-target="modal-theme"]');
-            if (themeEntry) {
-              const accentBefore = getComputedStyle(document.documentElement).getPropertyValue('--accent').trim();
-              themeEntry.click();
-              const pIn = document.getElementById('t-primary');
-              pIn.value = '#00ff00';
-              pIn.dispatchEvent(new Event('input', { bubbles: true }));
-              const preview = getComputedStyle(document.documentElement).getPropertyValue('--accent').trim();
-              document.getElementById('t-cancel').click();
-              const accentAfter = getComputedStyle(document.documentElement).getPropertyValue('--accent').trim();
-              themeCancelRestores = preview !== accentBefore && accentAfter === accentBefore;
-            }
-            // 行为断言③：Minecraft 伙伴弹窗能打开，主进程 IPC 可用
-            let mcStatusOk = false;
-            let mcModalOk = false;
-            try {
-              const mst = await window.api.mcStatus();
-              mcStatusOk = !!mst && typeof mst.connected === 'boolean';
-              const mcEntry = document.querySelector('#modal-menu .menu-list button[data-action="mc"]');
-              if (mcEntry) {
-                mcEntry.click();
-                mcModalOk = !document.getElementById('modal-mc').classList.contains('hidden');
-                document.getElementById('mc-close').click();
-              }
-            } catch (err) { window.__AILEEN_ERRORS.push('mcTest: ' + String((err && err.message) || err)); }
-            // 行为断言④：i18n 与象棋 —— 默认英文、语言切换器在、没有漏翻的 key、棋盘 64 格
-            // 行为断言⑥：加载完 #typing（正在思考…）必须是隐藏的
-            const typingHidden = document.getElementById('typing').classList.contains('hidden');
-            let langOk = false;
-            let repLangAttr = '';
-            let repLangWant = '';
-            let i18nMissing = 0;
-            let langSwitchCount = 0;
-            let chessModalOk = false;
-            let chessSquares = 0;
-            try {
-              const lsBox = document.getElementById('lang-switch');
-              langSwitchCount = lsBox ? lsBox.children.length : 0;
-              document.querySelectorAll('[data-i18n]').forEach((el) => {
-                if (el.textContent.trim() === el.getAttribute('data-i18n')) i18nMissing += 1;
-              });
-              const chessEntry = document.querySelector('#modal-menu .menu-list button[data-action="chess"]');
-              if (chessEntry) {
-                chessEntry.click();
-                chessSquares = document.querySelectorAll('#chess-board .csq').length;
-                chessModalOk = !document.getElementById('modal-chess').classList.contains('hidden') && chessSquares === 64;
-                document.getElementById('chess-close').click();
-              }
-              const curLang = ((await window.api.getSettings()) || {}).language || 'en';
-              const wantLang = curLang === 'zh' ? 'zh-CN' : curLang;
-              repLangAttr = document.documentElement.lang;
-              repLangWant = wantLang;
-              langOk = document.documentElement.lang === wantLang;
-            } catch (err) { window.__AILEEN_ERRORS.push('i18nTest: ' + String((err && err.message) || err)); }
-            // 行为断言⑤：语言切换真的生效（日文 / 中文 / 英文各点一遍，并检查有无回退到 key）
-            let langSwitchWorks = false;
-            let jaText = '';
-            let zhText = '';
-            let jaMissingKeys = -1;
-            try {
-              const pickBtn = (i) => document.querySelectorAll('#lang-switch button')[i];
-              const probe = () => document.querySelector('[data-i18n="menu.mc"]');
-              if (pickBtn(0) && pickBtn(1) && pickBtn(2)) {
-                pickBtn(1).click();
-                await new Promise((r) => setTimeout(r, 500));
-                jaText = probe() ? probe().textContent : '';
-                jaMissingKeys = Array.from(document.querySelectorAll('[data-i18n]')).filter((el) => el.textContent.trim() === el.getAttribute('data-i18n')).length;
-                pickBtn(2).click();
-                await new Promise((r) => setTimeout(r, 500));
-                zhText = probe() ? probe().textContent : '';
-                pickBtn(0).click();
-                await new Promise((r) => setTimeout(r, 500));
-                langSwitchWorks = !!jaText && !!zhText && jaText !== zhText && jaMissingKeys === 0;
-              }
-            } catch (err) { window.__AILEEN_ERRORS.push('langTest: ' + String((err && err.message) || err)); }
-            // 行为断言⑦：新界面 —— 折叠、搜索过滤、舞台换模型/缩放、重新生成、状态点
-            // 行为断言⑧：对话内核 —— 标记解析在打包产物里可用（标记跨 chunk + 摘除）
-            // 行为断言⑨：表演设置可调 —— 打开弹窗、改档位、保存后设置真的变了
-            // 行为断言⑩：界面没有被隐形元素遮挡（「点都点不了」探测器）
-            // 用 elementFromPoint 在几个关键位置做命中测试，命中的元素必须落在 #app 里。
-            // 如果某个固定定位的弹窗/遮罩没被正确隐藏，这里就会抓到。
-            // 行为断言⑭：聊天消息区必须真的能上下滚动（内容撑高后仍被限制在窗口内）
-            let scrollOk = false;
-            let scrollDetail = null;
-            try {
-              scrollDetail = typeof window.__AILEEN_PROBE_SCROLL === 'function' ? window.__AILEEN_PROBE_SCROLL() : null;
-              scrollOk = !!scrollDetail && /auto|scroll/.test(String(scrollDetail.overflowY))
-                && scrollDetail.contentTaller === true && scrollDetail.canScrollDown === true
-                && scrollDetail.canScrollUp === true && scrollDetail.fitsWindow === true;
-            } catch (err) { window.__AILEEN_ERRORS.push('scrollTest: ' + String((err && err.message) || err)); }
-            // 行为断言⑬：不使用模型 —— 这一档必须真的把舞台清空
-            let noModelOk = false;
-            let noModelDetail = null;
-            try {
-              noModelDetail = typeof window.__AILEEN_PROBE_NOMODEL === 'function' ? await window.__AILEEN_PROBE_NOMODEL() : null;
-              noModelOk = !!noModelDetail && noModelDetail.hasOption === true && noModelDetail.stageHasOption === true
-                && noModelDetail.modelIsNull === true && noModelDetail.disabledFlag === true
-                && noModelDetail.stageCleared === true && noModelDetail.placeholder === true;
-            } catch (err) { window.__AILEEN_ERRORS.push('noModelTest: ' + String((err && err.message) || err)); }
-            // 行为断言⑫：人设生成室 —— 设置入口 / 原型选择 / 锁定真的改变提示词
-            let studioOk = false;
-            let studioDetail = null;
-            try {
-              studioDetail = typeof window.__AILEEN_PROBE_STUDIO === 'function' ? window.__AILEEN_PROBE_STUDIO() : null;
-              studioOk = !!studioDetail && studioDetail.hasEntry === true && studioDetail.opened === true
-                && studioDetail.chips >= 11 && studioDetail.roleChips >= 11 && studioDetail.genders >= 4
-                && studioDetail.hasLock === true && studioDetail.hasSeed === true
-                && studioDetail.lockedHasRule === true && studioDetail.softHasRule === true
-                && studioDetail.lockedNotSoft === true && studioDetail.canUnpick === true
-                && studioDetail.unpicked === true && !!studioDetail.picked
-                && studioDetail.knownVisible === true && studioDetail.originalHidden === true
-                && studioDetail.relOptions >= 9 && studioDetail.formMode === 'known'
-                && studioDetail.formChar === '凉宫春日' && studioDetail.formRel === 'lover'
-                && studioDetail.formUser === '小满'
-                && studioDetail.knownPromptOk === true && studioDetail.relPromptOk === true
-                && studioDetail.knownNoArchetype === true && studioDetail.backToOriginal === true;
-            } catch (err) { window.__AILEEN_ERRORS.push('studioTest: ' + String((err && err.message) || err)); }
-            // 行为断言⑪：自动生成人设 —— 解析器容错 + 生成结果能回填进编辑器
-            let personaOk = false;
-            let personaDetail = null;
-            try {
-              const parseProbe = typeof window.__AILEEN_PROBE_PERSONA === 'function' ? window.__AILEEN_PROBE_PERSONA() : null;
-              let pcOpened = false;
-              let filled = '';
-              if (typeof window.__AILEEN_PROBE_PERSONA_APPLY === 'function') {
-                document.getElementById('btn-new-card').click();
-                pcOpened = !document.getElementById('modal-char').classList.contains('hidden');
-                window.__AILEEN_PROBE_PERSONA_APPLY({ name: 'PROBE', description: 'D', personality: 'P', scenario: 'S', first_mes: 'F', mes_example: 'M' });
-                filled = ['f-name', 'f-desc', 'f-personality', 'f-scenario', 'f-first', 'f-example'].map((id) => document.getElementById(id).value).join('|');
-                document.getElementById('f-cancel').click();
-              }
-              personaDetail = {
-                parsed: parseProbe, opened: pcOpened, filled,
-                hasSeed: !!document.getElementById('f-seed'),
-                hasBtn: !!document.getElementById('f-generate'),
-              };
-              personaOk = !!parseProbe && parseProbe.name === '阿岚' && !parseProbe.scenario
-                && pcOpened && filled === 'PROBE|D|P|S|F|M' && personaDetail.hasSeed && personaDetail.hasBtn;
-            } catch (err) { window.__AILEEN_ERRORS.push('personaTest: ' + String((err && err.message) || err)); }
-            let uiBlockedBy = [];
-            try {
-              // 先回到「静止状态」：把所有弹窗关掉，再测有没有东西挡住界面
-              document.querySelectorAll('.modal').forEach((m) => m.classList.add('hidden'));
-              const pts = [[160, 60], [200, 300], [420, 120], [420, 500], [900, 80], [900, 400], [1150, 300]];
-              for (const p of pts) {
-                const el = document.elementFromPoint(p[0], p[1]);
-                if (!el) continue;
-                if (el === document.body || el === document.documentElement) continue;
-                if (!el.closest('#app')) {
-                  uiBlockedBy.push((el.id || el.className || el.tagName) + '@' + p[0] + ',' + p[1]);
-                }
-              }
-            } catch (err) { window.__AILEEN_ERRORS.push('hitTest: ' + String((err && err.message) || err)); }
-            let performOk = false;
-            let performDetail = null;
-            try {
-              const entry = document.querySelector('#modal-menu .menu-list button[data-target="modal-perform"]');
-              if (entry) {
-                entry.click();
-                const opened = !document.getElementById('modal-perform').classList.contains('hidden');
-                const narrOpts = document.querySelectorAll('#p-narration option').length;
-                const paceOpts = document.querySelectorAll('#p-pacing option').length;
-                const before = (((await window.api.getSettings()) || {}).behavior) || {};
-                document.getElementById('p-narration').value = 'off';
-                document.getElementById('p-pacing').value = 'rare';
-                document.getElementById('p-save').click();
-                await new Promise((r) => setTimeout(r, 500));
-                const after = (((await window.api.getSettings()) || {}).behavior) || {};
-                performDetail = { opened, narrOpts, paceOpts, before: before.narration, after: after.narration, afterPace: after.pacing };
-                performOk = opened && narrOpts === 4 && paceOpts === 3 && after.narration === 'off' && after.pacing === 'rare';
-                // 还原成默认，别把用户设置留在测试档位
-                document.getElementById('p-narration').value = 'natural';
-                document.getElementById('p-pacing').value = 'natural';
-                document.getElementById('p-save').click();
-                await new Promise((r) => setTimeout(r, 500));
-              }
-            } catch (err) { window.__AILEEN_ERRORS.push('performTest: ' + String((err && err.message) || err)); }
-            let pacerProbeOk = false;
-            let pacerProbeDetail = null;
-            try {
-              if (typeof window.__AILEEN_PROBE_PACER === 'function') {
-                const pp = await window.__AILEEN_PROBE_PACER();
-                pacerProbeDetail = pp;
-                pacerProbeOk = pp.text === '在？算了没事' && pp.breaks === 1 && pp.waits.join(',') === '2000';
-              }
-            } catch (err) { window.__AILEEN_ERRORS.push('pacerProbe: ' + String((err && err.message) || err)); }
-            let markerProbeOk = false;
-            let markerProbeDetail = null;
-            try {
-              if (typeof window.__AILEEN_PROBE_MARKERS === 'function') {
-                const pr = window.__AILEEN_PROBE_MARKERS();
-                markerProbeDetail = pr;
-                markerProbeOk = pr.text === 'ABC' && pr.kinds.join(',') === 'motion,expr';
-              }
-            } catch (err) { window.__AILEEN_ERRORS.push('markerProbe: ' + String((err && err.message) || err)); }
-            let uiElementsOk = false;
-            let sideCollapseOk = false;
-            let searchFilterOk = false;
-            try {
-              uiElementsOk = ['btn-regen', 'stage-model', 'stage-scale', 'chat-status', 'char-search', 'drop-hint', 'btn-expand-sidebar', 'btn-expand-stage']
-                .every((id) => !!document.getElementById(id));
-              const app = document.getElementById('app');
-              const cs = document.getElementById('btn-collapse-sidebar');
-              cs.click();
-              const collapsed = app.classList.contains('side-collapsed');
-              const handleShown = !document.getElementById('btn-expand-sidebar').classList.contains('hidden');
-              cs.click();
-              sideCollapseOk = collapsed && handleShown && !app.classList.contains('side-collapsed');
-              // CI 用的是全新数据目录，可能一张角色卡都没有 ——
-              // 那就先自己造一张，否则这个断言在空列表下是空转，还会误报失败。
-              let before = document.querySelectorAll('#char-list .char-item').length;
-              let tempFile = null;
-              if (before === 0) {
-                const wr = await window.api.writeCharacter('_uifilter', { name: 'UI filter probe', description: '', personality: '', scenario: '', first_mes: '', mes_example: '', system_prompt: '', model: '', voice: '', createdAt: Date.now(), updatedAt: Date.now() }, 'create');
-                tempFile = (wr && wr.file) || '_uifilter.json';
-                if (typeof window.__AILEEN_REFRESH === 'function') await window.__AILEEN_REFRESH();
-                await new Promise((r) => setTimeout(r, 250));
-                before = document.querySelectorAll('#char-list .char-item').length;
-              }
-              const searchEl = document.getElementById('char-search');
-              searchEl.value = 'zzz-no-such-character';
-              searchEl.dispatchEvent(new Event('input', { bubbles: true }));
-              const none = document.querySelectorAll('#char-list .char-item').length;
-              searchEl.value = '';
-              searchEl.dispatchEvent(new Event('input', { bubbles: true }));
-              const all = document.querySelectorAll('#char-list .char-item').length;
-              searchFilterOk = before > 0 && none === 0 && all === before;
-              if (tempFile) {
-                await window.api.deleteCharacter(tempFile);
-                if (typeof window.__AILEEN_REFRESH === 'function') await window.__AILEEN_REFRESH();
-              }
-            } catch (err) { window.__AILEEN_ERRORS.push('uiTest: ' + String((err && err.message) || err)); }
-            ['t-cancel', 'm-cancel', 'menu-cancel'].forEach((id) => {
-              const el = document.getElementById(id);
-              if (el) el.click();
-            });
-            const themeVar = getComputedStyle(document.documentElement).getPropertyValue('--accent').trim();
-            // 角色卡菜单 + 快捷更换测试（临时建卡→点⋯→菜单→更换→清理）
-            let charMenuOk = false;
-            let quickModalOk = false;
-            let menuSubText = '';
-            try {
-              const writeRes = await window.api.writeCharacter('_selftest', { name: '自检角色', description: '测试', personality: '', scenario: '', first_mes: '', mes_example: '', system_prompt: '', model: '', voice: '', createdAt: Date.now(), updatedAt: Date.now() }, 'create');
-              const testFileName = (writeRes && writeRes.file) ? writeRes.file : '_selftest.json';
-              if (typeof window.__AILEEN_REFRESH === 'function') await window.__AILEEN_REFRESH();
-              await new Promise((r) => setTimeout(r, 200));
-              const testItem = Array.from(document.querySelectorAll('#char-list .char-item')).find((it) => it.dataset.file === testFileName);
-              if (testItem) {
-                const moreBtn = testItem.querySelector('.ci-more');
-                if (moreBtn) {
-                  moreBtn.click();
-                  charMenuOk = !document.getElementById('char-menu').classList.contains('hidden');
-                  const quickBtn = Array.from(document.querySelectorAll('#char-menu button[data-act]')).find((b) => b.dataset.act === 'quick');
-                  if (quickBtn) { quickBtn.click(); quickModalOk = !document.getElementById('modal-quick').classList.contains('hidden'); }
-                }
-              }
-              await window.api.deleteCharacter(testFileName);
-              if (typeof window.__AILEEN_REFRESH === 'function') await window.__AILEEN_REFRESH();
-              const subLlm = document.getElementById('menu-sub-llm');
-              if (subLlm) menuSubText = subLlm.textContent.trim();
-            } catch (err) { window.__AILEEN_ERRORS.push('charMenuTest: ' + String(err && err.message || err)); }
-            // 设置持久化测试：写入 apiKey → 读回 → 还原
-            let settingsPersist = false;
-            try {
-              const cur = await window.api.getSettings();
-              const testKey = 'test-key-' + Date.now();
-              const merged = Object.assign({}, cur, { llm: Object.assign({}, cur.llm, { apiKey: testKey }) });
-              await window.api.setSettings(merged);
-              const back = await window.api.getSettings();
-              settingsPersist = !!(back && back.llm && back.llm.apiKey === testKey);
-              await window.api.setSettings(cur);
-            } catch (err) { window.__AILEEN_ERRORS.push('settingsTest: ' + String(err && err.message || err)); }
-            // Base URL 默认收起（未勾选自定义时输入框应隐藏）
-            let llmBaseHidden = 'n/a';
-            const wLlm = document.getElementById('wrap-llm-base');
-            if (wLlm) {
-              const menuBtn2 = document.getElementById('btn-settings-menu');
-              if (menuBtn2) menuBtn2.click();
-              const target = document.querySelector('#modal-menu .menu-list button[data-target="modal-llm"]');
-              if (target) target.click();
-              llmBaseHidden = wLlm.classList.contains('hidden');
-              const llmCancel = document.getElementById('s-llm-cancel');
-              if (llmCancel) llmCancel.click();
-            }
-            const stageRect = stage ? { w: stage.clientWidth, h: stage.clientHeight } : null;
-            const providerOptions = q('#s-llm-provider option').length;
-            const ttsLangOptions = q('#s-tts-language option').length;
-            const sttLangOptions = q('#s-stt-language option').length;
-            const realtimeBtn = !!document.getElementById('btn-realtime');
-            const screenshotBtn = !!document.getElementById('btn-screenshot');
-            const addModelBtn = !!document.getElementById('btn-add-model');
-            const modalsExist =
-              !!document.getElementById('modal-llm') && !!document.getElementById('modal-tts') && !!document.getElementById('modal-stt');
-            const datalistLlm = q('#dl-llm-models option').length;
-            let screenSources = 'n/a';
-            try {
-              const sr = await window.api.captureScreen();
-              screenSources = Array.isArray(sr) ? sr.length : (sr && sr.error ? 'ERR:' + sr.error : 'none');
-            } catch (err) { screenSources = 'EXC:' + String(err && err.message || err); }
-            return {
-              title: document.title,
-              chatName: (document.getElementById('chat-name') || {}).textContent || '',
-              charCount: q('#char-list .char-item').length,
-              charNames: Array.from(q('#char-list .ci-name')).map((e) => e.textContent),
-              modelOptions: q('#m-model option').length,
-              modelSelectValue: (document.getElementById('m-model') || {}).value,
-              motionChips: q('#motion-chips .chip').length,
-              motionGroups: Array.from(q('#motion-chips .chip')).map((e) => e.dataset.motion),
-              exprChips: q('#expr-chips .chip').length,
-              stageChildren: stage ? stage.children.length : 0,
-              canvasCount: q('canvas').length,
-              canvasSize: canvas ? canvas.width + 'x' + canvas.height : 'none',
-              stageRect,
-              canvasPosition: canvas ? (canvas.getBoundingClientRect().width + 'x' + canvas.getBoundingClientRect().height) : 'none',
-              messages: q('#messages .msg').length,
-              firstMessage: (q('#messages .msg')[0] || {}).textContent || '',
-              emptyHint: (q('#messages .msg')[0] || {}).textContent || '',
-              modalOpensOnNewCard,
-              modalOpens,
-              subModalReturnsToMenu,
-              themeCancelRestores,
-              mcStatusOk,
-              mcModalOk,
-              typingHidden,
-              langOk,
-              langAttr: repLangAttr,
-              langWant: repLangWant,
-              i18nMissing,
-              langSwitchCount,
-              chessModalOk,
-              chessSquares,
-              langSwitchWorks,
-              uiElementsOk,
-              markerProbeOk,
-              markerProbeDetail,
-              pacerProbeOk,
-              pacerProbeDetail,
-              performOk,
-              performDetail,
-              personaOk,
-              personaDetail,
-              studioOk,
-              studioDetail,
-              noModelOk,
-              noModelDetail,
-              scrollOk,
-              scrollDetail,
-              uiBlockedBy,
-              sideCollapseOk,
-              searchFilterOk,
-              jaText,
-              zhText,
-              jaMissingKeys,
-              themeVar,
-              llmBaseHidden,
-              charMenuOk,
-              quickModalOk,
-              menuSubText,
-              settingsPersist,
-              providerOptions,
-              ttsLangOptions,
-              sttLangOptions,
-              realtimeBtn,
-              screenshotBtn,
-              addModelBtn,
-              modalsExist,
-              datalistLlm,
-              screenSources,
-              errors: (window.__AILEEN_ERRORS || []).slice(0, 10),
-              modelReady: typeof window.__AILEEN_MODEL_READY === 'function' ? !!window.__AILEEN_MODEL_READY() : 'n/a',
-            };
-          })()`);
-          const SELFTEST_DIR2 = process.env.AILEEN_SELFTEST_DIR || path.join(USER_DATA_DIR, 'selftest');
-          fs.writeFileSync(path.join(SELFTEST_DIR2, 'shot.json'), JSON.stringify(diag, null, 2));
-          fs.writeFileSync(path.join(SELFTEST_DIR2, 'console.log'), consoleLines.join('\n'));
-        } catch (e) {
-          console.error('[selftest] diag failed:', e);
-        }
-        // 无边框悬浮展台自检：真的开一个窗口，验证可见性、热区上报、穿透状态、可移动、可截图
-        try {
-          const DIR3 = process.env.AILEEN_SELFTEST_DIR || path.join(USER_DATA_DIR, 'selftest');
-          const rep = {
-            opened: false, visible: false, title: '', bounds: null, hitArea: null,
-            ignoringByDefault: null, toolsExists: false, gripExists: false,
-            canvasCount: 0, moved: false, modelSynced: false, errors: [],
-            // 打包门禁：证明运行期依赖真的被塞进 asar 且能在 Electron 里 require 成功
-            mineflayer: (function () { try { require('mineflayer'); return true; } catch (e) { return String((e && e.message) || e); } })(),
-            pathfinder: (function () { try { require('mineflayer-pathfinder'); return true; } catch (e) { return String((e && e.message) || e); } })(),
-          };
-          // 删除本地模型：真建一个临时模型目录，走 IPC 删掉，再确认它真的没了；
-          // 顺便把所有越界路径试一遍 —— 这是唯一会真删用户文件的接口，必须挡住。
-          try {
-            // CI 用的是全新数据目录，一个模型都没有 —— 先记下来，后面决定哪些断言可以跳过
-            rep.modelsAvailable = scanModels(MODELS_DIR, '').length > 0;
-            // 删除测试跑完之后，用户自己的模型必须一个不少（这条是为一次真实事故加的）
-            const modelsBefore = scanModels(MODELS_DIR, '').map((m) => m.file).sort().join('|');
-            const tmpDir = path.join(MODELS_DIR, '__selftest_del');
-            fs.mkdirSync(tmpDir, { recursive: true });
-            fs.writeFileSync(path.join(tmpDir, 'model.json'), '{"version":"Sample 1.0.0"}');
-            rep.modelDeleteBefore = scanModels(MODELS_DIR, '').length;
-            const after = await win.webContents.executeJavaScript('window.api.deleteModel({ dir: "__selftest_del" })');
-            rep.modelDeleteOk = !fs.existsSync(tmpDir) && Array.isArray(after) && !after.some((m) => String(m.file).indexOf('__selftest_del') === 0);
-            rep.modelDeleteAfter = Array.isArray(after) ? after.length : null;
-            const guard = await win.webContents.executeJavaScript(
-              '(async function(){ var tries=["..","../characters","characters","C:/Windows","__nope__"]; var out=[];'
-              + ' for (var i=0;i<tries.length;i++){ try { await window.api.deleteModel({dir:tries[i]}); out.push([tries[i],"ALLOWED"]); }'
-              + ' catch (e) { out.push([tries[i],"blocked"]); } } return out; })()',
-            );
-            rep.modelDeleteGuard = guard;
-            rep.modelDeleteGuardOk = Array.isArray(guard) && guard.every((x) => x[1] === 'blocked');
-            rep.modelsSurvived = scanModels(MODELS_DIR, '').map((m) => m.file).sort().join('|') === modelsBefore;
-            rep.charactersDirIntact = fs.existsSync(CHARACTERS_DIR);
-          } catch (err) { rep.errors.push('model delete: ' + String((err && err.message) || err)); }
-          // F11 全屏：1) 菜单里必须真的绑了 F11；2) 全屏开关本身必须有效
-          try {
-            const menu = Menu.getApplicationMenu();
-            const items = [];
-            const walk = (m) => { if (m && m.items) m.items.forEach((it) => { items.push(it); if (it.submenu) walk(it.submenu); }); };
-            walk(menu);
-            const fsItem = items.find((it) => it.role === 'togglefullscreen' || String(it.accelerator || '').toUpperCase() === 'F11');
-            rep.fullscreenItem = fsItem ? { role: fsItem.role, accelerator: fsItem.accelerator } : null;
-            rep.fullscreenAccelOk = !!(fsItem && String(fsItem.accelerator || '').toUpperCase() === 'F11');
-            const wasFull = win.isFullScreen();
-            win.setFullScreen(!wasFull);
-            await new Promise((r) => setTimeout(r, 500));
-            rep.fullscreenToggleOk = win.isFullScreen() === !wasFull;
-            win.setFullScreen(wasFull);
-            await new Promise((r) => setTimeout(r, 400));
-          } catch (err) { rep.errors.push('fullscreen: ' + String((err && err.message) || err)); }
-          if (process.env.AILEEN_SELFTEST_OVERLAY) {
-            const w = createOverlayWindow();
-            rep.opened = !!w;
-            if (w) {
-              // 展台的报错只在它自己的控制台里，主进程默认看不到 —— 收进来，否则永远查不出「模型出不来」
-              rep.consoleLines = [];
-              w.webContents.on('console-message', (event, ...args) => {
-                const params = args[0];
-                const msg = params && typeof params === 'object' && 'message' in params ? params.message : args[1];
-                if (rep.consoleLines.length < 40) rep.consoleLines.push(String(msg));
-              });
-              await new Promise((r) => setTimeout(r, 5000));
-              rep.visible = w.isVisible();
-              rep.title = w.getTitle();
-              rep.bounds = w.getBounds();
-              rep.hitArea = overlayHit;
-              rep.ignoringByDefault = overlayIgnoring;
-              rep.interactiveMode = overlayInteractive;
-              rep.cursorInHit = overlayCursorInHit();
-              rep.hitAreaSizeOk = !!(overlayHit && overlayHit.w > 20 && overlayHit.h > 10);
-              rep.watchRunning = !!overlayWatch;
-              rep.shouldCapture = overlayShouldCapture();
-              rep.rendererIgnoreRequests = overlayIgnoreRequests;
-              rep.modelSynced = !!overlayModel;
-              try {
-                rep.toolsExists = await w.webContents.executeJavaScript('!!document.getElementById("ov-tools")');
-                rep.gripExists = await w.webContents.executeJavaScript('!!document.getElementById("ov-grip")');
-                rep.canvasCount = await w.webContents.executeJavaScript('document.querySelectorAll("#ov-stage canvas").length');
-                rep.bodyPointerEvents = await w.webContents.executeJavaScript('getComputedStyle(document.body).pointerEvents');
-              } catch (err) { rep.errors.push(String((err && err.message) || err)); }
-              // ① −/＋ 走的程序化缩放通道必须有效（applyOverlayBounds 就是按钮的入口）
-              try {
-                const b0 = w.getBounds();
-                await applyOverlayBounds({ x: b0.x, y: b0.y, width: b0.width + 40, height: b0.height + 64 });
-                await new Promise((r) => setTimeout(r, 300));
-                const b1 = w.getBounds();
-                // Windows 会给无边框窗口加隐形边框，回读值允许几像素误差
-                const near = (a, b2, tol) => Math.abs(a - b2) <= tol;
-                rep.programmaticResizeOk = near(b1.width, b0.width + 40, 6) && near(b1.height, b0.height + 64, 6);
-                // 关键：改完尺寸必须回到「用户不能缩放」状态
-                rep.userResizeDisabled = !w.isResizable();
-                rep.resizeProbe = {
-                  b0: [b0.width, b0.height],
-                  b1: [b1.width, b1.height],
-                  want: [b0.width + 40, b0.height + 64],
-                  expected: overlayExpectedSize ? [overlayExpectedSize.width, overlayExpectedSize.height] : null,
-                  persisted: [overlaySettings().width, overlaySettings().height],
-                };
-                rep.userResizable = w.isResizable();
-                // 关键不变量：交互热区必须离窗口边缘足够远
-                rep.hitMarginRight = overlayHit ? Math.round(b1.width - (overlayHit.x + overlayHit.w)) : -1;
-                rep.hitMarginBottom = overlayHit ? Math.round(b1.height - (overlayHit.y + overlayHit.h)) : -1;
-                // 改完尺寸后必须仍然是穿透的（setResizable 会重置 Windows 窗口样式）
-                rep.ignoringAfterResize = overlayIgnoring;
-                // ② 模拟系统把窗口意外放大（Aero Snap / 拖动越界），兜底必须把它弹回去
-                const beforeGuard = w.getBounds();
-                overlayProgrammaticUntil = 0;
-                w.setBounds({ x: beforeGuard.x, y: beforeGuard.y, width: beforeGuard.width + 300, height: beforeGuard.height + 200 });
-                await new Promise((r) => setTimeout(r, 1300));
-                const afterGuard = w.getBounds();
-                // 弹回允许几像素误差（无边框窗口的隐形边框），但要确认确实缩小回来了
-                rep.snapBackOk = near(afterGuard.width, beforeGuard.width, 10) && near(afterGuard.height, beforeGuard.height, 10);
-                await applyOverlayBounds(b0);
-              } catch (err) { rep.errors.push('resize: ' + String((err && err.message) || err)); }
-              const before = w.getBounds();
-              overlayDrag = { dx: 10, dy: 10 };
-              w.setPosition(before.x - 60, before.y - 40);
-              const after = w.getBounds();
-              rep.moved = after.x !== before.x || after.y !== before.y;
-              // 移动/拖拽之后也必须仍然是穿透的
-              rep.ignoringAfterMove = overlayIgnoring;
-              overlayDrag = null;
-              // 自检改过尺寸，把持久化值复位成创建时的尺寸，避免跑多轮后越漂越大
-              if (rep.bounds) {
-                try { writeSettings({ overlay: { width: rep.bounds.width, height: rep.bounds.height } }); } catch (err) { /* ignore */ }
-              }
-              // ③ 展台必须**真的把模型画出来**：只看 canvas 存不存在不够 ——
-              //    曾经出现过 canvas 在、画面一片空白的情况。
-              try {
-                rep.canvasMetrics = await w.webContents.executeJavaScript('(function(){'
-                  + 'var c = document.querySelector("#ov-stage canvas");'
-                  + 'if (!c) return null;'
-                  + 'var r = c.getBoundingClientRect(); var cs = getComputedStyle(c);'
-                  + 'var s = document.getElementById("ov-stage"); var b = s.getBoundingClientRect();'
-                  + 'return { rect: [Math.round(r.left), Math.round(r.top), Math.round(r.width), Math.round(r.height)],'
-                  + ' attr: [c.width, c.height],'
-                  + ' css: { position: cs.position, left: cs.left, top: cs.top, width: cs.width, height: cs.height, transform: cs.transform, display: cs.display, zIndex: cs.zIndex },'
-                  + ' stage: [Math.round(b.width), Math.round(b.height)],'
-                  + ' inner: [window.innerWidth, window.innerHeight],'
-                  + ' empty: !!document.querySelector(".ov-empty") };'
-                  + '})()');
-              } catch (err) { rep.errors.push('canvas metrics: ' + String((err && err.message) || err)); }
-              try {
-                // 模型加载是异步的：先轮询等它真的挂上去再断言（固定等待会时快时慢地误报）。
-                // 上限给到 30 秒 —— CI runner 比本机慢，宁可多等也不要假红。
-                for (let i = 0; i < 60; i += 1) {
-                  const ready = await w.webContents.executeJavaScript('window.__AILEEN_OVERLAY_READY ? window.__AILEEN_OVERLAY_READY() : false').catch(() => false);
-                  if (ready) break;
-                  await new Promise((r) => setTimeout(r, 500));
-                }
-                rep.overlayProbe = await w.webContents.executeJavaScript('window.__AILEEN_OVERLAY_PROBE ? window.__AILEEN_OVERLAY_PROBE() : null');
-                // 「模型画出来了」这条断言只在真的装了模型时才有意义：
-                // CI 是全新技术目录（零模型），硬要求像素就等于要求一个不可能的事。
-                // 但「展台不该被当成手机」这条任何环境都必须成立 —— 那才是模型完全不加载的元凶。
-                rep.modelRenderedOk = rep.modelsAvailable
-                  ? !!(rep.overlayProbe && rep.overlayProbe.renderedOk === true && rep.overlayProbe.stageChildren > 0)
-                  : 'skipped:no-model-installed';
-                rep.overlayMqOk = !!(rep.overlayProbe && rep.overlayProbe.mqMobile === false);
-                rep.overlayEmptyOk = rep.modelsAvailable ? null : !!(rep.overlayProbe && rep.overlayProbe.emptyHint === true);
-                rep.mainWindowMq = await win.webContents.executeJavaScript('({ mq: window.matchMedia("screen and (max-width: 768px)").matches, screen: [window.screen.width, window.screen.height] })').catch(() => null);
-              } catch (err) { rep.errors.push('overlay probe: ' + String((err && err.message) || err)); }
-              await new Promise((r) => setTimeout(r, 400));
-              try {
-                const shot = await w.webContents.capturePage();
-                fs.writeFileSync(path.join(DIR3, 'overlay.png'), shot.toPNG());
-                // 展台整窗除了模型和右下角工具条之外全是透明的，
-                // 所以「画面中段出现不透明像素」就等于模型真的画出来了（工具条在底部，按 y 切开）
-                const bmp = shot.toBitmap();
-                const size = shot.getSize();
-                let painted = 0;
-                let paintedCenter = 0;
-                for (let y = 0; y < size.height; y += 2) {
-                  for (let x = 0; x < size.width; x += 2) {
-                    if (bmp[(y * size.width + x) * 4 + 3] > 8) {
-                      painted += 1;
-                      if (y < size.height * 0.75) paintedCenter += 1;
-                    }
-                  }
-                }
-                rep.paintedPixels = painted;
-                rep.paintedCenter = paintedCenter;
-                // capturePage 抓不到透明窗口里的 WebGL 图层，所以它只作参考；
-                // 「模型真的画出来了」以渲染器自己的帧缓冲为准（见上面的 fb 探针）。
-                rep.modelPaintedOk = paintedCenter > 500;
-              } catch (err) { rep.errors.push('capture: ' + String((err && err.message) || err)); }
-              destroyOverlayWindow();
-            }
-          }
-          fs.writeFileSync(path.join(DIR3, 'overlay.json'), JSON.stringify(rep, null, 2));
-          console.log('[selftest] overlay report: ' + JSON.stringify(rep));
-        } catch (e) {
-          console.error('[selftest] overlay failed:', e);
-        }
-        app.quit();
-      }, Number(process.env.AILEEN_SELFTEST_MS || 9000));
-    });
-  }
+  // 自检（诊断 / self-test）全部搬到了 src/main/self-test.cjs ——
+  // 生产代码里不留断言逻辑，依赖在这里注入。
+  if (process.env.AILEEN_SELFTEST) attachSelfTest(win, selfTestDeps());
+
   return win;
+}
+
+/**
+ * 自检要用到的内部依赖，集中在这里注入给 src/main/self-test.cjs。
+ *
+ * 为什么用取值函数（而不是直接给值）：overlay 的状态与模型列表都是**会变的**，
+ * 传值会在自检跑起来之前就被快照住，断言就会看到过期数据。
+ */
+function selfTestDeps() {
+  return {
+    opts: { userDataDir: USER_DATA_DIR, appRoot: APP_ROOT, distIndex: DIST_INDEX },
+    settings: {
+      readSettings,
+      writeSettings,
+      settingsForRenderer,
+      settingsFile: SETTINGS_FILE,
+      encryptionAvailable,
+      secretPrefix: SECRET_PREFIX,
+      secretClear: SECRET_CLEAR,
+      resolveSecretPatch,
+    },
+    models: { modelsDir: MODELS_DIR, charactersDir: CHARACTERS_DIR, scanModels },
+    overlay: {
+      getHit: () => overlayHit,
+      getIgnoring: () => overlayIgnoring,
+      getInteractive: () => overlayInteractive,
+      getModel: () => overlayModel,
+      getWatch: () => overlayWatch,
+      getDrag: () => overlayDrag,
+      getCursorInHit: () => overlayCursorInHit(),
+      getShouldCapture: () => overlayShouldCapture(),
+      getSettings: () => overlaySettings(),
+      getExpectedSize: () => overlayExpectedSize,
+      getProgrammaticUntil: () => overlayProgrammaticUntil,
+      getIgnoreRequests: () => overlayIgnoreRequests,
+      applyBounds: (next) => applyOverlayBounds(next),
+      createWindow: () => createOverlayWindow(),
+      destroyWindow: () => destroyOverlayWindow(),
+    },
+    deps: { crypto, fs, path, Menu, app, mainWindow: () => mainWin },
+  };
 }
 
 // ------------------------------------------------------------
 // IPC
 // ------------------------------------------------------------
+// ------------------------------------------------------------
+// IPC 发送方鉴权
+//
+// 渲染层能调的 IPC 里有不少高权限操作：写/删文件、删模型、截屏、打开路径、
+// 改设置、以及代发网络请求（LLM/TTS/STT —— 它们会带着 API Key 出去）。
+// 不校验来源的话，任何能在这个进程里执行脚本的东西都能直接调它们。
+// 所以统一在 handle() 里过一道：
+//   1) 发送方必须是我们的窗口（主窗口或展台窗口）之一；
+//   2) 页面 URL 必须是我们自己的页面（打包后的 dist 页面 / 开发服务器）。
+// 规则本身是纯函数，放在 shared/ipc-guard.cjs，有单测。
+// ------------------------------------------------------------
+const assertTrustedSender = makeSenderGuard({
+  allowedWebContentsIds: () => [mainWin, overlayWin]
+    .filter((w) => w && !w.isDestroyed())
+    .map((w) => w.webContents.id),
+  allowedUrls: () => {
+    const list = [];
+    for (const p of [DIST_INDEX, path.join(APP_ROOT, 'dist', 'overlay.html')]) {
+      try { if (fs.existsSync(p)) list.push(pathToFileURL(p).toString()); } catch { /* ignore */ }
+    }
+    return list;
+  },
+  devUrl: () => process.env.AILEEN_DEV_URL || '',
+  onReject: (msg) => console.warn('[ipc] 已拒绝不可信调用：' + msg),
+});
+
+/**
+ * 所有 ipcMain.handle 都走这个包装：先验发送方，再进业务。
+ * 这里刻意用 bind 拿注册函数（而不是直接写 ipcMain.handle 调用），
+ * 否则下面把 handler 批量换成 handle() 时会把包装器自己套进去。
+ */
+const registerIpcHandler = ipcMain.handle.bind(ipcMain);
+function handle(channel, fn) {
+  registerIpcHandler(channel, (event, ...args) => {
+    assertTrustedSender(event);
+    return fn(event, ...args);
+  });
+}
+
+// ------------------------------------------------------------
+// 参数校验层（不信任渲染层的输入）
+//
+// 发送方鉴权解决「是谁在调」，这里解决「调的时候给了什么」。
+// 规则集中在 shared/ipc-schemas.cjs：每个通道一行，缺规则会**显式报错**
+// —— 「新加了 IPC 忘了写校验」必须当场失败，而不是默认放行。
+//
+// 渲染层内部调用的通道（overlay / mc / llm / agent）由各自 register* 拿到的是
+// validatedHandle，所以那批也在这张表里；表里没有的内部通道才退回 handle。
+// ------------------------------------------------------------
+const { CHANNELS: IPC_SCHEMAS, makeValidatedHandle } = require('./shared/ipc-schemas.cjs');
+const strictHandle = makeValidatedHandle(handle, (err, channel) => {
+  console.warn('[ipc] 参数校验失败：' + channel + ' —— ' + ((err && err.message) || err));
+});
+/** 渲染层能直接调的通道走校验；主进程内部自己注册的通道维持原样 */
+function validatedHandle(channel, fn) {
+  return IPC_SCHEMAS[channel] ? strictHandle(channel, fn) : handle(channel, fn);
+}
+
+
 function registerIpc() {
-  ipcMain.handle('app:info', () => ({
-    modelBaseUrl,
+  validatedHandle('app:info', () => ({    modelBaseUrl,
     modelsDir: MODELS_DIR,
     charactersDir: CHARACTERS_DIR,
     avatarsDir: AVATARS_DIR,
@@ -1480,7 +882,7 @@ function registerIpc() {
     version: app.getVersion(),
   }));
 
-  ipcMain.handle('models:list', () => {
+  validatedHandle('models:list', () => {
     const local = scanModels(MODELS_DIR, '');
     const extra = (readSettings().extraModels || []).map((m) => ({
       name: m.name || 'URL 模型',
@@ -1492,7 +894,7 @@ function registerIpc() {
   });
 
   // 从文件夹导入 Live2D 模型（复制到 models/）
-  ipcMain.handle('models:addFolder', async () => {
+  validatedHandle('models:addFolder', async () => {
     const win = BrowserWindow.getFocusedWindow() || BrowserWindow.getAllWindows()[0];
     const result = await dialog.showOpenDialog(win, {
       title: '选择 Live2D 模型文件夹',
@@ -1520,7 +922,7 @@ function registerIpc() {
   });
 
   // 通过 URL 添加 Live2D 模型
-  ipcMain.handle('models:addUrl', (_e, payload) => {
+  validatedHandle('models:addUrl', (_e, payload) => {
     const url = String((payload && payload.url) || '').trim();
     const name = String((payload && payload.name) || '').trim() || 'URL 模型';
     if (!/^https?:\/\//i.test(url)) throw new Error('无效的模型 URL');
@@ -1533,7 +935,7 @@ function registerIpc() {
   });
 
   // 移除 URL 模型
-  ipcMain.handle('models:removeUrl', (_e, url) => {
+  validatedHandle('models:removeUrl', (_e, url) => {
     const s = readSettings();
     s.extraModels = (s.extraModels || []).filter((m) => m.url !== String(url || ''));
     writeSettings(s);
@@ -1543,7 +945,7 @@ function registerIpc() {
   // 删除本地模型：连同磁盘上的文件夹一起删。
   // 这是唯一一个会真删用户文件的接口，所以路径校验必须死板：
   // 只接受 models/ 下第一层目录名，绝不允许越出 models 之外。
-  ipcMain.handle('models:delete', async (_e, target) => {
+  validatedHandle('models:delete', async (_e, target) => {
     const raw = String((target && (target.dir || target.file || target.name)) || '').trim();
     if (!raw) throw new Error('无效的模型路径');
     const modelsRoot = path.normalize(MODELS_DIR);
@@ -1566,7 +968,7 @@ function registerIpc() {
   });
 
   // 屏幕捕获（视觉功能）
-  ipcMain.handle('screen:capture', async () => {
+  validatedHandle('screen:capture', async () => {
     try {
       const sources = await desktopCapturer.getSources({
         types: ['screen', 'window'],
@@ -1586,9 +988,9 @@ function registerIpc() {
     }
   });
 
-  ipcMain.handle('characters:list', () => listCharacters());
+  validatedHandle('characters:list', () => listCharacters());
 
-  ipcMain.handle('characters:write', (_e, payload) => {
+  validatedHandle('characters:write', (_e, payload) => {
     const { file, data, mode } = payload || {};
     const safe = sanitizeFileName(file);
     let target = safe;
@@ -1606,7 +1008,7 @@ function registerIpc() {
     return { file: target + '.json' };
   });
 
-  ipcMain.handle('characters:delete', (_e, file) => {
+  validatedHandle('characters:delete', (_e, file) => {
     const safe = path.basename(String(file || ''));
     const full = path.join(CHARACTERS_DIR, safe);
     if (full.startsWith(CHARACTERS_DIR + path.sep) && fs.existsSync(full)) {
@@ -1615,7 +1017,7 @@ function registerIpc() {
     return true;
   });
 
-  ipcMain.handle('characters:chooseAvatar', async () => {
+  validatedHandle('characters:chooseAvatar', async () => {
     const win = BrowserWindow.getFocusedWindow() || BrowserWindow.getAllWindows()[0];
     const result = await dialog.showOpenDialog(win, {
       title: '选择角色头像',
@@ -1631,7 +1033,7 @@ function registerIpc() {
     return { rel: 'avatars/' + name, url: modelBaseUrl + '/avatars/' + name };
   });
 
-  ipcMain.handle('characters:export', async (_e, data) => {
+  validatedHandle('characters:export', async (_e, data) => {
     const win = BrowserWindow.getFocusedWindow() || BrowserWindow.getAllWindows()[0];
     const result = await dialog.showSaveDialog(win, {
       title: '导出角色卡',
@@ -1643,7 +1045,7 @@ function registerIpc() {
     return result.filePath;
   });
 
-  ipcMain.handle('characters:import', async () => {
+  validatedHandle('characters:import', async () => {
     const win = BrowserWindow.getFocusedWindow() || BrowserWindow.getAllWindows()[0];
     const result = await dialog.showOpenDialog(win, {
       title: '导入角色卡',
@@ -1666,19 +1068,96 @@ function registerIpc() {
     return { file: name + '.json', data };
   });
 
-  ipcMain.handle('settings:get', () => readSettings());
-  ipcMain.handle('settings:set', (_e, settings) => {
-    const next = writeSettings(settings);
+  // 送给渲染层的设置永远不含明文密钥，只带「配没配」的标记
+  validatedHandle('settings:get', () => settingsForRenderer(readSettings()));
+  validatedHandle('settings:set', (_e, incoming) => {
+    // 渲染层拿不到明文密钥，它送回来的 apiKey 只有三种含义（见 shared/secrets.cjs）：
+    //   '' / undefined → 保持原样（表单留空不该把已配好的密钥抹掉）
+    //   SECRET_CLEAR   → 明确清除
+    //   其它字符串      → 设为新值
+    const patch = resolveSecretPatch(
+      incoming && typeof incoming === 'object' ? deepMerge({}, incoming) : {},
+      readSettings(),
+    );
+    const next = writeSettings(patch);
     // 语言变了要重建原生菜单
     if (next && next.language !== appMenuLang) { appMenuLang = next.language; buildAppMenu(appMenuLang); }
-    return next;
+    return settingsForRenderer(next);
   });
 
   registerOverlayIpc();
   registerMcIpc();
+  // Coding Agent 的工具能力：文件、命令、git、截屏全在主进程执行，
+  // 渲染层只送「要做什么」。workspace 边界与敏感路径在这里兜底。
+  registerAgentIpc({
+    // 这些通道渲染层能直接调，所以走带参数校验的那条 registration
+    handle: validatedHandle,
+    getSettings: readSettings,
+    defaultWorkspace: () => DATA_DIR,
+    // 主进程自己要用到的 Electron 能力（打开外链）
+    electron: { shell },
+    // 鼠标坐标：screen 的坐标是**逻辑像素**，而 SetCursorPos 要物理像素，
+    // 所以要乘上缩放因子 —— 不乘的话 125%/150% 缩放屏上会点偏。
+    cursorPoint: () => {
+      const pt = screen.getCursorScreenPoint();
+      const disp = screen.getDisplayNearestPoint(pt);
+      const scale = (disp && disp.scaleFactor) || 1;
+      return {
+        x: Math.round(pt.x * scale),
+        y: Math.round(pt.y * scale),
+        logicalX: pt.x,
+        logicalY: pt.y,
+        scale,
+        size: disp && disp.size ? { width: Math.round(disp.size.width * scale), height: Math.round(disp.size.height * scale) } : null,
+      };
+    },
+    // 截屏能力：复用 desktopCapturer，给 Agent 一个「看一眼」的手段
+    captureScreen: async ({ withData } = {}) => {
+      const sources = await desktopCapturer.getSources({
+        types: ['screen', 'window'],
+        thumbnailSize: { width: withData ? 1440 : 480, height: withData ? 900 : 300 },
+        fetchWindowIcons: false,
+      });
+      const list = sources.filter((s) => s.thumbnail && !s.thumbnail.isEmpty());
+      if (!list.length) throw new Error('没有截到任何屏幕或窗口');
+      const first = list[0];
+      const size = first.thumbnail.getSize();
+      return {
+        count: list.length,
+        width: size.width,
+        height: size.height,
+        names: list.slice(0, 12).map((s) => s.name),
+        dataUrl: withData ? first.thumbnail.toDataURL() : '',
+      };
+    },
+    log: (...args) => console.warn('[agent]', ...args),
+  });
+  // LLM / TTS / STT 的网络请求都在主进程发出：API Key 不出主进程
+  registerAiIpc({
+    handle,
+    getSettings: readSettings,
+    trimBase,
+    streamChatCore,
+    xiaomiAsrLang,
+    log: (...args) => console.warn('[ai]', ...args),
+  });
+
+  // 嵌入模型：记忆与知识库的语义检索用（与对话用的 Key 分开配置）
+  registerEmbeddingIpc({
+    handle: validatedHandle,
+    getSettings: readSettings,
+    log: (...args) => console.log('[embedding]', ...args),
+  });
+
+  // 记忆库 / 知识库的存储通道：只允许 <userData>/memory 与 /knowledge 两个根
+  registerStoreIpc({
+    handle: validatedHandle,
+    dataDir: DATA_DIR,
+    log: (...args) => console.log('[store]', ...args),
+  });
 
   // 仅允许打开用户数据目录内的路径（防止渲染层被利用打开任意程序/文件）
-  ipcMain.handle('shell:openPath', async (_e, p) => {
+  handle('shell:openPath', async (_e, p) => {
     if (typeof p !== 'string' || !p) return false;
     const target = path.resolve(p);
     if (!isInsidePath(target, USER_DATA_DIR) && !isInsidePath(target, APP_ROOT)) return false;
@@ -1686,7 +1165,7 @@ function registerIpc() {
   });
 
   // 聊天记录持久化（按角色存文件，避免 localStorage 容量/清缓存丢失）
-  ipcMain.handle('chat:read', (_e, file) => {
+  handle('chat:read', (_e, file) => {
     const safe = sanitizeFileName(String(file || '').replace(/\.json$/, ''));
     const full = path.join(CHATS_DIR, safe + '.json');
     try {
@@ -1697,7 +1176,7 @@ function registerIpc() {
     }
   });
 
-  ipcMain.handle('chat:write', (_e, payload) => {
+  handle('chat:write', (_e, payload) => {
     const { file, messages } = payload || {};
     const safe = sanitizeFileName(String(file || '').replace(/\.json$/, ''));
     const full = path.join(CHATS_DIR, safe + '.json');
@@ -1708,7 +1187,7 @@ function registerIpc() {
     return true;
   });
 
-  ipcMain.handle('chat:clear', (_e, file) => {
+  handle('chat:clear', (_e, file) => {
     const safe = sanitizeFileName(String(file || '').replace(/\.json$/, ''));
     const full = path.join(CHATS_DIR, safe + '.json');
     if (isInsidePath(full, CHATS_DIR) && fs.existsSync(full)) fs.unlinkSync(full);
@@ -1743,6 +1222,8 @@ app.whenReady().then(async () => {
     ensureDirs();
   }
   migrateLegacyData();
+  // 历史明文 API Key → safeStorage 密文（幂等，safeStorage 不可用时自动跳过）
+  migrateSecretsToEncrypted();
   await startModelServer();
   registerIpc();
   appMenuLang = readSettings().language || 'en';

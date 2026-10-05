@@ -30,6 +30,8 @@
 
     <div class="side-foot">
       <button id="btn-settings-menu" class="ghost block" data-i18n-title="app.settingsTip" data-i18n="nav.settings">⚙ Settings</button>
+      <button id="btn-agent" class="ghost block" data-i18n-title="agent.openTip" data-i18n="agent.open">🤖 Agent</button>
+      <button id="btn-computer" class="ghost block" data-i18n-title="agent.computerTip" data-i18n="agent.computer">🖥 Computer control: off</button>
       <button id="btn-open-data" class="ghost block" data-i18n-title="app.dataTip" data-i18n="nav.dataDir">📂 Data Folder</button>
     </div>
   </aside>
@@ -75,6 +77,54 @@
 
   <!-- Right: Live2D stage -->
   <aside id="stage-panel">
+    <!-- Agent 控制仪表板：电脑控制期间接管这块区域（Live2D 让位，避免两边抢空间） -->
+    <div id="agent-dashboard" class="agent-dash hidden">
+      <div class="agent-dash-head">
+        <span class="agent-dash-title" data-i18n="dash.title">Agent Control Dashboard</span>
+        <span id="dash-status" class="agent-status" data-i18n="dash.idle">Idle</span>
+      </div>
+
+      <div class="agent-dash-sec">
+        <div class="agent-dash-label" data-i18n="dash.task">Task</div>
+        <div id="dash-task" class="agent-dash-task">—</div>
+      </div>
+
+      <div class="agent-dash-sec">
+        <div class="agent-dash-label" data-i18n="dash.now">Current operation</div>
+        <div id="dash-now" class="agent-dash-now">—</div>
+      </div>
+
+      <div id="dash-approval" class="agent-approval hidden">
+        <div class="agent-approval-head">
+          <span id="dash-risk" class="agent-risk">HIGH</span>
+          <span data-i18n="dash.needApproval">Waiting for approval</span>
+        </div>
+        <p id="dash-approval-text" class="agent-approval-text"></p>
+        <div class="agent-actions">
+          <button id="dash-approve" class="primary small-btn" data-i18n="agent.approve">Approve</button>
+          <button id="dash-reject" class="danger small-btn" data-i18n="agent.reject">Reject</button>
+        </div>
+      </div>
+
+      <div class="agent-dash-label" data-i18n="dash.log">Operation log</div>
+      <div id="dash-log" class="agent-log"></div>
+
+      <div class="agent-dash-sec">
+        <div class="agent-dash-label" data-i18n="dash.tools">Tool calls</div>
+        <div id="dash-tools" class="agent-dash-tools">—</div>
+      </div>
+
+      <div class="agent-dash-sec">
+        <div class="agent-dash-label" data-i18n="dash.screen">Screen / Vision</div>
+        <div id="dash-screen" class="agent-dash-screen" data-i18n="dash.noScreen">Not captured yet</div>
+      </div>
+
+      <div class="agent-actions">
+        <button id="dash-pause" class="ghost small-btn" disabled data-i18n="agent.pause">⏸ Pause</button>
+        <button id="dash-resume" class="ghost small-btn" disabled data-i18n="agent.resume">⏵ Resume</button>
+        <button id="dash-cancel" class="danger small-btn" disabled data-i18n="agent.cancel">⏹ Cancel</button>
+      </div>
+    </div>
     <div class="stage-head">
       <span data-i18n="stage.title">Live2D Stage</span>
       <button id="btn-collapse-stage" class="icon-btn tiny" data-i18n-title="stage.collapse" title="Hide the stage">›</button>
@@ -266,6 +316,48 @@
   </div>
 </div>
 
+<!-- 嵌入模型设置（长期记忆 / 知识库的语义检索） -->
+<div id="modal-embedding" class="modal hidden">
+  <div class="modal-box wide">
+    <h3 data-i18n="embed.title">🧠 Memory &amp; Knowledge (Embedding)</h3>
+    <div class="form-col">
+      <p class="hint" data-i18n-html="embed.hint"></p>
+      <label class="check"><input id="s-embed-enabled" type="checkbox" /> <span data-i18n="embed.enabled">Use an embedding model for semantic search</span></label>
+      <label><span data-i18n="embed.provider">Provider</span><select id="s-embed-provider">
+        <option value="openai">OpenAI</option>
+        <option value="siliconflow">硅基流动</option>
+        <option value="qwen">阿里云百炼</option>
+        <option value="zhipu">智谱 GLM</option>
+        <option value="ollama">Ollama (local)</option>
+        <option value="custom" data-i18n="provider.custom">Custom</option>
+      </select></label>
+      <label class="check"><input id="s-embed-custom-url" type="checkbox" /> <span data-i18n="llm.customUrl">Custom endpoint</span></label>
+      <label id="wrap-embed-base"><span data-i18n="embed.baseUrl">Base URL</span><input id="s-embed-base" placeholder="https://api.openai.com/v1" /></label>
+      <label><span data-i18n="embed.apiKey">API Key</span><input id="s-embed-key" type="password" placeholder="sk-…" /></label>
+      <label><span data-i18n="embed.model">Embedding model</span><input id="s-embed-model" list="dl-embed-models" placeholder="text-embedding-3-small" /><datalist id="dl-embed-models"></datalist>
+        <div class="row-btns">
+          <button id="btn-embed-fetch" class="ghost small-btn" data-i18n="embed.fetch">⚡ Fetch models</button>
+          <button id="btn-embed-test" class="ghost small-btn" data-i18n="embed.test">🔌 Test</button>
+        </div></label>
+      <label><span data-i18n="embed.perCharacter">Memory is kept per character</span>
+        <select id="s-mem-perchar">
+          <option value="yes" data-i18n="embed.perCharYes">Yes — each character has their own memories</option>
+          <option value="no" data-i18n="embed.perCharNo">No — one shared memory</option>
+        </select></label>
+      <div class="form-grid">
+        <label><span data-i18n="embed.memoryTokens">Memory budget (tokens)</span><input id="s-mem-tokens" type="number" min="0" max="8000" step="100" /></label>
+        <label><span data-i18n="embed.knowledgeTokens">Knowledge budget (tokens)</span><input id="s-know-tokens" type="number" min="0" max="12000" step="100" /></label>
+      </div>
+      <p class="hint" data-i18n-html="embed.hint2"></p>
+    </div>
+    <div class="modal-actions">
+      <span class="spacer"></span>
+      <button id="s-embed-cancel" data-i18n="char.cancel">Cancel</button>
+      <button id="s-embed-save" class="primary" data-i18n="tts.save">Save</button>
+    </div>
+  </div>
+</div>
+
 <!-- STT settings -->
 <div id="modal-stt" class="modal hidden">
   <div class="modal-box wide">
@@ -332,6 +424,7 @@
       <button data-target="modal-stt"><span class="menu-label" data-i18n="menu.stt">🎤 Speech Recognition (STT)</span><span class="menu-sub" id="menu-sub-stt"></span></button>
       <button data-target="modal-perform"><span class="menu-label" data-i18n="menu.perform">🎭 Performance</span><span class="menu-sub" id="menu-sub-perform"></span></button>
       <button data-target="modal-persona"><span class="menu-label" data-i18n="studio.menu">✨ Persona Studio</span><span class="menu-sub" id="menu-sub-persona"></span></button>
+      <button data-target="modal-embedding"><span class="menu-label" data-i18n="menu.embedding">🧠 Memory &amp; Knowledge</span><span class="menu-sub" id="menu-sub-embedding"></span></button>
       <div class="menu-group-title" data-i18n="menu.group.look">Character &amp; Appearance</div>
       <button data-target="modal-model"><span class="menu-label" data-i18n="menu.model">🎀 Live2D Model Settings</span><span class="menu-sub" id="menu-sub-model"></span></button>
       <button data-target="modal-theme"><span class="menu-label" data-i18n="menu.theme">🎨 Appearance</span><span class="menu-sub" id="menu-sub-theme"></span></button>
@@ -528,6 +621,60 @@
     <p class="hint" data-i18n-html="chess.hint"></p>
     <div class="modal-actions">
       <button id="chess-close" data-i18n="chess.close">Close</button>
+    </div>
+  </div>
+</div>
+
+<!-- Agent 任务面板（Coding Agent 第一版：单 Agent + 工具循环） -->
+<div id="agent-panel" class="modal hidden">
+  <div class="modal-box agent-box">
+    <h3 data-i18n="agent.title">🤖 Agent</h3>
+    <p class="hint" data-i18n-html="agent.intro"></p>
+
+    <label><span data-i18n="agent.task">Task</span>
+      <textarea id="ag-task" rows="3" data-i18n-ph="agent.taskPh" placeholder="e.g. find why the tests fail and fix it"></textarea></label>
+
+    <div class="agent-line">
+      <span class="agent-label" data-i18n="agent.workspace">Workspace</span>
+      <span id="ag-workspace" class="agent-workspace">—</span>
+      <button id="ag-workspace-edit" class="ghost small-btn" data-i18n="agent.change">Change</button>
+    </div>
+    <div id="ag-workspace-box" class="agent-line hidden">
+      <input id="ag-workspace-input" data-i18n-ph="agent.workspacePh" placeholder="D:\path\to\project" />
+      <button id="ag-workspace-save" class="primary small-btn" data-i18n="char.save">Save</button>
+    </div>
+
+    <label class="check"><input id="ag-require-medium" type="checkbox" /> <span data-i18n="agent.requireMedium">Ask before writing files or patching</span></label>
+
+    <div class="agent-actions">
+      <button id="ag-start" class="primary" data-i18n="agent.start">▶ Start</button>
+      <button id="ag-pause" class="ghost" disabled data-i18n="agent.pause">⏸ Pause</button>
+      <button id="ag-resume" class="ghost" disabled data-i18n="agent.resume">⏵ Resume</button>
+      <button id="ag-cancel" class="danger" disabled data-i18n="agent.cancel">⏹ Cancel</button>
+    </div>
+
+    <div class="agent-statusline">
+      <span id="ag-status" class="agent-status" data-i18n="agent.stateIdle">Idle</span>
+      <span id="ag-round" class="hint"></span>
+    </div>
+
+    <div id="ag-approval" class="agent-approval hidden">
+      <div class="agent-approval-head">
+        <span id="ag-approval-risk" class="agent-risk">HIGH</span>
+        <span data-i18n="agent.waitingApproval">Waiting for approval</span>
+      </div>
+      <p id="ag-approval-text" class="agent-approval-text"></p>
+      <div class="agent-actions">
+        <button id="ag-approve" class="primary small-btn" data-i18n="agent.approve">Approve</button>
+        <button id="ag-approve-always" class="ghost small-btn" data-i18n="agent.approveAlways">Approve &amp; remember</button>
+        <button id="ag-reject" class="danger small-btn" data-i18n="agent.reject">Reject</button>
+      </div>
+    </div>
+
+    <div id="ag-log" class="agent-log"></div>
+
+    <div class="modal-actions">
+      <button id="ag-close" data-i18n="menu.close">Close</button>
     </div>
   </div>
 </div>

@@ -1,11 +1,11 @@
 // ============================================================
 // 聊天控制器：消息渲染、流式回复、聊天记录持久化、朗读
 // ============================================================
-import { getSettings, deepMerge } from './settings.js';
+import { getSettings, deepMerge, hasApiKey } from './settings.js';
 import { streamChat } from './llm.js';
 import { buildSystemPrompt } from './characters.js';
 import { renderMarkdown, escapeHtml } from './markdown.js';
-import { t } from './i18n.js';
+import { t, getLang } from './i18n.js';
 import { createMarkerParser } from './marker-parser.js';
 import { createReplyPacer } from './reply-pacer.js';
 import { buildStyleInstruction } from './style.js';
@@ -13,6 +13,39 @@ import { splitForCompaction, buildContextMessages, buildSummaryRequest, summaryK
 import { getLive2dModel } from './stage.js';
 import { state, hooks, tts } from './state.js';
 import { $, toast, scrollBottom, autoGrowInput } from './dom.js';
+import { startRun } from '../agent/run.js';
+import { createToolRegistry, TOOL_SPECS, withBaseExecutors } from '../agent/tool-registry.js';
+import { buildPersonaSystemPrompt, buildTaskMessage, buildToolContext, assertPersonaPreserved } from '../agent/context-engine.js';
+import { createAgentBridge, createAgentLlm, isSensitivePath } from './agent-bridge.js';
+import { onAgentEvent, bindAgentRun, initAgentDashboard } from './agent-dashboard.js';
+import { createContextEngine, DEFAULT_BUDGET } from '../context/engine.js';
+import { createRetrievalAdapters, ensureEngines } from './memory-host.js';
+
+/**
+ * 对话用的 Context Engine 实例（全局一个）。
+ *
+ * 为什么是单例：它持有最近的组装记录（recentUsage），排查「上下文怎么突然变大了」
+ * 时需要一个连续历史；每次新建会把这个线索丢掉。
+ *
+ * memory / knowledge 通过 `createRetrievalAdapters()` 接进来（长期记忆与知识库）：
+ * 引擎只负责「给我候选」，真正的检索、精排、预算都在各自的引擎里。
+ * 两边都没配 / 初始化失败时返回空数组，对话照常。
+ */
+let ctxEngine = null;
+function chatContextEngine() {
+  if (!ctxEngine) {
+    ctxEngine = createContextEngine(Object.assign(
+      { budgetOverride: DEFAULT_BUDGET },
+      createRetrievalAdapters(),
+    ));
+  }
+  return ctxEngine;
+}
+
+/** 自检/测试用：当前上下文预算与最近几次组装的用量 */
+export function contextUsage() {
+  return ctxEngine ? ctxEngine.recentUsage() : [];
+}
 
 // ---------------- 聊天记录（按角色持久化到文件） ----------------
 export function chatKey(file) {
@@ -178,14 +211,36 @@ export function setBusy(b) {
 
 // ---------------- 上下文压缩 / 形象控制 ----------------
 
-// 同一段旧消息只总结一次
+// 同一段旧消息只总结一次。
+// 上限是必要的：key 现在依赖内容，不会自然复用，长聊下去 Map 会一直涨（内存泄漏）。
+const SUMMARY_CACHE_MAX = 64;
 const summaryCache = new Map();
+
+function cacheSummary(key, value) {
+  summaryCache.set(key, value);
+  while (summaryCache.size > SUMMARY_CACHE_MAX) {
+    const oldest = summaryCache.keys().next();
+    if (oldest.done) break;
+    summaryCache.delete(oldest.value);
+  }
+}
 
 async function ensureSummary(older, settings) {
   if (!summarizable(older)) return '';
-  const key = summaryKey(older);
-  if (summaryCache.has(key)) return summaryCache.get(key);
   const req = buildSummaryRequest(older, t('prompt.summarySystem'));
+  // key 必须覆盖「会影响摘要结果的一切」：这段旧消息本身、角色卡与 persona、
+  // 拼好的 system 提示词、界面语言、保留轮数、摘要提示词。
+  const cur = state.current;
+  const card = cur && cur.data ? cur.data : {};
+  const key = summaryKey(older, {
+    character: (cur && cur.file) || '',
+    persona: String(card.personality || '') + '\u0000' + String(card.system_prompt || ''),
+    system: buildSystemPrompt(card),
+    lang: getLang(),
+    keepTurns: DEFAULT_KEEP_TURNS,
+    summarySystem: req.system,
+  });
+  if (summaryCache.has(key)) return summaryCache.get(key);
   let out = '';
   try {
     await streamChat({
@@ -201,7 +256,7 @@ async function ensureSummary(older, settings) {
   }
   const text = String(out).replace(/\s+/g, ' ').trim();
   const full = text ? t('prompt.summaryLabel') + ' ' + text : '';
-  if (full) summaryCache.set(key, full);
+  if (full) cacheSummary(key, full);
   return full;
 }
 
@@ -243,18 +298,93 @@ function applyStageMarker(m) {
 }
 
 // ---------------- 对话 ----------------
+/**
+ * 把一段**已经拿到的完整文本**按回复节奏展示出来：分气泡、落库、朗读、渲染。
+ *
+ * 为什么不直接 push 一条消息了事：角色回复可能用 <|delay|> 拆成多条、
+ * 里面还夹着动作/表情标记，走同一条 pacer 才能和流式回复表现一致。
+ * 电脑控制跑完后用它把「角色自己的汇报」放回对话区。
+ */
+export async function revealReply(text) {
+  const shouldSpeak = getSettings().tts.autoPlay;
+  const boxEl = $('messages');
+  if (!boxEl) return '';
+  const segments = [];
+  let preview = null;
+  let curText = '';
+
+  function setTyping(on) {
+    const ty = $('typing');
+    if (ty) ty.className = 'typing' + (on ? '' : ' hidden');
+  }
+  function startBubble() {
+    curText = '';
+    preview = document.createElement('div');
+    preview.className = 'msg assistant';
+    boxEl.appendChild(preview);
+  }
+  function seal(keepPreview) {
+    const t2 = curText.trim();
+    curText = '';
+    if (!t2) {
+      if (!keepPreview && preview && preview.parentNode) preview.parentNode.removeChild(preview);
+      preview = null;
+      return;
+    }
+    segments.push(t2);
+    state.messages.push({ role: 'assistant', content: t2, at: Date.now() });
+    if (shouldSpeak) tts.enqueue(t2, ttsSettingsForCharacter());
+    preview = null;
+  }
+
+  startBubble();
+  const pacer = createReplyPacer({
+    onText: (chunk) => {
+      if (!preview) startBubble();
+      curText += chunk;
+      setTyping(false);
+      preview.innerHTML = renderMarkdown(curText) + '<span class="caret"></span>';
+      scrollBottom();
+    },
+    onStage: (m) => applyStageMarker(m),
+    onBreak: () => { seal(false); startBubble(); },
+    onDelay: (sec) => { if (sec >= 1.2) setTyping(true); },
+  });
+  await pacer.push(String(text || ''));
+  await pacer.finish();
+  setTyping(false);
+  seal(true);
+  renderMessages();
+  scrollBottom();
+  const acc = segments.join('\n\n');
+  state.lastAssistantText = acc;
+  if (state.current) saveChatFor(state.current.file);
+  return acc;
+}
+
 export async function runAssistantReply(userContent, forceSpeak, image) {
   const cur = state.current;
   if (!cur) throw new Error(t('chat.needChar'));
   const s = getSettings();
-  if (!s.llm.apiKey) throw new Error(t('chat.noApiKey'));
+  if (!hasApiKey('llm')) throw new Error(t('chat.noApiKey'));
   pushMsg('user', userContent);
 
   // 最近若干轮原样带上，更早的压成一条摘要（以前是直接 slice(-12) 丢掉，角色会失忆）
   const { older, kept } = splitForCompaction(state.messages, DEFAULT_KEEP_TURNS);
   const summary = await ensureSummary(older, s);
-  const history = buildContextMessages({ kept, summary });
-  const msgs = [{ role: 'system', content: buildSystemPrompt(cur.data) + styleInstruction() }, ...history];
+
+  // **上下文的拼装交给 Context Engine**（唯一入口）。
+  // 以前这里是手写的 `[system, ...history]` —— 各个模块都想往 system 里塞东西，
+  // 迟早把人设挤掉、或者让 Memory/Tool 结果无限注入。现在只有一条路：
+  // 角色人格 → 风格指令 → 摘要 → 对话历史，全部由引擎按预算拼。
+  const ctx = await chatContextEngine().buildContext({
+    card: cur.data,
+    query: userContent,
+    messages: kept,
+    summary,
+    systemExtra: styleInstruction(),
+  });
+  const msgs = ctx.messages;
 
   // 带图时，把最后一条用户消息替换为「文本 + 图片」的多模态格式
   if (image) {
@@ -353,12 +483,139 @@ export async function runAssistantReply(userContent, forceSpeak, image) {
   return acc;
 }
 
+/**
+ * 电脑控制模式的一次对话。
+ *
+ * 流程就是需求里那条链：
+ *   普通对话 → Agent 判断 → Computer Tool → Permission → 执行 → 结果 → 继续对话
+ *
+ * 三条不可动摇的规矩：
+ *   1. **人格来自角色卡**（buildPersonaSystemPrompt 第 0 段就是它），
+ *      Agent 只是给这个角色加了行动能力；
+ *   2. 工具结果走独立的 tool 消息，**没有写 system 的通路** ——
+ *      所以它在结构上不可能覆盖 Character Prompt；
+ *   3. 汇报用**当前角色的语气**（同一个 system prompt、同一张卡），
+ *      不可能突然变成 "Task completed successfully."。
+ */
+export async function sendWithAgent(userContent) {
+  const cur = state.current;
+  if (!cur) throw new Error(t('chat.needChar'));
+  if (!hasApiKey('llm')) {
+    toast(t('chat.needKeyHint'));
+    hooks.openLlmModal();
+    return '';
+  }
+  pushMsg('user', userContent);
+
+  const s = getSettings();
+  const agentCfg = s.agent || {};
+  const registry = createToolRegistry();
+  registry.registerAll(withBaseExecutors(TOOL_SPECS));
+  const tools = registry.list();
+
+  // 工作区 + 环境信息（全部是「外部事实」，与人格无关）
+  let workspace = '';
+  let cursor = null;
+  let screen = null;
+  let windows = [];
+  try { workspace = ((await window.api.agentWorkspace()) || {}).workspace || ''; } catch { /* 没有就算了 */ }
+  try { cursor = await (window.api.agentCursor ? window.api.agentCursor() : null); } catch { cursor = null; }
+  try { screen = await window.api.agentScreenshot({ withData: false }); } catch { screen = null; }
+  if (agentCfg.computerUse) {
+    try {
+      const res = await (window.api.agentWindow ? window.api.agentWindow({ op: 'list' }) : null);
+      windows = (res && res.titles) || [];
+    } catch { windows = []; }
+  }
+
+  const { older, kept } = splitForCompaction(state.messages.slice(0, -1), DEFAULT_KEEP_TURNS);
+  let summary = '';
+  try { summary = await ensureSummary(older, s); } catch { summary = ''; }
+
+  const taskMessage = buildTaskMessage({
+    task: userContent,
+    toolContext: buildToolContext({ workspace, screen, cursor, windows }),
+  });
+
+  // **Agent 也走同一个 Context Engine**（不是另一套拼装）。
+  // 之前这里是手写 `buildPersonaSystemPrompt` + `buildContextMessages`，
+  // 和聊天路径是两条独立的实现 —— 那正是「各模块各自拼 prompt」的老问题。
+  // 现在两条路径共用同一个入口，人格门禁也由引擎内部统一把守。
+  const ctx = await chatContextEngine().buildContext({
+    card: cur.data,
+    query: userContent,
+    messages: kept,
+    summary,
+    systemExtra: styleInstruction(),
+    agent: {
+      enabled: true,
+      task: userContent,
+      workspace,
+      tools,
+    },
+  });
+  const systemPrompt = ctx.messages.find((m) => m && m.role === 'system').content;
+  // 双保险：引擎内部已经断言过，这里再确认一次（Agent 一旦没有人格就不是那个角色了）
+  assertPersonaPreserved(cur.data, systemPrompt);
+
+  setBusy(true);
+  state.abortCtrl = new AbortController();
+
+  const started = startRun({
+    task: userContent,
+    taskMessage,
+    systemPrompt,          // ← 人格从这里进去，且只在开头出现一次
+    workspace,
+    registry,
+    llm: createAgentLlm(getSettings),
+    bridge: createAgentBridge(),
+    isSensitive: isSensitivePath,
+    permissionConfig: { requireMedium: agentCfg.requireMedium !== false },
+    history: ctx.messages.filter((m) => m.role !== 'system'),
+    // 每一轮请求也由 Context Engine 组装（工具结果/历史都按预算裁），
+    // 而不是让 runtime 再拼一遍 —— 再多一条拼装路径就等于没统一。
+    buildRequest: ({ systemPrompt: sys, history, messages }) => {
+      const trimmed = history.concat(messages);
+      return [{ role: 'system', content: sys }]
+        .concat(trimmed.filter((m) => m && m.role && m.role !== 'system'));
+    },
+    signal: state.abortCtrl.signal,
+    onEvent: (type, payload) => {
+      // 事件同时喂给 Dashboard 与 Live2D（各自订阅，runtime 不认识它们）
+      if (typeof hooks.agentEvent === 'function') hooks.agentEvent(type, payload);
+    },
+  });
+
+  // 把控制器交给 Dashboard：它才有 Pause / Resume / Cancel / Approve 的入口
+  bindAgentRun(started.controller);
+
+  let answer = '';
+  let failure = '';
+  try {
+    const api = await started.done;
+    answer = String((api.run && api.run.answer) || '').trim();
+    if (api.run && api.run.error) failure = String(api.run.error);
+  } catch (err) {    failure = String((err && err.message) || err);
+  } finally {
+    state.abortCtrl = null;
+  }
+
+  // 角色自己的汇报回到对话框；工具日志**不进**聊天气泡（那是 Dashboard 的事）
+  if (answer) {
+    await revealReply(answer);
+  } else if (failure) {
+    toast(failure, true);
+  }
+  setBusy(false);
+  return answer;
+}
+
 export async function send(text) {
   const content = String(text || '').trim();
   const image = state.pendingImage;
   if ((!content && !image) || state.busy) return;
   const s = getSettings();
-  if (!s.llm.apiKey) {
+  if (!hasApiKey('llm')) {
     toast(t('chat.needKeyHint'));
     hooks.openLlmModal();
     return;
@@ -369,7 +626,12 @@ export async function send(text) {
   state.pendingImage = null;
   hooks.setAttachUI();
   try {
-    await runAssistantReply(content || t('chat.visionPrompt'), false, image);
+    // 开了电脑控制、且这条消息不是纯图片 → 走 Agent（Chat 是入口，Agent 是能力）
+    if (s.agent && s.agent.computerUse && content && !image) {
+      await sendWithAgent(content);
+    } else {
+      await runAssistantReply(content || t('chat.visionPrompt'), false, image);
+    }
   } catch (err) {
     toast(String(err && err.message ? err.message : err), true);
   }

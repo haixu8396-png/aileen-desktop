@@ -49,6 +49,9 @@ jobs:
           $path = '${{ github.workspace }}\.ci-data\selftest\shot.json'
           if (!(Test-Path $path)) { throw '自检未生成诊断文件（应用可能启动失败）' }
           $diag = Get-Content $path -Raw | ConvertFrom-Json
+          # 跑的就是要发的那个版本（防止发版漏改引用）
+          $pkgVersion = (Get-Content 'package.json' -Raw | ConvertFrom-Json).version
+          if ($diag.appVersion -ne $pkgVersion) { throw ("版本不一致：应用报 $($diag.appVersion)，package.json 是 $pkgVersion")}
           $errs = @($diag.errors)
           $fatal = @($errs | Where-Object { $_ -notmatch 'live2d|Live2D|WebGL|pixi' })
           if ($fatal.Count -gt 0) { throw ('自检发现运行时错误: ' + ($fatal -join '; ')) }
@@ -71,8 +74,12 @@ jobs:
           if (-not $diag.studioOk) { throw ('人设生成室不可用（入口/原型选择/锁定提示词）→ ' + ($diag.studioDetail | ConvertTo-Json -Compress)) }
           if (-not $diag.noModelOk) { throw ('「不使用模型」没有真正清空舞台 → ' + ($diag.noModelDetail | ConvertTo-Json -Compress)) }
           if (-not $diag.scrollOk) { throw ('聊天消息区不能滚动 → ' + ($diag.scrollDetail | ConvertTo-Json -Compress)) }
+          if (-not $diag.settingsPersist) { throw ('API Key 出现在渲染层（必须只留 apiKeySet 标记）→ ' + ($diag.secretView | ConvertTo-Json -Compress)) }
           if (-not $diag.sideCollapseOk) { throw '界面：侧栏折叠不可用' }
           if (-not $diag.searchFilterOk) { throw '界面：角色搜索没有真正过滤列表' }
+          if (-not $diag.agentOk) { throw ('Agent 面板不可用（入口/控件/审批卡片）→ ' + ($diag.agentDetail | ConvertTo-Json -Compress)) }
+          if (-not $diag.dashOk) { throw ('Agent Dashboard 或角色人格保留断言失败 → ' + ($diag.dashDetail | ConvertTo-Json -Compress)) }
+          if (-not $diag.toggleOk) { throw ('电脑控制开关没有立刻切到控制模式 → ' + ($diag.toggleDetail | ConvertTo-Json -Compress)) }
           if ($diag.jaMissingKeys -gt 0) { throw ('i18n：日文下仍有 ' + $diag.jaMissingKeys + ' 处回退成了 key') }
           $opath = '${{ github.workspace }}\.ci-data\selftest\overlay.json'
           if (!(Test-Path $opath)) { throw '无边框悬浮展台自检未生成报告' }
@@ -104,6 +111,12 @@ jobs:
           if (-not $ovr.modelDeleteOk) { throw ('删除本地模型失败（临时模型目录没被删掉）→ ' + $ovr.modelDeleteBefore + ' / ' + $ovr.modelDeleteAfter) }
           if (-not $ovr.modelDeleteGuardOk) { throw ('删除模型的路径校验失效，越界路径被放行 → ' + ($ovr.modelDeleteGuard | ConvertTo-Json -Compress)) }
           if (-not $ovr.modelsSurvived) { throw '删除模型的测试把用户自己的模型也删掉了' }
+          if (-not $ovr.secretRoundTripOk) { throw 'API Key 写入后读不回来（持久化坏了）' }
+          if (-not $ovr.secretRedactedOk) { throw 'API Key 的明文泄漏到了渲染层设置里' }
+          if (-not $ovr.secretKeepOnEmptyOk) { throw '「留空=保持密钥」的语义失效（改别的设置会把 Key 抹掉）' }
+          if (-not $ovr.secretClearOk) { throw '「哨兵=清除密钥」的语义失效' }
+          if (-not $ovr.secretRestored) { throw '自检没有把 API Key 还原回原值' }
+          if ($ovr.secretEncryptedOk -ne $true -and $ovr.secretEncryptedOk -ne 'skipped:no-safeStorage') { throw ('API Key 没有加密落盘 → ' + $ovr.secretEncryptedOk) }
           $overrs = @($ovr.errors | Where-Object { $_ -and $_.Trim() -ne '' })
           if ($overrs.Count -gt 0) { throw ('悬浮展台报错: ' + ($overrs -join '; ')) }
           Write-Host '自检通过：无运行时错误，菜单行为与悬浮展台均正常'
@@ -156,8 +169,12 @@ jobs:
           if (-not $diag.studioOk) { throw ('人设生成室不可用（入口/原型选择/锁定提示词）→ ' + ($diag.studioDetail | ConvertTo-Json -Compress)) }
           if (-not $diag.noModelOk) { throw ('「不使用模型」没有真正清空舞台 → ' + ($diag.noModelDetail | ConvertTo-Json -Compress)) }
           if (-not $diag.scrollOk) { throw ('聊天消息区不能滚动 → ' + ($diag.scrollDetail | ConvertTo-Json -Compress)) }
+          if (-not $diag.settingsPersist) { throw ('API Key 出现在渲染层（必须只留 apiKeySet 标记）→ ' + ($diag.secretView | ConvertTo-Json -Compress)) }
           if (-not $diag.sideCollapseOk) { throw '界面：侧栏折叠不可用' }
           if (-not $diag.searchFilterOk) { throw '界面：角色搜索没有真正过滤列表' }
+          if (-not $diag.agentOk) { throw ('Agent 面板不可用（入口/控件/审批卡片）→ ' + ($diag.agentDetail | ConvertTo-Json -Compress)) }
+          if (-not $diag.dashOk) { throw ('Agent Dashboard 或角色人格保留断言失败 → ' + ($diag.dashDetail | ConvertTo-Json -Compress)) }
+          if (-not $diag.toggleOk) { throw ('电脑控制开关没有立刻切到控制模式 → ' + ($diag.toggleDetail | ConvertTo-Json -Compress)) }
           if ($diag.jaMissingKeys -gt 0) { throw ('i18n：日文下仍有 ' + $diag.jaMissingKeys + ' 处回退成了 key') }
           $opath = '${{ github.workspace }}\.ci-pack\selftest\overlay.json'
           if (!(Test-Path $opath)) { throw '无边框悬浮展台自检未生成报告' }
@@ -189,6 +206,12 @@ jobs:
           if (-not $ovr.modelDeleteOk) { throw ('删除本地模型失败（临时模型目录没被删掉）→ ' + $ovr.modelDeleteBefore + ' / ' + $ovr.modelDeleteAfter) }
           if (-not $ovr.modelDeleteGuardOk) { throw ('删除模型的路径校验失效，越界路径被放行 → ' + ($ovr.modelDeleteGuard | ConvertTo-Json -Compress)) }
           if (-not $ovr.modelsSurvived) { throw '删除模型的测试把用户自己的模型也删掉了' }
+          if (-not $ovr.secretRoundTripOk) { throw 'API Key 写入后读不回来（持久化坏了）' }
+          if (-not $ovr.secretRedactedOk) { throw 'API Key 的明文泄漏到了渲染层设置里' }
+          if (-not $ovr.secretKeepOnEmptyOk) { throw '「留空=保持密钥」的语义失效（改别的设置会把 Key 抹掉）' }
+          if (-not $ovr.secretClearOk) { throw '「哨兵=清除密钥」的语义失效' }
+          if (-not $ovr.secretRestored) { throw '自检没有把 API Key 还原回原值' }
+          if ($ovr.secretEncryptedOk -ne $true -and $ovr.secretEncryptedOk -ne 'skipped:no-safeStorage') { throw ('API Key 没有加密落盘 → ' + $ovr.secretEncryptedOk) }
           $overrs = @($ovr.errors | Where-Object { $_ -and $_.Trim() -ne '' })
           if ($overrs.Count -gt 0) { throw ('悬浮展台报错: ' + ($overrs -join '; ')) }
           Write-Host '打包产物自检通过（含悬浮展台）'

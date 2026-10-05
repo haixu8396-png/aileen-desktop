@@ -4,7 +4,7 @@
 // 可选：让当前角色用 LLM 对棋局点评几句
 // ============================================================
 import { Game } from 'js-chess-engine';
-import { getSettings, saveSettings } from './settings.js';
+import { getSettings, saveSettings, hasApiKey } from './settings.js';
 import { state } from './state.js';
 import { t } from './i18n.js';
 import { $, toast } from './dom.js';
@@ -182,7 +182,7 @@ async function maybeAiMove() {
 async function comment() {
   const box = el('chess-comment');
   if (!box) return;
-  if (!getSettings().llm.apiKey) return;
+  if (!hasApiKey('llm')) return;
   const card = state.current && state.current.data ? state.current.data : null;
   let fen = '';
   try { fen = game.exportFEN(); } catch (err) { fen = ''; }

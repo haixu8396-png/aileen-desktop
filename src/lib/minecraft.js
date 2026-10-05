@@ -2,7 +2,7 @@
 // Minecraft AI 伙伴界面控制器
 // 底层是 MIT 许可的 mineflayer（主进程运行），这里只做 UI + AI 自动回复
 // ============================================================
-import { getSettings, saveSettings } from './settings.js';
+import { getSettings, saveSettings, hasApiKey } from './settings.js';
 import { state } from './state.js';
 import { $, toast } from './dom.js';
 import { streamChat } from './llm.js';
@@ -21,9 +21,11 @@ function appendLog(entry) {
   if (!box || !entry) return;
   const line = document.createElement('div');
   line.className = 'mc-line mc-' + (entry.type || 'info');
-  const t = new Date(entry.t || Date.now());
-  const hh = String(t.getHours()).padStart(2, '0');
-  const mm = String(t.getMinutes()).padStart(2, '0');
+  // 别把局部变量叫 t：这里一旦有人加一句 t('...') 就会撞上 i18n 的 t()，
+  // 报错还是那句让人摸不着头脑的「t is not a function」。
+  const when = new Date(entry.t || Date.now());
+  const hh = String(when.getHours()).padStart(2, '0');
+  const mm = String(when.getMinutes()).padStart(2, '0');
   const ts = document.createElement('span');
   ts.className = 'mc-ts';
   ts.textContent = hh + ':' + mm;
@@ -73,7 +75,7 @@ function parseChatLine(text) {
 
 async function replyTo(player, message) {
   if (replying) return;
-  if (!getSettings().llm.apiKey) { appendLog({ type: 'error', text: t('mc.needKey') }); return; }
+  if (!hasApiKey('llm')) { appendLog({ type: 'error', text: t('mc.needKey') }); return; }
   replying = true;
   appendLog({ type: 'info', text: t('mc.thinking', { name: player }) });
   try {
