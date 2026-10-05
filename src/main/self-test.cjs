@@ -44,18 +44,24 @@ const {
 } = settings;
 const { modelsDir: MODELS_DIR, charactersDir: CHARACTERS_DIR, scanModels } = models;
 const { userDataDir: USER_DATA_DIR } = opts;
-const overlayHit = overlay.getHit;
-const overlayIgnoring = overlay.getIgnoring;
-const overlayInteractive = overlay.getInteractive;
-const overlayModel = overlay.getModel;
-const overlayWatch = overlay.getWatch;
-const overlayDrag = overlay.getDrag;
+// 注意：这些是 main.js 注入进来的**取值函数**（getter），用的时候必须调用！
+// 曾经这里把它们当值用（rep.hitArea = overlayHit），于是
+//   · JSON.stringify 把函数整个丢掉 → 报告里字段直接消失；
+//   · `overlayHit.w > 20` 永远 false → 热区断言永远失败；
+//   · `!!overlayWatch` 永远 true → 假绿灯。
+// 一条 `overlayDrag = ...` 的赋值还会直接抛 TypeError，把整个展台自检打死。
+const getOverlayHit = overlay.getHit;
+const getOverlayIgnoring = overlay.getIgnoring;
+const getOverlayInteractive = overlay.getInteractive;
+const getOverlayModel = overlay.getModel;
+const getOverlayWatch = overlay.getWatch;
+const getOverlayExpectedSize = overlay.getExpectedSize;
+const getOverlayIgnoreRequests = overlay.getIgnoreRequests;
 const overlayCursorInHit = overlay.getCursorInHit;
 const overlayShouldCapture = overlay.getShouldCapture;
 const overlaySettings = overlay.getSettings;
-const overlayExpectedSize = overlay.getExpectedSize;
-const overlayProgrammaticUntil = overlay.getProgrammaticUntil;
-const overlayIgnoreRequests = overlay.getIgnoreRequests;
+const setProgrammaticUntil = overlay.setProgrammaticUntil;
+const setOverlayDrag = overlay.setDrag;
 const applyOverlayBounds = overlay.applyBounds;
 const createOverlayWindow = overlay.createWindow;
 const destroyOverlayWindow = overlay.destroyWindow;
@@ -725,15 +731,31 @@ win.webContents.on('did-finish-load', () => {
           rep.visible = w.isVisible();
           rep.title = w.getTitle();
           rep.bounds = w.getBounds();
-          rep.hitArea = overlayHit;
-          rep.ignoringByDefault = overlayIgnoring;
-          rep.interactiveMode = overlayInteractive;
+          rep.hitArea = getOverlayHit();
+          rep.ignoringByDefault = getOverlayIgnoring();
+          rep.interactiveMode = getOverlayInteractive();
           rep.cursorInHit = overlayCursorInHit();
-          rep.hitAreaSizeOk = !!(overlayHit && overlayHit.w > 20 && overlayHit.h > 10);
-          rep.watchRunning = !!overlayWatch;
+          rep.hitAreaSizeOk = !!((function () { const h = getOverlayHit(); return h && h.w > 20 && h.h > 10; })());
+          // 热区为空时到底是「渲染层没上报」还是「上报了但被参数校验拒了」——
+          // 这两种在报告里长得一模一样，各错查一次太亏，直接把原因探出来。
+          if (!rep.hitAreaSizeOk) {
+            try {
+              rep.hitAreaDiag = await w.webContents.executeJavaScript('(async function(){'
+                + ' var t = document.getElementById("ov-tools");'
+                + ' var r = t ? t.getBoundingClientRect() : null;'
+                + ' var cs = t ? getComputedStyle(t) : null;'
+                + ' var out = { hasTools: !!t, rect: r ? [r.left, r.top, r.width, r.height] : null,'
+                + '   display: cs ? cs.display : null, opacity: cs ? cs.opacity : null,'
+                + '   hasApi: !!(window.api && window.api.overlaySetHitArea), callOk: null, callErr: null };'
+                + ' try { await window.api.overlaySetHitArea({ x: 1, y: 1, w: 50, h: 30 }); out.callOk = true; }'
+                + ' catch (e) { out.callOk = false; out.callErr = String((e && e.message) || e); }'
+                + ' return out; })()');
+            } catch (err) { rep.hitAreaDiag = { error: String((err && err.message) || err) }; }
+          }
+          rep.watchRunning = !!getOverlayWatch();
           rep.shouldCapture = overlayShouldCapture();
-          rep.rendererIgnoreRequests = overlayIgnoreRequests;
-          rep.modelSynced = !!overlayModel;
+          rep.rendererIgnoreRequests = getOverlayIgnoreRequests();
+          rep.modelSynced = !!getOverlayModel();
           try {
             rep.toolsExists = await w.webContents.executeJavaScript('!!document.getElementById("ov-tools")');
             rep.gripExists = await w.webContents.executeJavaScript('!!document.getElementById("ov-grip")');
@@ -755,18 +777,19 @@ win.webContents.on('did-finish-load', () => {
               b0: [b0.width, b0.height],
               b1: [b1.width, b1.height],
               want: [b0.width + 40, b0.height + 64],
-              expected: overlayExpectedSize ? [overlayExpectedSize.width, overlayExpectedSize.height] : null,
+              expected: (function () { const e = getOverlayExpectedSize(); return e ? [e.width, e.height] : null; })(),
               persisted: [overlaySettings().width, overlaySettings().height],
             };
             rep.userResizable = w.isResizable();
             // 关键不变量：交互热区必须离窗口边缘足够远
-            rep.hitMarginRight = overlayHit ? Math.round(b1.width - (overlayHit.x + overlayHit.w)) : -1;
-            rep.hitMarginBottom = overlayHit ? Math.round(b1.height - (overlayHit.y + overlayHit.h)) : -1;
+            const hitNow = getOverlayHit();
+            rep.hitMarginRight = hitNow ? Math.round(b1.width - (hitNow.x + hitNow.w)) : -1;
+            rep.hitMarginBottom = hitNow ? Math.round(b1.height - (hitNow.y + hitNow.h)) : -1;
             // 改完尺寸后必须仍然是穿透的（setResizable 会重置 Windows 窗口样式）
-            rep.ignoringAfterResize = overlayIgnoring;
+            rep.ignoringAfterResize = getOverlayIgnoring();
             // ② 模拟系统把窗口意外放大（Aero Snap / 拖动越界），兜底必须把它弹回去
             const beforeGuard = w.getBounds();
-            overlayProgrammaticUntil = 0;
+            if (typeof setProgrammaticUntil === 'function') setProgrammaticUntil(0);
             w.setBounds({ x: beforeGuard.x, y: beforeGuard.y, width: beforeGuard.width + 300, height: beforeGuard.height + 200 });
             await new Promise((r) => setTimeout(r, 1300));
             const afterGuard = w.getBounds();
@@ -775,13 +798,13 @@ win.webContents.on('did-finish-load', () => {
             await applyOverlayBounds(b0);
           } catch (err) { rep.errors.push('resize: ' + String((err && err.message) || err)); }
           const before = w.getBounds();
-          overlayDrag = { dx: 10, dy: 10 };
+          if (typeof setOverlayDrag === 'function') setOverlayDrag({ dx: 10, dy: 10 });
           w.setPosition(before.x - 60, before.y - 40);
           const after = w.getBounds();
           rep.moved = after.x !== before.x || after.y !== before.y;
           // 移动/拖拽之后也必须仍然是穿透的
-          rep.ignoringAfterMove = overlayIgnoring;
-          overlayDrag = null;
+          rep.ignoringAfterMove = getOverlayIgnoring();
+          if (typeof setOverlayDrag === 'function') setOverlayDrag(null);
           // 自检改过尺寸，把持久化值复位成创建时的尺寸，避免跑多轮后越漂越大
           if (rep.bounds) {
             try { writeSettings({ overlay: { width: rep.bounds.width, height: rep.bounds.height } }); } catch (err) { /* ignore */ }

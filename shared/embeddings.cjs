@@ -188,8 +188,12 @@ function createEmbedder(opts = {}) {
     if (!list.length) return [];
     const cfg = getConfig() || {};
     const enabled = cfg.enabled !== false;
+    // embedFn = **宿主代发**（渲染层 → 主进程）。这种情况下密钥在宿主那一侧，
+    // 渲染层本来就不该拿到 apiKey —— 所以不能再要求 cfg.apiKey，否则渲染层永远
+    // 走不到远端，检索会静默退化成本地词频向量（设置页看起来一切正常，最难查）。
+    const hostSends = !!embedFn;
     // 没有 embedFn 也没有 fetchImpl 时不报错，直接走本地 —— 离线可用是硬要求
-    if (!enabled || !cfg.baseUrl || !cfg.apiKey || (!embedFn && !fetchImpl)) {
+    if (!enabled || !cfg.baseUrl || (!hostSends && !cfg.apiKey) || (!embedFn && !fetchImpl)) {
       return goLocal(list, enabled ? 'no-config' : 'disabled');
     }
     try {

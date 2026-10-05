@@ -13,11 +13,14 @@ const { KEY_WHITELIST } = require('./desktop-input.cjs');
 const KEY = v.oneOf(KEY_WHITELIST);
 
 const SETTINGS = v.object({}, { allowUnknown: true });   // 设置很宽，逐字段归一化在 normalizeSettings 里做
+// 字段名必须和**渲染层真正发的**一致：src/overlay.js 发的是 { x, y, w, h }
+// （主进程处理器读的也是 w/h）。曾经这里写成 width/height，于是每一条热区上报都被
+// 参数校验拒掉 —— 热区永远为 null，展台就不再鼠标穿透，直接挡住整个桌面。
 const OVERLAY_RECT = v.object({
-  x: v.num({ dflt: 0 }),
-  y: v.num({ dflt: 0 }),
-  width: v.num({ min: 1, max: 20000, dflt: 1 }),
-  height: v.num({ min: 1, max: 20000, dflt: 1 }),
+  x: v.num({ min: -20000, max: 20000, dflt: 0 }),
+  y: v.num({ min: -20000, max: 20000, dflt: 0 }),
+  w: v.num({ min: 0, max: 20000, dflt: 0 }),
+  h: v.num({ min: 0, max: 20000, dflt: 0 }),
 }, { allowUnknown: false });
 
 const CHANNELS = {

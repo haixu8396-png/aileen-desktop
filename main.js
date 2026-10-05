@@ -815,11 +815,15 @@ function selfTestDeps() {
       getModel: () => overlayModel,
       getWatch: () => overlayWatch,
       getDrag: () => overlayDrag,
+      // 自检要模拟一次拖动：这些状态只能通过 setter 改（取值函数是 const 绑定）
+      setDrag: (v) => { overlayDrag = v || null; },
       getCursorInHit: () => overlayCursorInHit(),
       getShouldCapture: () => overlayShouldCapture(),
       getSettings: () => overlaySettings(),
       getExpectedSize: () => overlayExpectedSize,
       getProgrammaticUntil: () => overlayProgrammaticUntil,
+      // 自检需要把「程序化 resize 窗口」清零，好让下一步的放大被当成用户行为（验兜底弹回）
+      setProgrammaticUntil: (v) => { overlayProgrammaticUntil = Number(v) || 0; },
       getIgnoreRequests: () => overlayIgnoreRequests,
       applyBounds: (next) => applyOverlayBounds(next),
       createWindow: () => createOverlayWindow(),
