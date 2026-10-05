@@ -45,6 +45,9 @@ jobs:
           AILEEN_DATA_DIR: '${{ github.workspace }}\.ci-data'
           AILEEN_SELFTEST_DIR: '${{ github.workspace }}\.ci-data\selftest'
         run: |
+          # 门禁失败时把原因写成 ::error 注解 —— 否则日志要登录才看得到，
+          # 而注解走 API 就能读（自检失败最耗时间的就是「只知道挂了不知道为什么」）
+          trap { Write-Host "::error title=AILEEN 自检::$($_.Exception.Message)"; exit 1 }
           npx electron .
           $path = '${{ github.workspace }}\.ci-data\selftest\shot.json'
           if (!(Test-Path $path)) { throw '自检未生成诊断文件（应用可能启动失败）' }
@@ -80,6 +83,7 @@ jobs:
           if (-not $diag.agentOk) { throw ('Agent 面板不可用（入口/控件/审批卡片）→ ' + ($diag.agentDetail | ConvertTo-Json -Compress)) }
           if (-not $diag.dashOk) { throw ('Agent Dashboard 或角色人格保留断言失败 → ' + ($diag.dashDetail | ConvertTo-Json -Compress)) }
           if (-not $diag.toggleOk) { throw ('电脑控制开关没有立刻切到控制模式 → ' + ($diag.toggleDetail | ConvertTo-Json -Compress)) }
+          if (-not $diag.memoryOk) { throw ('记忆库真机往返失败（store:fs 写盘/读回/检索/删除）→ ' + ($diag.memoryProbe | ConvertTo-Json -Compress)) }
           if ($diag.jaMissingKeys -gt 0) { throw ('i18n：日文下仍有 ' + $diag.jaMissingKeys + ' 处回退成了 key') }
           $opath = '${{ github.workspace }}\.ci-data\selftest\overlay.json'
           if (!(Test-Path $opath)) { throw '无边框悬浮展台自检未生成报告' }
@@ -136,6 +140,7 @@ jobs:
           AILEEN_DATA_DIR: '${{ github.workspace }}\.ci-pack'
           AILEEN_SELFTEST_DIR: '${{ github.workspace }}\.ci-pack\selftest'
         run: |
+          trap { Write-Host "::error title=AILEEN 打包自检::$($_.Exception.Message)"; exit 1 }
           $path = '${{ github.workspace }}\.ci-pack\selftest\shot.json'
           $opath = '${{ github.workspace }}\.ci-pack\selftest\overlay.json'
           # GUI 程序用 & 调用不会等待，改为启动后轮询等待自检产物。
@@ -175,6 +180,7 @@ jobs:
           if (-not $diag.agentOk) { throw ('Agent 面板不可用（入口/控件/审批卡片）→ ' + ($diag.agentDetail | ConvertTo-Json -Compress)) }
           if (-not $diag.dashOk) { throw ('Agent Dashboard 或角色人格保留断言失败 → ' + ($diag.dashDetail | ConvertTo-Json -Compress)) }
           if (-not $diag.toggleOk) { throw ('电脑控制开关没有立刻切到控制模式 → ' + ($diag.toggleDetail | ConvertTo-Json -Compress)) }
+          if (-not $diag.memoryOk) { throw ('打包产物里记忆库真机往返失败 → ' + ($diag.memoryProbe | ConvertTo-Json -Compress)) }
           if ($diag.jaMissingKeys -gt 0) { throw ('i18n：日文下仍有 ' + $diag.jaMissingKeys + ' 处回退成了 key') }
           $opath = '${{ github.workspace }}\.ci-pack\selftest\overlay.json'
           if (!(Test-Path $opath)) { throw '无边框悬浮展台自检未生成报告' }
