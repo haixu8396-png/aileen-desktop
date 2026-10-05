@@ -42,12 +42,32 @@ function resolveUserDataDir() {
 }
 try { app.setPath('userData', resolveUserDataDir()); } catch { /* 忽略 */ }
 let USER_DATA_DIR = null;
-let MODELS_DIR = path.join(APP_ROOT, 'models');
-let CHARACTERS_DIR = path.join(APP_ROOT, 'characters');
-let AVATARS_DIR = path.join(CHARACTERS_DIR, 'avatars');
-let DATA_DIR = path.join(APP_ROOT, 'data');
-let CHATS_DIR = path.join(DATA_DIR, 'chats');
-let SETTINGS_FILE = path.join(DATA_DIR, 'settings.json');
+let MODELS_DIR = null;
+let CHARACTERS_DIR = null;
+let AVATARS_DIR = null;
+let DATA_DIR = null;
+let CHATS_DIR = null;
+let SETTINGS_FILE = null;
+
+/**
+ * 把六个数据路径一次性算好。
+ *
+ * **必须在模块加载期就调一次**：settingsStore 是模块加载期建的，它把 settingsFile
+ * 按值存了下来。赋值只放在 whenReady 里的话，store 永远拿着初始值 —— 打包后那是
+ * app.asar 里的路径（写设置必然失败），开发时则会悄悄把设置写进源码目录；CI 用全新
+ * checkout，`data/` 不存在，于是「保存设置」直接 ENOENT，2026-10-06 的发布门禁就是
+ * 被这条挂掉的（本地因为 `data/` 恰好存在，一直没暴露）。
+ */
+function applyDataDirs(dir) {
+  USER_DATA_DIR = dir;
+  MODELS_DIR = path.join(dir, 'models');
+  CHARACTERS_DIR = path.join(dir, 'characters');
+  AVATARS_DIR = path.join(CHARACTERS_DIR, 'avatars');
+  DATA_DIR = path.join(dir, 'data');
+  CHATS_DIR = path.join(DATA_DIR, 'chats');
+  SETTINGS_FILE = path.join(DATA_DIR, 'settings.json');
+}
+applyDataDirs(app.getPath('userData'));
 
 // ------------------------------------------------------------
 // 默认设置
@@ -1037,7 +1057,7 @@ function registerIpc() {
     const win = BrowserWindow.getFocusedWindow() || BrowserWindow.getAllWindows()[0];
     const result = await dialog.showSaveDialog(win, {
       title: '导出角色卡',
-      defaultPath: path.join(APP_ROOT, 'characters', (data && data.name ? data.name : 'character') + '.json'),
+      defaultPath: path.join(CHARACTERS_DIR, (data && data.name ? data.name : 'character') + '.json'),
       filters: [{ name: '角色卡 JSON', extensions: ['json'] }],
     });
     if (result.canceled || !result.filePath) return null;
@@ -1199,26 +1219,14 @@ function registerIpc() {
 // 启动
 // ------------------------------------------------------------
 app.whenReady().then(async () => {
-  USER_DATA_DIR = app.getPath('userData');
-  MODELS_DIR = path.join(USER_DATA_DIR, 'models');
-  CHARACTERS_DIR = path.join(USER_DATA_DIR, 'characters');
-  AVATARS_DIR = path.join(CHARACTERS_DIR, 'avatars');
-  DATA_DIR = path.join(USER_DATA_DIR, 'data');
-  CHATS_DIR = path.join(DATA_DIR, 'chats');
-  SETTINGS_FILE = path.join(DATA_DIR, 'settings.json');
+  applyDataDirs(app.getPath('userData'));
   try {
     ensureDirs();
   } catch (err) {
     // D 盘不可用时回退到默认用户目录
     console.error('[data] 无法使用 ' + USER_DATA_DIR + '，回退到默认目录：', err);
     app.setPath('userData', DEFAULT_USER_DATA);
-    USER_DATA_DIR = app.getPath('userData');
-    MODELS_DIR = path.join(USER_DATA_DIR, 'models');
-    CHARACTERS_DIR = path.join(USER_DATA_DIR, 'characters');
-    AVATARS_DIR = path.join(CHARACTERS_DIR, 'avatars');
-    DATA_DIR = path.join(USER_DATA_DIR, 'data');
-    CHATS_DIR = path.join(DATA_DIR, 'chats');
-    SETTINGS_FILE = path.join(DATA_DIR, 'settings.json');
+    applyDataDirs(app.getPath('userData'));
     ensureDirs();
   }
   migrateLegacyData();
