@@ -26,6 +26,7 @@
       "preload.js",
       "mc-bot.cjs",
       "shared/**/*",
+      "src/main/**/*",
       "dist/**/*",
       "package.json",
       "node_modules/**/*",
