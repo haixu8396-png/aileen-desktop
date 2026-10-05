@@ -252,11 +252,17 @@ jobs:
             release/*.zip
           if-no-files-found: error
 
+      - name: Generate release notes from CHANGELOG
+        shell: pwsh
+        run: node scripts/release-notes.mjs '${{ github.ref_name }}' .release-body.md
+
       - name: Publish to GitHub Release
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
+          # 说明文字从 CHANGELOG 生成（新功能 + 下载表 + 协议）。
+          # 不用 generate_release_notes：它只列提交标题，等于没写。
+          body_path: .release-body.md
           files: |
             release/*.exe
             release/*.zip
-          generate_release_notes: true

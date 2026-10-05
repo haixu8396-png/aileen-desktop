@@ -4,3 +4,4 @@ release/
 data/
 characters/
 models/
+.release-body.md
