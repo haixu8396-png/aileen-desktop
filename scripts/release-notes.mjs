@@ -47,7 +47,8 @@ const zip = `AILEEN-v${version}-full-source.zip`;
 
 const parts = [];
 if (section) {
-  parts.push(section);
+  // Release 页面用版本号当大标题，正文里也补一个，单独看这段文字时不至于没头没尾
+  parts.push(`# AILEEN ${version}\n\n${section}`);
 } else {
   parts.push(`# AILEEN ${version}\n\n> 这一版的逐条改动见 [CHANGELOG.md](https://github.com/${repo}/blob/main/CHANGELOG.md)。`);
 }
