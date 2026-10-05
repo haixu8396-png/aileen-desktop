@@ -36,6 +36,9 @@ import {
   openEmbeddingModal, saveEmbeddingModal, fetchEmbeddingModels, testEmbedding,
 } from './lib/modals.js';
 import { startVoiceLoop, stopVoiceLoop } from './lib/voice.js';
+import { createMemoryEngine } from './memory/engine.js';
+import { createMemoryEmbedder } from './memory/embeddings.js';
+import { createMemoryFsBridge } from './lib/memory-host.js';
 import { openMcModal, bindMc } from './lib/minecraft.js';
 import { createMarkerParser } from './lib/marker-parser.js';
 import { createReplyPacer } from './lib/reply-pacer.js';
@@ -758,6 +761,62 @@ window.__AILEEN_FILL_CHAT = () => {
   }
   box.scrollTop = 0;
   return true;
+};
+
+// 自检钩子：记忆库真机往返（渲染层 → store:fs → 主进程写盘 → 读回 → 检索 → 删掉）。
+// 单测用的都是内存 fs，这条是唯一能证明「真机上真的能存能取能删」的路。
+// 用一份**独立的探针文件**，绝不碰用户自己的记忆库。
+window.__AILEEN_MEMORY_PROBE = async () => {
+  const out = {
+    ok: false, freshNotCorrupted: false, wrote: false, loadedBack: false,
+    recalled: false, deleted: false, cleaned: false, mode: null, error: null,
+  };
+  const probePath = '__selftest-probe.json';
+  const text = 'PROBE-' + Date.now() + '-记得我喜欢在晚上写代码';
+  const makeEngine = (p) => createMemoryEngine({
+    fs: createMemoryFsBridge(),
+    filePath: p,
+    // 本地向量就够验证链路了，不去打用户的嵌入接口
+    embedder: createMemoryEmbedder({ localOnly: true }),
+    logger: () => {},
+  });
+  try {
+    // ① 全新用户第一次打开：文件不存在必须算「空库、正常」，不能报损坏
+    const missing = makeEngine('__selftest-missing.json');
+    const st0 = await missing.stats();
+    out.freshNotCorrupted = st0.corrupted === false && !st0.loadError;
+
+    // ② 写一条并落盘
+    const engine = makeEngine(probePath);
+    const rec = await engine.remember({ content: text, type: 'fact', importance: 0.9 });
+    out.wrote = !!(rec && rec.id);
+    await engine.flush();
+
+    // ③ 换一个**全新的引擎实例**去读同一个文件 —— 这才叫真的落盘了，
+    //    只信同一个引擎内存里那份记录等于什么都没验证
+    const reader = makeEngine(probePath);
+    const back = await reader.allRecords().catch(() => []);
+    out.loadedBack = (back || []).some((r) => String(r.content || '').includes(text));
+
+    const found = await reader.search(text, { k: 3, budgetTokens: 400, minRelevance: 0 });
+    out.recalled = (found || []).some((r) => String(r.content || '').includes(text));
+    out.mode = ((await reader.stats().catch(() => null)) || {}).embeddingMode || null;
+
+    await engine.forget(rec.id);
+    await engine.flush();
+    const gone = await engine.get(rec.id).catch(() => null);
+    out.deleted = !!(gone && gone.status === 'deleted');
+
+    // ④ 探针文件用完就删，不在用户数据目录里留垃圾
+    await window.api.storeFs({ op: 'remove', root: 'memory', path: probePath });
+    const chk = await window.api.storeFs({ op: 'exists', root: 'memory', path: probePath });
+    out.cleaned = !(chk && chk.exists);
+    out.ok = out.freshNotCorrupted && out.wrote && out.loadedBack
+      && out.recalled && out.deleted && out.cleaned;
+  } catch (err) {
+    out.error = String((err && err.message) || err);
+  }
+  return out;
 };
 
 // 自检钩子：按名字打开某个界面（截图核对排版用）

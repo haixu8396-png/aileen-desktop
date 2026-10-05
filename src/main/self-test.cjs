@@ -525,6 +525,17 @@ win.webContents.on('did-finish-load', () => {
           const sr = await window.api.captureScreen();
           screenSources = Array.isArray(sr) ? sr.length : (sr && sr.error ? 'ERR:' + sr.error : 'none');
         } catch (err) { screenSources = 'EXC:' + String(err && err.message || err); }
+        // 记忆库真机往返：写一条 → 落盘读回 → 检索到 → 删掉。
+        // 单测全是内存 fs，只有这条能证明 store:fs 与向量链路在真机上真的通。
+        let memoryProbe = null;
+        try {
+          memoryProbe = typeof window.__AILEEN_MEMORY_PROBE === 'function'
+            ? await window.__AILEEN_MEMORY_PROBE()
+            : { ok: false, error: '探针未挂载' };
+        } catch (err) {
+          memoryProbe = { ok: false, error: String((err && err.message) || err) };
+        }
+        const memoryOk = !!(memoryProbe && memoryProbe.ok === true);
         return {
           title: document.title,
           chatName: (document.getElementById('chat-name') || {}).textContent || '',
@@ -601,6 +612,8 @@ win.webContents.on('did-finish-load', () => {
           modalsExist,
           datalistLlm,
           screenSources,
+          memoryOk,
+          memoryProbe,
           errors: (window.__AILEEN_ERRORS || []).slice(0, 10),
           modelReady: typeof window.__AILEEN_MODEL_READY === 'function' ? !!window.__AILEEN_MODEL_READY() : 'n/a',
         };

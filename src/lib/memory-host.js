@@ -23,6 +23,19 @@ const ROOT_MEMORY = 'memory';
 const ROOT_KNOWLEDGE = 'knowledge';
 
 /**
+ * 「文件不存在」必须带上 `code: 'ENOENT'`。
+ *
+ * 记忆库是靠这个 code 区分「首次运行、空库、正常」和「文件真的坏了」的
+ * （见 memory/store.js 的 load）。走 IPC 桥时如果只抛一个光秃秃的 Error，
+ * 新用户第一次打开就会被判成 corrupted + 记一条载入异常 —— 真机自测抓到过。
+ */
+function missingFile(p) {
+  const err = new Error('文件不存在：' + p);
+  err.code = 'ENOENT';
+  return err;
+}
+
+/**
  * 把 `store:fs` 包成 memory 的 store 要的形状。
  * 方法名按引擎的 FS_METHODS（readFile/writeFile/mkdir/rename/exists）——
  * 接口不匹配会在建仓时就抛「缺少方法」，比运行时莫名失败好查得多。
@@ -32,7 +45,7 @@ export function createMemoryFsBridge() {
   return {
     async readFile(p) {
       const res = await call('readText', p);
-      if (res && res.missing) throw new Error('文件不存在：' + p);
+      if (res && res.missing) throw missingFile(p);
       return res.text;
     },
     async writeFile(p, text) {
@@ -63,12 +76,12 @@ export function createKnowledgeFsBridge() {
   return {
     async readText(p) {
       const res = await call('readText', p);
-      if (res && res.missing) throw new Error('文件不存在：' + p);
+      if (res && res.missing) throw missingFile(p);
       return res.text;
     },
     async readBytes(p) {
       const res = await call('readBytes', p);
-      if (res && res.missing) throw new Error('文件不存在：' + p);
+      if (res && res.missing) throw missingFile(p);
       return bytesToBase64(res.base64);
     },
     async writeText(p, text) {
@@ -172,11 +185,13 @@ export function ensureEngines() {
     const fallbackLog = (msg) => console.warn('[memory]', msg);
     if (!memoryEngine) {
       const charId = perChar ? charFile : 'default';
+      // 角色文件名本身就带 .json（例如 svdb.json），直接拼会得到 memory-svdb.json.json
+      const safeId = String(charId).replace(/\.json$/i, '').replace(/[^\w.-]+/g, '_') || 'default';
       engineCharFile = charFile;
       memoryEngine = createMemoryEngine({
         fs: createMemoryFsBridge(),
         // 每个角色一份记忆：换角色不会把另一个人的事记到这个人头上
-        filePath: 'memory-' + String(charId).replace(/[^\w.-]+/g, '_') + '.json',
+        filePath: 'memory-' + safeId + '.json',
         embedder: getEmbedder(fallbackLog),
         logger: fallbackLog,
       });
