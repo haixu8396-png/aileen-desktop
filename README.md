@@ -25,8 +25,8 @@
 <p align="center">
   <a href="./LICENSE"><img src="https://img.shields.io/badge/license-PolyForm%20Noncommercial%201.0.0-ff7eb3.svg"></a>
   <a href="../../releases"><img src="https://img.shields.io/github/downloads/haixu8396-png/aileen-desktop/total?color=38b0de"></a>
-  <a href="#install"><img src="https://img.shields.io/badge/platform-Windows-9aa0b4.svg"></a>
-  <a href="#interface--languages"><img src="https://img.shields.io/badge/languages-English%20%C2%B7%20日本語%20%C2%B7%20简体中文-a78bfa.svg"></a>
+  <a href="#getting-started"><img src="https://img.shields.io/badge/platform-Windows-9aa0b4.svg"></a>
+  <a href="#interface-and-languages"><img src="https://img.shields.io/badge/languages-English%20%C2%B7%20日本語%20%C2%B7%20简体中文-a78bfa.svg"></a>
 </p>
 
 <p align="center">
@@ -59,95 +59,121 @@ AILEEN is under active development. The goal is an integrated desktop environmen
 > [!NOTE]
 > Everything stays on your machine: API keys, conversations, character cards and models are never uploaded, and no account is required.
 
-## Why we did it this way
+## Features
 
-**Because a character is a person, not a preset.** Every card carries its own name, portrait, personality, scenario, greeting and example dialogue. Point two cards at the same model and you get two people who happen to share a brain. The prompt is built from *your* card — and we mean all of it: if you wrote a custom system prompt, that wins outright.
+### AI conversation and character system
 
-**Because the character should not stop being themselves outside the chat box.** It would have been easy to give Minecraft and chess their own throwaway prompts. We made them reuse the exact same personality instead, so the character who teases you in chat is the character who teases you in-game.
+Bring the model you already use — DeepSeek, OpenAI, Moonshot, SiliconFlow, Groq, Zhipu, Alibaba Bailian, Xiaomi MiMo, OpenRouter — or run the whole stack offline with a local Ollama.
 
-**Because a desktop pet that eats your clicks is worse than no desktop pet.** The floating stage is click-through by default. It is the first thing we test, and it is the thing we have broken and re-fixed the most times.
+Every character is defined by a card carrying its own name, portrait, personality, scenario, greeting and example dialogue. Two cards pointed at the same model produce two distinct characters. The prompt is built from the card in full: a custom system prompt, if present, takes precedence.
 
-**Because we wanted to read the source too.** No minified vendor blob, no hidden service. If something behaves strangely, the whole thing is a few thousand lines you can actually open.
+**Character card generation.** Name an existing character, or supply a single line of inspiration, and AILEEN drafts the card fields for you. The result is an editable draft, not an opaque preset.
 
-## Give it a body
+### Speech input and output
 
-Drop in any Live2D model — Cubism 2, 3 or 4 — and it becomes the face of your companion. It idles, breathes, plays motions, changes expressions, and moves its mouth while it talks.
+Press the microphone and speak: the reply is spoken aloud and listening continues, so a conversation can run back and forth rather than requiring push-to-talk. One-shot voice input is also available when you would rather type.
 
-You can import a model folder, or just paste a URL to a `model3.json` and let it live there.
+Four speech engines cover the credentials you may already hold: the system voice (offline and free), any OpenAI-compatible endpoint, Fish Audio for voice cloning, and Xiaomi MiMo. Chinese, English, Japanese and Spanish are supported throughout.
 
-> [!TIP]
-> Adding a Live2D model is a two-click affair: **Settings → 🎀 Live2D Model Settings → 📁 Import from folder**. The stage panel has the same buttons if you would rather not open a dialog.
+### Long-term memory and knowledge base
 
-## Give it a voice
+Conversations are distilled into memories that are stored locally and recalled when they are relevant, instead of replaying the entire transcript.
 
-Press the mic and speak. It answers out loud, then keeps listening — leave it running and you get a real back-and-forth conversation, not a push-to-talk walkie-talkie. If you would rather type, one-shot voice input is there too.
+**Knowledge base.** Text, Markdown, HTML, JSON and PDF files can be added. They are chunked and stored locally, and the passages matching the current conversation are included in the request. PDF parsing is implemented in this repository — no additional dependency was added to read documents.
 
-Four speech engines, so you can pick whatever you already have keys for: your system voice (offline and free), anything OpenAI-compatible, Fish Audio if you want to clone a voice, or Xiaomi MiMo. Chinese, English, Japanese and Spanish throughout.
+Both use a small **embedding model** configured in **Settings → 🧠 Memory & Knowledge** (OpenAI, SiliconFlow, Alibaba Bailian, Zhipu, a local Ollama, or any compatible endpoint), so retrieval works by meaning rather than by keyword. Without an embedding model, retrieval falls back to keyword matching and remains fully offline.
 
-## Give it a mind
-
-Bring the model you already pay for — DeepSeek, OpenAI, Moonshot, SiliconFlow, Groq, Zhipu, Alibaba Bailian, Xiaomi MiMo, OpenRouter. Or keep the whole thing offline with a local Ollama.
-
-There is no AILEEN account and no AILEEN server. Your key goes straight from your machine to your provider.
-
-## Give it eyes
-
-Hand it a screenshot of any window or monitor and ask what it thinks. We use it for reading stack traces, for glancing at charts, and — more often than we planned — for complaining about a boss fight together.
-
-> [!IMPORTANT]
-> Screen vision needs a multimodal model. `qwen-vl-plus`, `gpt-4o`, `glm-4v` and `MiMo-VL` all work; a text-only model will politely ignore the picture.
-
-## Then let it out of the chat box
-
-**Minecraft.** Your character joins a Java server as a bot. It follows you around, takes manual steering when you want to drive, chats in the server chat, and — with auto-reply on — answers other players in its own voice and personality. Watching it try to pathfind up a hill after you is unreasonably funny, and we are not going to pretend otherwise.
-
-**Chess.** Five difficulty levels, play as white or black, undo, flip the board, and let your character comment on the position while you think. It is the cheapest way to give a companion something to have opinions about.
-
-## And it remembers
-
-Your character keeps a memory of what happened between you — not the whole transcript replayed forever, but the parts that mattered, brought back when they are relevant. Say something once and you should not have to say it again.
-
-**Knowledge base.** Drop in your own files — text, Markdown, HTML, JSON, PDF — and they get chunked, stored locally, and the passages that matter are pulled into the conversation. The PDF reading is written from scratch; nothing extra was installed to read your documents.
-
-Both run on a small **embedding model** you pick in Settings → 🧠 Memory & Knowledge (OpenAI, SiliconFlow, Alibaba Bailian, Zhipu, a local Ollama, or any compatible endpoint), so retrieval works **by meaning** rather than by keyword. No embedding model configured? It still works — retrieval falls back to keyword matching, entirely offline.
-
-What is remembered stays on your machine, in the same data folder as everything else, and only the two folders that belong to it are writable.
+Memory and knowledge data live in the application data folder, and only the two folders belonging to them are writable.
 
 > [!NOTE]
-> The embedding key is treated like every other key in the app: the page never sees it. The request goes out from the main process, and the renderer only gets a boolean saying "a key is set".
+> The embedding key is handled like every other key in the application: the interface never sees it. Requests are issued by the main process, and the renderer only receives a boolean indicating that a key is configured.
 
-## And then let it actually *do* things
+### Agent and tool calling
 
-Everything so far happens inside the app. This is the part where it steps out and uses the computer.
+Enable **🖥 Computer control** in the sidebar. The normal chat box remains the entry point: you keep talking as before, and the agent decides when a tool is required, executes it and reports the result.
 
-Flip on **🖥 Computer control** in the sidebar and the ordinary chat box becomes the entry point — you keep talking to your character exactly as before. The difference is that it can now go and do the thing instead of telling you how:
-
-> **You:** open the browser and look up AILEEN for me
->
-> **AILEEN:** Sure — let me take a look.
->
-> *the stage on the right turns into a control dashboard, and it starts working*
-
-It reads and edits files, runs commands, checks git, reads the screen, moves the mouse, types, opens apps, and switches windows. Then it reports back **in its own voice** — the same character, the same way of talking. Not a robot saying "Task completed successfully."
-
-**Nothing happens without your say-so.** Reading is free; anything that touches the machine — moving the mouse, typing, running a command, opening a program — stops and asks first, every time. That "must ask" cannot be turned off in settings, deliberately.
+Permissions are enforced in three risk levels. Reading is unrestricted; any operation that touches the machine asks for approval every time, and that requirement deliberately cannot be disabled in settings.
 
 > [!IMPORTANT]
-> While it is working, the right-hand stage becomes the **Agent Control Dashboard**: the task, the current step, a timestamped operation log, every tool call, the screen it captured, and the approval buttons. Your chat stays your chat — the tool logs never get stuffed into the message bubbles.
+> While a task is running, the right-hand stage becomes the **Agent Control Dashboard**: the task, the current step, a timestamped operation log, every tool call, the captured screen and the approval buttons. Tool logs are never inserted into chat bubbles.
 
 > [!NOTE]
-> If the character has a personality, the agent keeps it. The character prompt is always the first thing the model sees, whether it is chatting, playing chess, or operating the desktop. It is not allowed to quietly become a generic coding assistant when it picks up tools — there is a hard check that aborts the run if the persona goes missing.
+> The character's persona is preserved. The first segment of the system prompt is always the character card, whether the character is chatting, playing chess or operating the desktop; a hard check aborts the run if the persona is missing.
 
-## And off the leash of the window
+### Computer interaction
 
-The floating stage lifts your character out of the app and onto your desktop: a frameless, transparent, always-on-top window containing nothing but them.
+The available tools read and edit files, run whitelisted commands, inspect git state, capture the screen, move the mouse, type, launch applications and switch windows. When a task finishes, the result is reported back in the character's own voice rather than as a generic completion message.
 
-It is **click-through by default**. Whatever is underneath keeps every click. The little handle only appears when you reach for it and fades again when you stop, so there is nothing on your screen you did not ask for.
+Everything the agent touches is bounded by a workspace rule (paths outside it are rejected) and by the approval step described above.
+
+### Visual character
+
+Any Live2D model — Cubism 2, 3 or 4 — can be used as the character: idle animation, breathing, motions, expressions and mouth movement while speaking. Import a model folder, or paste the URL of a `model3.json` file.
 
 > [!TIP]
-> `Ctrl+Shift+S` (or **Stage → Show / Hide Borderless Stage** in the menu) toggles it from anywhere. Drag it, resize it, resize it smaller with the `−` button, or reset it to the corner from the menu — positions and size are remembered.
+> Adding a model takes two clicks: **Settings → 🎀 Live2D Model Settings → 📁 Import from folder**. The stage panel exposes the same buttons.
 
-## Install
+### Floating stage
+
+The floating stage places the character on the desktop in a frameless, transparent, always-on-top window. It is **click-through by default**, so windows underneath keep every click; the handle appears only while the pointer is near it.
+
+> [!TIP]
+> `Ctrl+Shift+S` (or **Stage → Show / Hide Borderless Stage** in the menu) toggles it. It can be dragged, resized with the `−` / `＋` buttons, or reset to the corner from the menu; position and size are remembered.
+
+### Vision
+
+A screenshot of any window or monitor can be attached together with a question — commonly for reading stack traces or checking charts. Vision requires a multimodal model: `qwen-vl-plus`, `gpt-4o`, `glm-4v` and `MiMo-VL` work; a text-only model will ignore the image.
+
+### Interactive environments
+
+**Minecraft.** The character joins a Java Edition server as a bot: it follows you, accepts manual steering, talks in the server chat, and — with auto-reply enabled — answers other players in its own voice and personality.
+
+**Chess.** Five difficulty levels, either colour, undo, board flip, and character commentary on the position while you think.
+
+## Architecture / Design
+
+### Design notes
+
+- **The card is the single source of the prompt.** Name, portrait, personality, scenario, greeting and example dialogue all come from one card, and a custom system prompt takes precedence over the generated persona.
+- **The same persona is used everywhere.** Minecraft and chess reuse the character's personality rather than introducing separate, throwaway prompts.
+- **The floating stage is click-through by default**, and that behaviour is among the first things the self-test checks.
+- **The source stays readable.** No minified vendor bundle and no hidden service: any behaviour can be traced through this repository.
+- **API keys never reach the renderer.** Requests to model, speech and embedding providers are issued from the main process; the interface receives redacted settings only.
+
+### Project layout
+
+```
+main.js               Electron main process — app lifecycle and wiring
+preload.js            the contextBridge API surface
+mc-bot.cjs            Minecraft bot
+shared/               code shared by the main process, the renderer and the tests
+  ipc-guard.cjs       who is allowed to call IPC
+  ipc-validate.cjs    what they are allowed to pass
+  ipc-schemas.cjs     one validation rule per channel
+  llm.cjs             streaming chat core (API keys never leave the main process)
+  agent-ipc.cjs       what the agent's tools are allowed to do to your machine
+  embeddings.cjs      embedding math plus the offline fallback
+  store-ipc.cjs       the two folders the memory and knowledge base may write to
+src/
+  main/               main-process modules
+    self-test.cjs     diagnostics — runs only when AILEEN_SELFTEST=1
+    server/           the local static server for models and avatars
+    storage/          settings and API key storage
+  agent/              the agent core: runtime, planner, tools, permissions, executor
+  context/            the shared context engine (prompt layers and token budget)
+  memory/             long-term memory: extraction, storage, retrieval, consolidation
+  knowledge/          local knowledge base: parsing, chunking, retrieval
+  lib/                the interface — state, dom, stage, chat, characters, modals,
+                      voice, minecraft, chess, agent-dashboard, agent-ui, i18n
+  overlay.*           the floating stage window
+tests/                unit / integration / e2e (see tests/README.md)
+```
+
+### Why models are served over HTTP
+
+Models and avatars are served by a small local HTTP server instead of `file://`. This is not a stylistic choice: Live2D's WebAssembly and texture loading do not work from `file://`, and this was the least invasive fix available. The server binds to localhost only and never listens outside your machine.
+
+## Getting Started
 
 Grab the newest build from **[Releases](../../releases)**.
 
@@ -158,14 +184,14 @@ Grab the newest build from **[Releases](../../releases)**.
 
 Windows 10 / 11, 64-bit.
 
-## Interface & languages
+### Interface and languages
 
-The app speaks **English, 日本語 and 简体中文** — translated properly, not partially. It starts in English, and you can change that in a click.
+The app ships in **English, 日本語 and 简体中文** — fully translated, not partially. It starts in English and can be switched in one click.
 
-Switch any time from **Settings → 🌐 Language**, or straight from the native menu (`Alt`). The application menu is localised too, which is the part everyone forgets.
+Change it at any time from **Settings → 🌐 Language**, or from the native menu (`Alt`). The application menu itself is localised as well.
 
 > [!TIP]
-> Want a fourth language? Every string lives in `src/lib/i18n.js` with one JSON file per language, and the whole UI reads from it. Add a file, add a row to `LANGS`, and you are done. Pull requests are genuinely welcome.
+> To add a fourth language: every string lives in `src/lib/i18n.js` with one JSON file per language, and the whole interface reads from it. Add a file, add a row to `LANGS`, and the new language is available. Pull requests are welcome.
 
 ## Development
 
@@ -181,60 +207,34 @@ Node.js 18 or newer. The first run downloads Electron; if that is slow where you
 ```bash
 npm run dist     # installer + portable exe, into release/
 npm test         # unit tests
+npm run lint     # syntax and project-specific boundary rules
 ```
 
-On Windows, `build-installer.bat` does the same thing.
-
-### Project layout
-
-```
-main.js               Electron main process — app lifecycle and wiring
-preload.js            the contextBridge API surface
-mc-bot.cjs            Minecraft bot
-shared/               helpers shared by the main process, the renderer and the tests
-  ipc-guard.cjs       who is allowed to call IPC
-  ipc-validate.cjs    what they are allowed to pass
-  ipc-schemas.cjs     one validation rule per channel
-  llm.cjs             streaming chat core (API keys never leave the main process)
-  agent-ipc.cjs       what the agent's tools are allowed to do to your machine
-src/
-  main/               main-process modules
-    self-test.cjs     diagnostics — runs only when AILEEN_SELFTEST=1
-    server/           the tiny local static server for models and avatars
-  agent/              the agent core: runtime, planner, tools, permissions, executor
-  lib/                the interface — state, dom, stage, chat, characters, modals,
-                      voice, minecraft, chess, agent-dashboard, agent-ui, i18n
-  overlay.*           the floating stage window
-tests/                unit / integration / e2e (see tests/README.md)
-```
-
-### One thing that surprises people
-
-Models and avatars are served over a tiny local HTTP server instead of `file://`. That is not us being fancy — Live2D's WebAssembly and texture loading simply do not work from `file://`, and this was the least invasive fix we found. The server binds to localhost only and never listens outside your machine.
+On Windows, `build-installer.bat` does the same as `npm run dist`.
 
 ## Acknowledgements
 
 ### Standing on
 
-A tribute to **[moeru-ai/Airi](https://github.com/moeru-ai/airi)** — AILEEN would not exist without it. It is the project that made "an open-source AI companion" sound like a real thing rather than a wish, and this repository follows it openly — its README structure, its habits, and its conviction that a virtual character can be worth building carefully. If you are reading this and you have not seen Airi yet, close this tab and go look. It has earned its stars many times over.
+A tribute to **[moeru-ai/Airi](https://github.com/moeru-ai/airi)** — AILEEN would not exist without it. It is the project that made "an open-source AI companion" sound like a real thing rather than a wish, and this repository follows it openly: its README structure, its habits, and its conviction that a virtual character can be worth building carefully. If you have not seen Airi yet, it has earned its stars many times over.
 
-And the idea started with **[Neuro-sama](https://www.youtube.com/channel/UCLHmLrj4pHHg3-iBJn_CqxA)** — the AI VTuber who proved that a character with a voice, a memory and a personality can make you forget you are watching software. That is the bar. AILEEN is a small hand reaching for it, and we are nowhere near it yet.
+And the idea started with **[Neuro-sama](https://www.youtube.com/channel/UCLHmLrj4pHHg3-iBJn_CqxA)** — the AI VTuber who showed that a character with a voice, a memory and a personality can make you forget you are watching software. That is the bar. AILEEN is a much smaller attempt in that direction, and it is not close yet.
 
 ### Built with
 
-- [mineflayer](https://github.com/PrismarineJS/mineflayer) and [mineflayer-pathfinder](https://github.com/PrismarineJS/mineflayer-pathfinder): the reason a character with no hands can still follow you around a Minecraft world and get stuck on fences like everyone else. PrismarineJS has been quietly maintaining the entire JavaScript Minecraft ecosystem for years — it is worth an afternoon of browsing.
+- [mineflayer](https://github.com/PrismarineJS/mineflayer) and [mineflayer-pathfinder](https://github.com/PrismarineJS/mineflayer-pathfinder): how a character with no hands can follow you around a Minecraft world — and get stuck on fences like everyone else. PrismarineJS has maintained the JavaScript Minecraft ecosystem for years.
 - [js-chess-engine](https://github.com/josefjadrny/js-chess-engine): a real search-based chess engine with zero dependencies. We keep being suspicious of how small it is, and it keeps winning.
-- [oh-my-live2d](https://github.com/oh-my-live2d/oh-my-live2d): put Live2D on a page without a build system argument. Also where our whole `Cubism 2/3/4` support comes from.
-- [DOMPurify](https://github.com/cure53/DOMPurify): the reason we can render model output as Markdown without lying awake about it.
+- [oh-my-live2d](https://github.com/oh-my-live2d/oh-my-live2d): Live2D on a page without a build-system argument. Our `Cubism 2/3/4` support comes from it.
+- [DOMPurify](https://github.com/cure53/DOMPurify): the reason model output can be rendered as Markdown safely.
 - [minecraft-protocol](https://github.com/PrismarineJS/node-minecraft-protocol) — BSD-3-Clause. Speaks the Minecraft wire protocol so we do not have to.
 
 The Live2D Cubism Core runtime is covered by Live2D's own licence. Every Live2D model you add carries its own terms too — please respect the artist's, especially if you plan to stream with it.
 
 ## Similar projects
 
-- **[moeru-ai/Airi](https://github.com/moeru-ai/airi)** — the one to beat. Self-hosted, browser + desktop + mobile, far more ambitious than this.
-- **[Open-LLM-VTuber](https://github.com/Open-LLM-VTuber/Open-LLM-VTuber)** — local LLM plus Live2D, offline-first, and a very good place to start if that is what you want.
-- **[BongoCat](https://github.com/ayangweb/BongoCat)** — a desktop pet done with real charm. If a cat is all you need, honestly, go get the cat.
+- **[moeru-ai/Airi](https://github.com/moeru-ai/airi)** — self-hosted, browser + desktop + mobile, and considerably more ambitious in scope.
+- **[Open-LLM-VTuber](https://github.com/Open-LLM-VTuber/Open-LLM-VTuber)** — local LLM plus Live2D, offline-first, and a good starting point if that is the configuration you want.
+- **[BongoCat](https://github.com/ayangweb/BongoCat)** — a desktop pet with a strong focus on polish.
 
 ## License
 
@@ -245,3 +245,10 @@ The default licence does not grant rights for commercial use. Noncommercial purp
 For commercial use, commercial distribution, or any other commercial licensing, prior written permission from the AILEEN developers is required. Please contact us through the channels listed in [SECURITY.md](./SECURITY.md).
 
 Licence history: 0.7.0 changed the project licence from MIT to PolyForm Noncommercial 1.0.0. Copies obtained while the project was MIT-licensed retain their MIT rights for that copy — licences are not retroactive.
+
+## Contact
+
+- **Bug reports and feature requests** — [GitHub Issues](../../issues)
+- **Code, documentation and translation contributions** — [pull requests](../../pulls)
+- **Security reports and other contact channels** — [SECURITY.md](./SECURITY.md)
+- **Commercial licensing** — see [License](#license)

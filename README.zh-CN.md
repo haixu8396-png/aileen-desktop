@@ -25,7 +25,7 @@
 <p align="center">
   <a href="./LICENSE"><img src="https://img.shields.io/badge/license-PolyForm%20Noncommercial%201.0.0-ff7eb3.svg"></a>
   <a href="../../releases"><img src="https://img.shields.io/github/downloads/haixu8396-png/aileen-desktop/total?color=38b0de"></a>
-  <a href="#安装"><img src="https://img.shields.io/badge/platform-Windows-9aa0b4.svg"></a>
+  <a href="#开始使用"><img src="https://img.shields.io/badge/platform-Windows-9aa0b4.svg"></a>
   <a href="#界面与语言"><img src="https://img.shields.io/badge/languages-English%20%C2%B7%20日本語%20%C2%B7%20简体中文-a78bfa.svg"></a>
 </p>
 
@@ -59,113 +59,139 @@ AILEEN 仍在持续开发中。目标是为 AI 对话、记忆、Agent 执行与
 > [!NOTE]
 > 所有数据都留在本机：API Key、聊天记录、角色卡与模型都不会上传，也不需要注册账号。
 
-## 为什么这么做
+## 功能
 
-**因为角色是「人」，不是预设。** 每张卡都有自己的名字、头像、性格、场景、开场白和示例对话。同一个模型，两张卡就是两个人。提示词完全由**你的卡**拼出来 —— 而且是全部：如果你写了自定义系统提示词，那就以它为准。
+### AI 对话与角色系统
 
-**因为角色走出聊天框，也该还是它自己。** 给 Minecraft 和象棋各塞一段一次性的提示词，是最省事的做法。我们没这么干，而是让它们复用**完全相同的人格**。在聊天里爱损你的那个它，进了游戏还是那个它。
+直接使用你已有的模型 —— DeepSeek、OpenAI、Moonshot、硅基流动、Groq、智谱、阿里百炼、小米 MiMo、OpenRouter；想完全离线，可以接本地 Ollama。
 
-**因为一个抢你鼠标的桌宠，还不如没有。** 悬浮展台默认整窗鼠标穿透。这是我们最先测的一项，也是被我们搞坏又修好次数最多的一项。
+每个角色由一张角色卡定义，卡里包含名字、头像、性格、场景、开场白与示例对话。同一个模型配两张卡，就是两个不同的角色。提示词完全由这张卡拼出：如果你写了自定义系统提示词，则以它为准。
 
-**因为我们也想能读源码。** 没有压缩过的黑盒，没有藏起来的服务。哪里行为不对，就是几千行可以自己打开看的代码。
+**角色卡生成。** 说出已有角色的名字，或只给一句灵感，AILEEN 会把这些字段草拟出来。结果是一份可以继续修改的草稿，而不是写死的预设。
 
-## 给它一副身体
+### 语音输入与输出
 
-放进任意一个 Live2D 模型（Cubism 2 / 3 / 4），它就成了你伙伴的脸。会待机呼吸、会眨眼、会做动作、会换表情，**说话的时候嘴巴跟着动**。
+按下麦克风说话，回答会以语音播放，并继续聆听，因此对话可以来回进行，而不必按住说话。以打字为主时，也可以使用单次语音输入。
 
-你可以导入模型文件夹，也可以直接贴一个 `model3.json` 的网址，让它就待在那儿。
+四种语音引擎，覆盖你可能已有的凭据：系统语音（离线、免费）、任何 OpenAI 兼容接口、用于音色克隆的 Fish Audio，以及小米 MiMo。全程支持中文、英语、日语与西班牙语。
 
-> [!TIP]
-> 加模型只要两下：**设置 → 🎀 Live2D 模型设置 → 📁 从文件夹导入**。不想开弹窗的话，舞台面板上也有同样的按钮。
+### 长期记忆与知识库
 
-## 给它一副嗓子
+对话会被提炼成记忆，保存在本地，并在相关时被召回，而不是把整段聊天记录反复重放。
 
-按下麦克风直接说话。它出声回答，然后接着听 —— 挂着不管，你得到的是一场真正的来回对话，而不是对讲机。想打字的时候，也有单次语音输入。
+**知识库。** 可以加入文本、Markdown、HTML、JSON 与 PDF 文件；它们会被切块并保存在本地，与当前对话相关的片段会进入请求。PDF 解析由本项目自行实现，为了读取文档没有引入额外依赖。
 
-四种语音引擎，用你手头已经有 Key 的那个就行：系统语音（离线免费）、任何 OpenAI 兼容接口、想克隆音色就上 Fish Audio、以及小米 MiMo。中文、英语、日语、西班牙语全程支持。
+两者都使用在 **设置 → 🧠 记忆与知识库** 中选择的小型**嵌入模型**（OpenAI、硅基流动、阿里云百炼、智谱、本地 Ollama 或任何兼容接口），因此检索是**按语义**进行的，而不只是匹配关键词。没有配置嵌入模型时，检索会退化为关键词匹配，并保持全程离线。
 
-## 给它一个脑子
-
-你已经在付费用的模型，直接拿来用 —— DeepSeek / OpenAI / Moonshot / 硅基流动 / Groq / 智谱 / 阿里百炼 / 小米 MiMo / OpenRouter。想彻底离线，接本地 Ollama。
-
-没有 AILEEN 账号，也没有 AILEEN 服务器。你的 Key 从你的电脑直连你的服务商。
-
-## 给它一双眼睛
-
-把任意窗口或显示器的截图丢给它，问问它怎么看。我们拿它读报错堆栈、扫一眼图表，以及——比原计划频繁得多地——一起吐槽某场 BOSS 战。
-
-> [!IMPORTANT]
-> 看屏幕需要多模态模型。`qwen-vl-plus` / `gpt-4o` / `glm-4v` / `MiMo-VL` 都可以；纯文本模型会很有礼貌地无视那张图。
-
-## 然后，让它走出聊天框
-
-**Minecraft。** 角色会以机器人身份进 Java 版服务器。它跟着你走，你想自己开的时候它也接受手动操控，会在服务器聊天栏说话；打开自动回复后，**它还会用自己的语气去回别的玩家**。看它想爬个坡却摔得七荤八素，是真的好笑，这个我们不装。
-
-**国际象棋。** 五档难度、执白或执黑、悔棋、翻转棋盘，还能在你思考的时候让角色点评局面。这是给一个伙伴「塞点可以有意见的东西」最便宜的办法。
-
-## 而且它记得住
-
-角色会记住你们之间发生过的事 —— 不是把整段聊天记录无限重播，而是记住那些真正重要的，等需要的时候自己想起来。说过一次的事，不用再说第二次。
-
-**知识库。** 把你自己的文件丢进去 —— 文本、Markdown、HTML、JSON、PDF —— 它们会被切块、存在本地，相关的那几段在需要时自动进到对话里。PDF 解析是自己写的，为了读你的文档没有多装任何东西。
-
-这两样都跑在你自己选的**嵌入模型**上（设置 → 🧠 记忆与知识库：OpenAI / 硅基流动 / 阿里云百炼 / 智谱 / 本地 Ollama，或任何兼容接口），所以检索是**按意思**找，不只是对关键词。没配嵌入模型也照样能用 —— 检索退化成关键词匹配，全程离线。
-
-记下来的东西只留在你自己机器上，和别的数据放在同一个目录里，而且只有属于它的那两个文件夹可写。
+记忆与知识库数据存放在应用数据目录中，且只有属于它们的那两个文件夹可写。
 
 > [!NOTE]
-> 嵌入模型的 Key 和这个应用里其它 Key 一个待遇：页面永远看不到它。请求由主进程发出，渲染层只拿到一个「已配置」的布尔值。
+> 嵌入模型的 Key 与应用内其它 Key 同等对待：界面永远看不到它。请求由主进程发出，渲染层只收到一个表示「已配置」的布尔值。
 
-## 然后，让它真的去动手
+### Agent 与工具调用
 
-前面那些都发生在应用里。这一段是它走出去、真的用你的电脑。
+在侧栏打开 **🖥 电脑控制**。**入口仍然是普通聊天框**：你照常说话，由 Agent 判断何时需要工具、执行并把结果汇报回来。
 
-侧栏打开 **🖥 电脑控制**，**普通聊天框就是入口** —— 你还是像平常那样跟角色说话。区别在于，它现在会去做，而不是只告诉你怎么做：
-
-> **你**：帮我打开浏览器搜一下 AILEEN
->
-> **AILEEN**：好，我去看看。
->
-> *右侧展台变成控制仪表板，它开始干活*
-
-它能读写文件、跑命令、看 git、读屏幕、动鼠标、敲键盘、开程序、切窗口。干完之后，**用它自己的语气**回来跟你汇报 —— 还是那个人，还是那种说话方式，不是一句「任务已完成」。
-
-**没有你的同意，它什么都不会做。** 看东西是自由的；凡是会碰到电脑的操作 —— 动鼠标、敲键盘、跑命令、开程序 —— 每一次都会先停下来问你。这个「必须问」是**刻意做成设置里也关不掉的**。
+权限按三档风险等级执行。读取不受限制；任何会触及电脑的操作每次都会请求批准，而且这一要求**刻意做成在设置里也无法关闭**。
 
 > [!IMPORTANT]
-> 它干活的时候，右侧展台会变成 **Agent 控制仪表板**：任务、当前步骤、带时间戳的操作日志、每一次工具调用、它截到的屏幕、以及批准按钮。聊天区还是聊天区 —— 工具日志**不会**被塞进聊天气泡里。
+> 任务执行期间，右侧展台会变成 **Agent 控制仪表板**：任务、当前步骤、带时间戳的操作日志、每一次工具调用、截取到的屏幕，以及批准按钮。工具日志**不会**被插入聊天气泡。
 
 > [!NOTE]
-> 角色有人格，Agent 就必须带着这个人格。系统提示词的第一段**永远是角色卡**，不管它是在聊天、下棋，还是在操作你的桌面。它不会在拿到工具之后悄悄变成一个通用的编程助手 —— 有人格丢失的硬性检查，一旦发现就直接中止。
+> 角色人格会被保留：系统提示词的第一段永远是角色卡，无论它正在聊天、下棋还是操作桌面；一旦发现人格丢失，硬性检查会直接中止本次运行。
 
-## 再让它走出窗口
+### 电脑控制
 
-**无边框悬浮展台**把角色从应用里拎出来放到桌面上：一个无边框、透明、始终置顶的窗口，里面除了它什么都没有。
+可用的工具包括读写文件、执行白名单命令、查看 git 状态、截取屏幕、移动鼠标、键盘输入、启动程序与切换窗口。任务完成后，结果会以角色自己的语气汇报，而不是一句通用的完成提示。
 
-它**默认整窗鼠标穿透**。底下的窗口一个点击都不会丢。那个小手柄只在你伸手去够的时候浮现，手一停就淡出 —— 屏幕上不会多出你没要的东西。
+Agent 触及的一切都受工作区边界约束（边界之外的路径一律拒绝），并经过上一节的授权流程。
+
+### 可视化角色
+
+任意 Live2D 模型（Cubism 2 / 3 / 4）都可以作为角色：待机动画、呼吸、动作、表情，以及说话时的口型变化。可以导入模型文件夹，也可以直接填入 `model3.json` 的网址。
 
 > [!TIP]
-> `Ctrl+Shift+S`（或菜单里的 **展台 → 显示 / 隐藏无边框展台**）随时开关。拖动、用 `−` 按钮缩小、或用菜单把它复位回角落；位置和大小都会记住。
+> 添加模型只需两步：**设置 → 🎀 Live2D 模型设置 → 📁 从文件夹导入**。舞台面板上也有同样的按钮。
 
-## 安装
+### 悬浮展台
 
-到 **[Releases](../../releases)** 下载最新版。
+悬浮展台把角色放到桌面上：一个无边框、透明、始终置顶的窗口。它**默认整窗鼠标穿透**，因此下方窗口不会丢失任何点击；手柄只在指针靠近时出现。
+
+> [!TIP]
+> `Ctrl+Shift+S`（或菜单中的 **展台 → 显示 / 隐藏无边框展台**）可随时开关。支持拖动、用 `−` / `＋` 按钮调整尺寸，或从菜单复位回角落；位置与大小都会被记住。
+
+### 视觉
+
+可以把任意窗口或显示器的截图连同问题一起发送，常用于读取报错堆栈或查看图表。视觉能力需要多模态模型：`qwen-vl-plus`、`gpt-4o`、`glm-4v`、`MiMo-VL` 均可；纯文本模型会忽略图片。
+
+### 可交互环境
+
+**Minecraft。** 角色会以机器人身份加入 Java 版服务器：跟随你移动、接受手动操控、在服务器聊天栏发言；开启自动回复后，还会用自己的语气与人格回应其他玩家。
+
+**国际象棋。** 五档难度、可选择执白或执黑、悔棋、翻转棋盘，并能在你思考时对局面作出评论。
+
+## 架构与设计
+
+### 设计要点
+
+- **角色卡是提示词的唯一来源。** 名字、头像、性格、场景、开场白与示例对话全部来自同一张卡；自定义系统提示词优先于生成的人格。
+- **人格在所有场景中复用。** Minecraft 与国际象棋沿用角色的人格，而不是各自使用一次性的提示词。
+- **悬浮展台默认鼠标穿透**，这一行为是自检最先检查的项目之一。
+- **源码保持可读。** 没有压缩过的第三方代码块，也没有隐藏服务：任何行为都可以在本仓库中定位。
+- **API Key 不会进入渲染层。** 面向模型、语音与嵌入服务商的请求全部由主进程发出，界面只拿到脱敏后的设置。
+
+### 目录结构
+
+```
+main.js               Electron 主进程 —— 应用生命周期与装配
+preload.js            contextBridge 暴露的 API
+mc-bot.cjs            Minecraft 机器人
+shared/               主进程、渲染层与测试共用的代码
+  ipc-guard.cjs       谁可以调用 IPC
+  ipc-validate.cjs    允许传入什么
+  ipc-schemas.cjs     每个通道一条校验规则
+  llm.cjs             流式对话核心（API Key 不离开主进程）
+  agent-ipc.cjs       Agent 工具允许对你的机器做什么
+  embeddings.cjs      向量计算与离线降级
+  store-ipc.cjs       记忆与知识库允许写入的两个目录
+src/
+  main/               主进程模块
+    self-test.cjs     诊断，仅在 AILEEN_SELFTEST=1 时运行
+    server/           为模型与头像提供服务的本地静态服务
+    storage/          设置与 API Key 存储
+  agent/              Agent 核心：runtime、planner、工具、权限、executor
+  context/            统一上下文引擎（提示词分层与 token 预算）
+  memory/             长期记忆：抽取、存储、召回、合并
+  knowledge/          本地知识库：解析、切块、检索
+  lib/                界面层 —— state、dom、stage、chat、characters、modals、
+                      voice、minecraft、chess、agent-dashboard、agent-ui、i18n
+  overlay.*           悬浮展台窗口
+tests/                单元 / 集成 / 端到端（见 tests/README.md）
+```
+
+### 模型与头像为什么走本地 HTTP 服务
+
+模型与头像通过一个很小的本地 HTTP 服务提供，而不是 `file://`。这不是风格选择：Live2D 的 WebAssembly 与贴图在 `file://` 下无法加载，而这是当时侵入性最小的方案。该服务只绑定 localhost，永远不会监听本机以外的地址。
+
+## 开始使用
+
+到 **[Releases](../../releases)** 下载最新版本。
 
 | | |
 | --- | --- |
-| `AILEEN Setup x.x.x.exe` | **安装版** —— 自动创建桌面与开始菜单快捷方式。绝大多数人要的是这个。 |
-| `AILEEN x.x.x.exe` | **免安装便携版** —— 双击即用，注册表里什么都不写。 |
+| `AILEEN Setup x.x.x.exe` | **安装版** —— 自动创建桌面与开始菜单快捷方式。绝大多数人需要的是这个。 |
+| `AILEEN x.x.x.exe` | **免安装便携版** —— 双击即用，不写入注册表。 |
 
 支持 Windows 10 / 11（64 位）。
 
-## 界面与语言
+### 界面与语言
 
-完整支持 **English / 日本語 / 简体中文**，是全部翻完，不是翻一半。启动默认英文，一下就能换。
+应用提供 **English / 日本語 / 简体中文** 三种界面，是完整翻译而非部分翻译。默认启动为英文，一键即可切换。
 
-随时在 **设置 → 🌐 Language** 或原生菜单（按 `Alt`）里切换。**应用菜单本身也翻了** —— 这一点很多项目都会忘。
+随时在 **设置 → 🌐 Language** 或原生菜单（按 `Alt`）中切换。**应用程序菜单本身也已本地化**。
 
 > [!TIP]
-> 想加第四种语言？所有文案都在 `src/lib/i18n.js`，每种语言一个 JSON 文件，整个界面都从那儿读。加一个文件、在 `LANGS` 里加一行，就完事了。非常欢迎提 PR。
+> 想添加第四种语言：所有文案都在 `src/lib/i18n.js`，每种语言对应一个 JSON 文件，整个界面都从那里读取。新增一个文件、在 `LANGS` 中增加一行即可。欢迎提交 PR。
 
 ## 开发
 
@@ -176,59 +202,39 @@ npm install
 npm start        # 构建界面并启动
 ```
 
-需要 Node.js 18 或更高。首次运行会下载 Electron；觉得慢可以先把 `ELECTRON_MIRROR` 指向国内镜像。Windows 用户也可以直接双击 `install.bat`。
+需要 Node.js 18 或更高版本。首次运行会下载 Electron；如果较慢，可以先设置 `ELECTRON_MIRROR` 指向镜像。Windows 用户也可以直接双击 `install.bat`。
 
 ```bash
 npm run dist     # 生成安装包 + 便携版到 release/
 npm test         # 单元测试
+npm run lint     # 语法与项目自定义的边界规则
 ```
 
-Windows 上双击 `build-installer.bat` 效果相同。
-
-### 目录结构
-
-```
-main.js               Electron 主进程（窗口 / IPC / 设置 / 本地模型服务器）
-preload.js            contextBridge 暴露的 API
-mc-bot.cjs            Minecraft 机器人
-shared/               主进程与测试共用的代码
-src/                  界面部分
-  main.js             入口与事件装配
-  overlay.*           无边框悬浮展台窗口
-  lib/                state, dom, stage, chat, characters, modals, voice,
-                      minecraft, chess, i18n
-  lib/i18n.ja.json    日文文案
-  lib/i18n.zh.json    简体中文文案
-tests/                单元测试
-```
-
-### 一件会让人意外的小事
-
-模型和头像是用一个很小的本地 HTTP 服务提供的，而不是 `file://`。不是我们想炫技 —— Live2D 的 WebAssembly 和贴图在 `file://` 下就是读不了，而这是我们找到的最不打扰人的办法。这个服务只绑 localhost，永远不会监听你电脑以外的地址。
+在 Windows 上，`build-installer.bat` 与 `npm run dist` 等效。
 
 ## 致谢
 
 ### 站在谁的肩膀上
 
-致敬 **[moeru-ai/Airi](https://github.com/moeru-ai/airi)** —— 没有它，就不会有 AILEEN。是它让「开源的 AI 伴侣」听上去像一件真事而不是一个愿望。这个仓库大大方方地照着 Airi 学 —— 说明的写法、做事的习惯，以及那份「虚拟角色值得被认真做」的笃定。如果你还没看过 Airi，先把这页关掉去看它。那么多 star 不是白来的。
+致敬 **[moeru-ai/Airi](https://github.com/moeru-ai/airi)** —— 没有它，就不会有 AILEEN。是它让「开源的 AI 伴侣」听上去像一件真事而不是一个愿望。这个仓库公开地照着 Airi 学：README 的组织方式、做事习惯，以及那份「虚拟角色值得被认真做」的笃定。如果你还没看过 Airi，它值得那些 star。
 
-而这一切的起点是 **[Neuro-sama](https://www.youtube.com/channel/UCLHmLrj4pHHg3-iBJn_CqxA)** —— 这位 AI 主播证明了：一个有声线、有记忆、有性格的角色，真的能让你忘记自己在看软件。那就是标杆。AILEEN 只是朝它伸了伸手，而且离得还远。
+而这一切的起点是 **[Neuro-sama](https://www.youtube.com/channel/UCLHmLrj4pHHg3-iBJn_CqxA)** —— 这位 AI VTuber 证明了：一个有声线、有记忆、有性格的角色，可以让人忘记自己在看软件。那就是标杆。AILEEN 只是朝这个方向做出的一次小得多的尝试，目前离它还很远。
 
 ### 用到的开源项目
 
-- [mineflayer](https://github.com/PrismarineJS/mineflayer) 与 [mineflayer-pathfinder](https://github.com/PrismarineJS/mineflayer-pathfinder)：一个没有手的角色能在 Minecraft 里追着你跑、并且和大家一样卡在栅栏上，全靠它们。PrismarineJS 这些年一直安安静静地撑着整个 JavaScript 版 Minecraft 生态，光翻一翻就够消磨一个下午。
-- [js-chess-engine](https://github.com/josefjadrny/js-chess-engine)：零依赖，却是真有搜索的棋力引擎。我们到现在还怀疑它怎么这么小，而它每次都在赢。
-- [oh-my-live2d](https://github.com/oh-my-live2d/oh-my-live2d)：不用跟构建系统打架就能把 Live2D 放进页面。我们整套 Cubism 2/3/4 支持也是从这儿来的。
-- [DOMPurify](https://github.com/cure53/DOMPurify)：能把模型输出当 Markdown 渲染、晚上还睡得着觉，全靠它。
-- [minecraft-protocol](https://github.com/PrismarineJS/node-minecraft-protocol) —— BSD-3-Clause。替我们讲 Minecraft 的网络协议。
+- [mineflayer](https://github.com/PrismarineJS/mineflayer) 与 [mineflayer-pathfinder](https://github.com/PrismarineJS/mineflayer-pathfinder)：一个没有手的角色之所以能在 Minecraft 里跟着你跑、并且和大家一样卡在栅栏上，全靠它们。PrismarineJS 多年来一直在维护整个 JavaScript 版 Minecraft 生态。
+- [js-chess-engine](https://github.com/josefjadrny/js-chess-engine)：零依赖，却是有真实搜索的棋力引擎。我们至今仍怀疑它为何这么小，而它每次都在赢。
+- [oh-my-live2d](https://github.com/oh-my-live2d/oh-my-live2d)：无需与构建系统纠缠即可把 Live2D 放进页面。我们整套 Cubism 2/3/4 支持也来自这里。
+- [DOMPurify](https://github.com/cure53/DOMPurify)：能把模型输出安全地按 Markdown 渲染，靠的是它。
+- [minecraft-protocol](https://github.com/PrismarineJS/node-minecraft-protocol) —— BSD-3-Clause。替我们实现 Minecraft 网络协议。
 
-Live2D Cubism Core 运行时适用 Live2D 公司自己的许可条款。你添加的每个 Live2D 模型也各有各的规约，请尊重原作者的意愿 —— 尤其是打算拿它开直播的话。
+Live2D Cubism Core 运行时适用 Live2D 公司自己的许可条款。你添加的每个 Live2D 模型也各有其规约，请尊重原作者的授权 —— 尤其是打算用于直播时。
 
 ## 类似的项目
 
-- **[moeru-ai/Airi](https://github.com/moeru-ai/airi)** —— 需要超越的那个。自托管，浏览器 / 桌面 / 手机三端，野心比这个项目大得多。
-- **[Open-LLM-VTuber](https://github.com/Open-LLM-VTuber/Open-LLM-VTuber)** —— 本地 LLM + Live2D 的 VTuber，主打离线。如果你要的正是这个，它会是很棒的起点。
-- **[BongoCat](https://github.com/ayangweb/BongoCat)** —— 一只做得真心可爱的桌宠。如果你要的只是一只猫，那就诚实地去养那只猫。
+- **[moeru-ai/Airi](https://github.com/moeru-ai/airi)** —— 自托管，浏览器 / 桌面 / 手机三端，范围与野心都远大于本项目。
+- **[Open-LLM-VTuber](https://github.com/Open-LLM-VTuber/Open-LLM-VTuber)** —— 本地 LLM + Live2D，主打离线；如果你要的正是这种形态，它是很好的起点。
+- **[BongoCat](https://github.com/ayangweb/BongoCat)** —— 一只在细节上做过认真打磨的桌宠。
 
 ## 许可证
 
@@ -239,3 +245,10 @@ AILEEN 采用 **PolyForm Noncommercial License 1.0.0** 发布，具有约束力�
 如需商业使用、商业发行或其他形式的商业授权，必须事先取得 AILEEN 开发者的书面许可，可通过 [SECURITY.md](./SECURITY.md) 中列出的方式联系我们。
 
 许可变更说明：0.7.0 起，本项目许可证由 MIT 变更为 PolyForm Noncommercial 1.0.0。在 MIT 期间已获得副本的用户，就该副本仍享有 MIT 授予的权利 —— 许可证不追溯。
+
+## 联系方式
+
+- **缺陷报告与功能建议** —— [GitHub Issues](../../issues)
+- **代码、文档与翻译贡献** —— [Pull Request](../../pulls)
+- **安全问题与其他联系方式** —— [SECURITY.md](./SECURITY.md)
+- **商业授权** —— 见[许可证](#许可证)一节
