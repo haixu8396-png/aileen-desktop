@@ -1,14 +1,14 @@
 <h1 align="center">✦ AILEEN</h1>
 
 <p align="center">
-  <b>A desktop companion you actually own.</b><br/>
-  A Live2D character that talks out loud, sees your screen,<br/>
-  follows you into Minecraft and sits down across the board for chess.
+  <b>A desktop AI assistant and agent that keeps your data on your machine.</b><br/>
+  Live2D character · multi-provider LLM chat · long-term memory ·<br/>
+  tool calling and computer control.
 </p>
 
 <p align="center">
-  A character you love can move in — <b>say the name and it writes their personality, history and voice into a card you can use right away</b>.<br/>
-  Or start from one line of inspiration and make someone entirely your own.
+  AILEEN can also draft the character card for you — <b>name a character and it writes their personality, history and voice into a card you can use right away</b>.<br/>
+  Or start from one line of inspiration and create an original character.
 </p>
 
 <p align="center">
@@ -37,16 +37,27 @@
 
 ---
 
-## What is AILEEN?
+## Overview
 
-AILEEN started from one stubborn question: why does the character on your desktop have to be a chat window?
+AILEEN is a Windows desktop application that brings AI conversation, a character system, long-term memory, tool calling, computer control and a visual character into a single interactive environment. It runs as an Electron application: the interface is plain JavaScript, requests that involve API keys are made in the main process, and user data stays on the local machine.
 
-We wanted the other thing. The character who is simply *there* — breathing in the corner of your screen while you work, blinking when you look over, turning to face you when you say something, and answering out loud in a voice you picked for them. Not a tool you open and close. Someone you keep around.
+There is no account and no hosted backend. AILEEN communicates only with the model, speech and embedding providers you configure yourself.
 
-And once a character is that present, you start wanting to take them places. So they will follow you into a Minecraft server and get hopelessly lost trying to keep up. They will sit down across the board and play you at chess. They will come out of the app entirely and float on your desktop as a window containing nothing but themselves.
+The project currently focuses on:
+
+- **AI conversation and character system** — character cards (personality, scenario, greeting, example dialogue), persona prompt assembly, TTS/STT, and multi-provider LLM support (DeepSeek, OpenAI, Moonshot, SiliconFlow, Groq, Zhipu, Qwen, Xiaomi, OpenRouter, Ollama, or any compatible endpoint).
+- **Long-term memory and context management** — conversation memories, a local knowledge base, and a shared context engine that assembles system prompt, character card, history, memory, knowledge and tool output into one budgeted request.
+- **Agent and tool calling** — a single-agent tool loop with a tool registry, three risk levels and an explicit approval flow.
+- **File and computer operation** — file read/write, whitelisted command execution, git inspection and desktop input (mouse, keyboard, window switching), bounded by a workspace rule and per-action approval.
+- **Desktop environment interaction** — a frameless, click-through overlay stage, plus Minecraft and chess as interactive environments for the same character.
+- **Visual character** — Live2D models whose motions and expressions are driven by the conversation.
+- **Image and vision** — screen capture passed to vision-capable models.
+- **Extensibility** — the agent core is host-agnostic and the tool registry is data-driven; MCP, browser tools and further environments are the intended direction rather than shipped features.
+
+AILEEN is under active development. The goal is an integrated desktop environment for AI interaction, memory, agent execution and computer control, rather than a single-purpose chat client.
 
 > [!NOTE]
-> Everything happens on your machine. Your API keys, your conversations, your character cards, your models — none of it is uploaded anywhere, and there is no account to make. AILEEN talks to your LLM provider and to nothing else.
+> Everything stays on your machine: API keys, conversations, character cards and models are never uploaded, and no account is required.
 
 ## Why we did it this way
 
@@ -227,10 +238,10 @@ The Live2D Cubism Core runtime is covered by Live2D's own licence. Every Live2D 
 
 ## License
 
-**PolyForm Noncommercial License 1.0.0** — see [LICENSE](./LICENSE).
+AILEEN is distributed under the **PolyForm Noncommercial License 1.0.0**. The licence text in [LICENSE](./LICENSE) is the binding version.
 
-Short version, in plain words (the licence text is what actually counts): use it, change it, share it, run it for yourself, your friends, your study, your hobby projects, your school, your charity. Personal and noncommercial use is exactly what this licence is for.
+The default licence does not grant rights for commercial use. Noncommercial purposes — personal use, study, hobby projects, schools, charities and other noncommercial organizations — are permitted; selling the software, or building a commercial product on it, is not.
 
-What it does not give you is the right to sell it or build a commercial product on it. If you want to do that, come and talk to us first — see the contact details in [SECURITY.md](./SECURITY.md).
+For commercial use, commercial distribution, or any other commercial licensing, prior written permission from the AILEEN developers is required. Please contact us through the channels listed in [SECURITY.md](./SECURITY.md).
 
-We changed this from MIT in 0.7.0. Anyone who took a copy while it was MIT keeps those MIT rights for that copy — licences do not reach backwards.
+Licence history: 0.7.0 changed the project licence from MIT to PolyForm Noncommercial 1.0.0. Copies obtained while the project was MIT-licensed retain their MIT rights for that copy — licences are not retroactive.
