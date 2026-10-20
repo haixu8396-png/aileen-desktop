@@ -160,30 +160,74 @@ button.icon-btn.tts-on { color: var(--accent); border-color: var(--accent); }
 .chat-title span { font-size: 12px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .chat-actions { display: flex; gap: 8px; }
 
-.messages { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 18px; display: flex; flex-direction: column; gap: 14px; }
-.msg { max-width: 78%; padding: 11px 14px; border-radius: 14px; line-height: 1.65; word-break: break-word; }
+.messages { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: var(--sp-5) var(--sp-5) var(--sp-4); display: flex; flex-direction: column; gap: 18px; scroll-behavior: smooth; }
+.msg { max-width: 74%; padding: 12px 16px; border-radius: var(--radius-lg); line-height: 1.7; word-break: break-word; font-size: 14px; }
 .msg.user {
   align-self: flex-end;
   background: linear-gradient(135deg, var(--accent), #d17ef5);
   color: #fff;
-  border-bottom-right-radius: 4px;
+  border-bottom-right-radius: 6px;
   white-space: pre-wrap;
 }
 .msg.assistant {
   align-self: flex-start;
   background: var(--panel2);
-  border: 1px solid var(--line);
-  border-bottom-left-radius: 4px;
+  border: 1px solid var(--line-soft);
+  border-bottom-left-radius: 6px;
 }
-.msg.assistant pre { background: #101218; border: 1px solid var(--line); border-radius: 8px; padding: 10px; overflow-x: auto; margin: 6px 0; }
-.msg.assistant code { background: #101218; border-radius: 4px; padding: 1px 5px; font-size: 12px; }
+.msg.assistant pre { background: #101218; border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 10px 12px; overflow-x: auto; margin: 8px 0; font-size: 12.5px; line-height: 1.55; }
+.msg.assistant code { background: #101218; border-radius: 4px; padding: 1px 5px; font-size: 12.5px; }
 .msg.assistant pre code { padding: 0; background: none; }
-.msg.assistant a { color: var(--accent2); }
-.msg.assistant h1, .msg.assistant h2, .msg.assistant h3 { margin: 8px 0 4px; }
-.msg.assistant ul, .msg.assistant ol { padding-left: 20px; }
+.msg.assistant a { color: var(--accent2); text-underline-offset: 2px; }
+.msg.assistant h1, .msg.assistant h2, .msg.assistant h3 { margin: 12px 0 6px; line-height: var(--lh-tight); }
+.msg.assistant h1 { font-size: var(--fs-lg); }
+.msg.assistant h2 { font-size: 14px; }
+.msg.assistant h3 { font-size: var(--fs-md); }
+.msg.assistant ul, .msg.assistant ol { padding-left: 20px; margin: 6px 0; }
+.msg.assistant li { margin: 2px 0; }
+.msg.assistant blockquote {
+  margin: 8px 0; padding: 6px 12px; border-left: 2px solid var(--accent2);
+  background: rgba(56, 176, 222, 0.08); border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+  color: var(--muted);
+}
+.msg.assistant table { border-collapse: collapse; margin: 8px 0; font-size: var(--fs-md); }
+.msg.assistant th, .msg.assistant td { border: 1px solid var(--line); padding: 5px 9px; text-align: left; }
+.msg.assistant th { background: var(--panel3); font-weight: 600; }
+.msg.assistant hr { border: none; border-top: 1px solid var(--line); margin: 12px 0; }
+/* 段落间距收一点：聊天里读长文时太散会很难受 */
+.msg.assistant p { margin: 0 0 8px; }
+.msg.assistant > *:last-child { margin-bottom: 0; }
+.msg.assistant > *:first-child { margin-top: 0; }
 .caret { display: inline-block; width: 7px; height: 15px; background: var(--accent); vertical-align: text-bottom; animation: blink 0.8s infinite; margin-left: 2px; }
 @keyframes blink { 50% { opacity: 0; } }
-.typing { padding: 0 22px 6px; color: var(--muted); font-size: 12px; }
+.typing { padding: 0 var(--sp-5) var(--sp-2); color: var(--muted); font-size: var(--fs-sm); }
+.typing::after { content: ''; display: inline-block; width: 6px; height: 6px; margin-left: 6px; border-radius: 50%; background: var(--accent); animation: blink 1s infinite; vertical-align: middle; }
+
+/* ---------- 通用细节：滚动条 / 焦点环 / 消息入场 ---------- */
+/* 滚动条做得细一点、暗一点：桌面应用里粗滚动条很扎眼 */
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--line); border-radius: var(--radius-pill); border: 2px solid transparent; background-clip: content-box; }
+::-webkit-scrollbar-thumb:hover { background: var(--panel3); background-clip: content-box; }
+/* 键盘可达性：只在键盘聚焦时画环，鼠标点不画 */
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: var(--radius-sm); }
+/* 消息入场：轻微上浮 + 淡入，克制且统一 */
+@keyframes msg-in { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+.msg { animation: msg-in var(--dur-mid) var(--ease); }
+@media (prefers-reduced-motion: reduce) { .msg { animation: none; } .messages { scroll-behavior: auto; } }
+/* 统一「小按钮」与 chip 的观感，避免每个模块各写一套 */
+button.ghost.small-btn, .chips .chip {
+  border: 1px solid var(--line); background: var(--panel2); color: var(--text);
+  border-radius: var(--radius-pill); padding: 4px 10px; font-size: var(--fs-sm);
+  transition: background var(--dur-fast) var(--ease), border-color var(--dur-fast) var(--ease);
+}
+button.ghost.small-btn:hover, .chips .chip:hover { border-color: var(--accent); background: var(--panel3); }
+button:disabled { opacity: 0.45; cursor: not-allowed; }
+/* 空状态：安静、居中、不喧哗 */
+.empty-state, .empty-hint {
+  color: var(--muted); font-size: var(--fs-md); text-align: center;
+  padding: var(--sp-6) var(--sp-4); line-height: var(--lh-body);
+}
 
 #input-bar {
   display: flex; align-items: flex-end; gap: 8px;
