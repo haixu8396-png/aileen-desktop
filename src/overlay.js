@@ -5,6 +5,7 @@
 // ============================================================
 import { loadOml2d } from 'oh-my-live2d';
 import { t, setLang } from './lib/i18n.js';
+import { applyIcons, iconSvg } from './lib/icons.js';
 
 const stageBox = document.getElementById('ov-stage');
 // 悬浮 UI 容器：热区按这一整块算（收起时只有工具条那么大）
@@ -93,7 +94,7 @@ document.getElementById('ov-bigger').onclick = () => { window.api.overlayResize(
 lockBtn.onclick = async () => {
   const on = !lockBtn.classList.contains('on');
   lockBtn.classList.toggle('on', on);
-  lockBtn.textContent = on ? '👆' : '🖱';
+  lockBtn.innerHTML = iconSvg(on ? 'lock' : 'pointer', 14);
   lockBtn.title = on ? t('overlay.lockOn') : t('overlay.lockOff');
   await window.api.overlaySetInteractive(on);
   showTools();
@@ -194,7 +195,9 @@ async function init() {
   stageBox.style.opacity = String(overlayCfg.opacity || 1);
   const lockOn = !!(st && st.overlay && st.overlay.interactive);
   lockBtn.classList.toggle('on', lockOn);
-  lockBtn.textContent = lockOn ? '👆' : '🖱';
+  lockBtn.innerHTML = iconSvg(lockOn ? 'lock' : 'pointer', 14);
+  // 图标：i18n 落位之后再补图形（顺序和主窗口一致）
+  applyIcons();
   renderStage(st && st.model);
   reportHitArea();
   showTools();

@@ -8,10 +8,14 @@ const groups = [['性格原型', PERSONALITIES], ['身份原型', ROLES]];
 
 describe('原型库', () => {
   for (const [name, list] of groups) {
-    it(name + '：id 唯一、有图标', () => {
+    it(name + '：id 唯一、没有多余字段', () => {
       const ids = list.map((x) => x.id);
       expect(new Set(ids).size).toBe(ids.length);
-      for (const x of list) expect(x.icon).toBeTruthy();
+      // 原型卡前面的徽章取本地化名字的首字（见 persona-studio 的 monogram），
+      // 所以每条只需要 id / label / spec —— 不再挂 Emoji 图标。
+      for (const x of list) {
+        expect(Object.keys(x).sort()).toEqual(['id', 'label', 'spec']);
+      }
     });
 
     for (const lang of LANGS) {

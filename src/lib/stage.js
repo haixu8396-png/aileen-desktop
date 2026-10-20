@@ -6,6 +6,7 @@ import { state, hooks, tts } from './state.js';
 import { $, toast } from './dom.js';
 import { getSettings } from './settings.js';
 import { escapeHtml } from './markdown.js';
+import { iconSvg } from './icons.js';
 import { t } from './i18n.js';
 
 function stageScale() {
@@ -53,7 +54,8 @@ export function initLive2D() {
     statusBar: { disable: true },
     tips: {
       idleTips: {
-        message: ['戳戳我呀～', '想和你聊天呢 ✨', '今天也要开心哦'],
+        // 闲置气泡：三语各一句，别在这里写死中文
+        message: [t('stage.tip1'), t('stage.tip2'), t('stage.tip3')],
         interval: 30000,
         duration: 4000,
       },
@@ -274,7 +276,7 @@ export function renderLocalList() {
     dir.className = 'ui-url';
     dir.textContent = m.file;
     const rm = document.createElement('button');
-    rm.textContent = '🗑';
+    rm.innerHTML = iconSvg('trash', 13);
     rm.title = t('model.delete');
     rm.dataset.delModel = m.file;
     rm.onclick = () => deleteLocalModel(m);
@@ -355,8 +357,8 @@ export function renderUrlList() {
     url.className = 'ui-url';
     url.textContent = m.url;
     const rm = document.createElement('button');
-    rm.textContent = '✕';
-    rm.title = '移除';
+    rm.innerHTML = iconSvg('close', 13);
+    rm.title = t('model.removeUrl');
     rm.onclick = async () => {
       state.models = await window.api.removeModelUrl(m.url);
       hooks.populateModelSelect();

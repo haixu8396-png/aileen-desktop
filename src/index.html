@@ -60,7 +60,7 @@
       <div class="attach-item">
         <img id="attach-preview" alt="" />
         <span id="attach-name"></span>
-        <button id="attach-remove" data-i18n-title="chat.attachRemove" title="Remove">✕</button>
+        <button id="attach-remove" data-i18n-title="chat.attachRemove" title="Remove"><span data-icon="close"></span></button>
       </div>
     </div>
     <footer id="input-bar">
@@ -83,8 +83,8 @@
     </div>
     <div class="stage-model-bar">
       <select id="stage-model" data-i18n-title="stage.changeModel"></select>
-      <button id="btn-stage-import" class="icon-btn tiny" data-i18n-title="stage.importModel" title="Import a model">📁</button>
-      <button id="btn-stage-refresh" class="icon-btn tiny" data-i18n-title="stage.refreshModels" title="Refresh">🔄</button>
+      <button id="btn-stage-import" class="icon-btn tiny" data-i18n-title="stage.importModel" title="Import a model"><span data-icon="import"></span></button>
+      <button id="btn-stage-refresh" class="icon-btn tiny" data-i18n-title="stage.refreshModels" title="Refresh"><span data-icon="regenerate"></span></button>
     </div>
     <div id="stage-container" class="stage-container"></div>
     <div class="stage-controls">
@@ -93,7 +93,7 @@
       <div class="ctl-row"><label data-i18n="stage.scale">Size</label><input id="stage-scale" type="range" min="0.15" max="1.2" step="0.05" /></div>
       <div class="ctl-row">
         <div class="chips">
-          <button id="btn-float-stage" class="chip" data-i18n-title="stage.floatTip" data-i18n="menu.overlay">🖼 Borderless Stage</button>
+          <button id="btn-float-stage" class="chip" data-i18n-title="stage.floatTip"><span data-icon="frame"></span><span data-i18n="menu.overlay">Borderless Stage</span></button>
         </div>
       </div>
     </div>
@@ -105,7 +105,7 @@
     <div class="drawer-head">
       <span class="drawer-title" data-i18n="agent.title">Agent</span>
       <span id="dash-status" class="agent-status" data-i18n="dash.idle">Idle</span>
-      <button id="ag-close" class="icon-btn tiny" data-i18n-title="menu.close" title="Close">✕</button>
+      <button id="ag-close" class="icon-btn tiny" data-i18n-title="menu.close" title="Close"><span data-icon="close"></span></button>
     </div>
 
     <div class="drawer-body">
@@ -143,11 +143,11 @@
         </div>
         <label class="check"><input id="ag-require-medium" type="checkbox" /> <span data-i18n="agent.requireMedium">Ask before writing files or patching</span></label>
         <div class="agent-actions">
-          <button id="ag-start" class="primary" data-i18n="agent.start">▶ Start</button>
-          <button id="ag-pause" class="ghost" disabled data-i18n="agent.pause">⏸ Pause</button>
-          <button id="ag-resume" class="ghost" disabled data-i18n="agent.resume">⏵ Resume</button>
-          <button id="ag-continue" class="ghost small-btn hidden" data-i18n="agent.continue">⏩ Continue</button>
-          <button id="ag-cancel" class="danger" disabled data-i18n="agent.cancel">⏹ Cancel</button>
+          <button id="ag-start" class="primary"><span data-icon="play"></span><span data-i18n="agent.start">Start</span></button>
+          <button id="ag-pause" class="ghost" disabled><span data-icon="pause"></span><span data-i18n="agent.pause">Pause</span></button>
+          <button id="ag-resume" class="ghost" disabled><span data-icon="play"></span><span data-i18n="agent.resume">Resume</span></button>
+          <button id="ag-continue" class="ghost small-btn hidden"><span data-icon="skip"></span><span data-i18n="agent.continue">Continue</span></button>
+          <button id="ag-cancel" class="danger" disabled><span data-icon="stop"></span><span data-i18n="agent.cancel">Cancel</span></button>
         </div>
         <div class="agent-statusline">
           <span id="ag-status" class="agent-status" data-i18n="agent.stateIdle">Idle</span>
@@ -213,7 +213,7 @@
     <h3 id="char-modal-title" data-i18n="char.new">New Character</h3>
     <div class="persona-bar">
       <input id="f-seed" data-i18n-ph="char.genPlaceholder" placeholder="One line of inspiration…" />
-      <button id="f-generate" class="ghost" data-i18n="char.genBtn">✨ Generate</button>
+      <button id="f-generate" class="ghost"><span data-icon="spark"></span><span data-i18n="char.genBtn">Generate</span></button>
     </div>
     <div class="form-grid">
       <label><span data-i18n="char.name">Name *</span><input id="f-name" data-i18n-ph="char.namePlaceholder" placeholder="Character name" /></label>
@@ -242,10 +242,10 @@
   </div>
 </div>
 
-<!-- 人设生成室（设置 → ✨ 人设生成） -->
+<!-- 人设生成室（设置 → 人设生成） -->
 <div id="modal-persona" class="modal hidden">
   <div class="modal-box wide">
-    <h3 data-i18n="studio.title">✨ Persona Studio</h3>
+    <h3 class="modal-title"><span class="modal-ico" data-icon="spark"></span><span data-i18n="studio.title">Persona Studio</span></h3>
     <p class="hint" data-i18n="studio.intro"></p>
     <div class="studio-mode">
       <span class="arch-title" data-i18n="studio.mode">Mode</span>
@@ -299,7 +299,7 @@
     <div class="modal-actions">
       <span class="spacer"></span>
       <button id="pa-cancel" data-i18n="char.cancel">Cancel</button>
-      <button id="pa-generate" class="primary" data-i18n="studio.generate">✨ Generate</button>
+      <button id="pa-generate" class="primary"><span data-icon="spark"></span><span data-i18n="studio.generate">Generate</span></button>
     </div>
   </div>
 </div>
@@ -307,7 +307,7 @@
 <!-- LLM settings -->
 <div id="modal-llm" class="modal hidden">
   <div class="modal-box wide">
-    <h3 data-i18n="llm.title">💬 Chat Settings (LLM)</h3>
+    <h3 class="modal-title"><span class="modal-ico" data-icon="chat"></span><span data-i18n="llm.title">Chat Settings (LLM)</span></h3>
     <div class="form-col">
       <label><span data-i18n="llm.provider">Provider</span><select id="s-llm-provider">
         <option value="deepseek" data-i18n="provider.deepseek">DeepSeek</option>
@@ -327,8 +327,8 @@
       <label><span data-i18n="llm.apiKey">API Key</span><input id="s-llm-key" type="password" placeholder="sk-…" /></label>
       <label><span data-i18n="llm.model">Model</span><input id="s-llm-model" list="dl-llm-models" data-i18n-ph="llm.modelPlaceholder" /><datalist id="dl-llm-models"></datalist>
         <div class="row-btns">
-          <button id="btn-llm-fetch" class="ghost small-btn" data-i18n="llm.fetch">⚡ Fetch models</button>
-          <button id="btn-llm-test" class="ghost small-btn" data-i18n="llm.test">🔌 Test connection</button>
+          <button id="btn-llm-fetch" class="ghost small-btn"><span data-icon="bolt"></span><span data-i18n="llm.fetch">Fetch models</span></button>
+          <button id="btn-llm-test" class="ghost small-btn"><span data-icon="plug"></span><span data-i18n="llm.test">Test connection</span></button>
         </div></label>
       <label><span data-i18n="llm.temperature">Temperature</span><input id="s-llm-temp" type="number" min="0" max="2" step="0.1" /></label>
       <label><span data-i18n="llm.maxTokens">Max output tokens</span><input id="s-llm-max" type="number" min="1" max="8192" /></label>
@@ -344,7 +344,7 @@
 <!-- TTS settings -->
 <div id="modal-tts" class="modal hidden">
   <div class="modal-box wide">
-    <h3 data-i18n="tts.title">🔊 Text-to-Speech (TTS)</h3>
+    <h3 class="modal-title"><span class="modal-ico" data-icon="speaker"></span><span data-i18n="tts.title">Text-to-Speech (TTS)</span></h3>
     <div class="form-col">
       <label><span data-i18n="tts.engine">Engine</span><select id="s-tts-provider">
         <option value="web" data-i18n="tts.provider.web">System voice</option>
@@ -363,7 +363,7 @@
       <label><span data-i18n="llm.apiKey">API Key</span><input id="s-tts-key" type="password" placeholder="sk-…" /></label>
       <label><span data-i18n="llm.model">Model</span><input id="s-tts-model" list="dl-tts-models" placeholder="tts-1" /><datalist id="dl-tts-models"></datalist></label>
       <label><span data-i18n="tts.voice">Voice</span><input id="s-tts-voice" list="dl-tts-voices" data-i18n-ph="tts.voicePlaceholder" /><datalist id="dl-tts-voices"></datalist>
-        <button id="btn-tts-fetch" class="ghost small-btn" data-i18n="tts.fetchVoices">🎵 Fetch voices</button></label>
+        <button id="btn-tts-fetch" class="ghost small-btn"><span data-icon="music"></span><span data-i18n="tts.fetchVoices">Fetch voices</span></button></label>
       <label><span data-i18n="tts.rate">Speed</span> <span id="s-tts-rate-val" class="hint">1.0×</span>
         <input id="s-tts-rate" type="range" min="0.5" max="2" step="0.1" value="1" /></label>
       <label class="check"><input id="s-tts-auto" type="checkbox" /> <span data-i18n="tts.auto">Auto-read replies</span></label>
@@ -379,7 +379,7 @@
 <!-- 嵌入模型设置（长期记忆 / 知识库的语义检索） -->
 <div id="modal-embedding" class="modal hidden">
   <div class="modal-box wide">
-    <h3 data-i18n="embed.title">🧠 Memory &amp; Knowledge (Embedding)</h3>
+    <h3 class="modal-title"><span class="modal-ico" data-icon="book"></span><span data-i18n="embed.title">Memory &amp; Knowledge (Embedding)</span></h3>
     <div class="form-col">
       <p class="hint" data-i18n-html="embed.hint"></p>
       <label class="check"><input id="s-embed-enabled" type="checkbox" /> <span data-i18n="embed.enabled">Use an embedding model for semantic search</span></label>
@@ -396,8 +396,8 @@
       <label><span data-i18n="embed.apiKey">API Key</span><input id="s-embed-key" type="password" placeholder="sk-…" /></label>
       <label><span data-i18n="embed.model">Embedding model</span><input id="s-embed-model" list="dl-embed-models" placeholder="text-embedding-3-small" /><datalist id="dl-embed-models"></datalist>
         <div class="row-btns">
-          <button id="btn-embed-fetch" class="ghost small-btn" data-i18n="embed.fetch">⚡ Fetch models</button>
-          <button id="btn-embed-test" class="ghost small-btn" data-i18n="embed.test">🔌 Test</button>
+          <button id="btn-embed-fetch" class="ghost small-btn"><span data-icon="bolt"></span><span data-i18n="embed.fetch">Fetch models</span></button>
+          <button id="btn-embed-test" class="ghost small-btn"><span data-icon="plug"></span><span data-i18n="embed.test">Test</span></button>
         </div></label>
       <label><span data-i18n="embed.perCharacter">Memory is kept per character</span>
         <select id="s-mem-perchar">
@@ -421,7 +421,7 @@
 <!-- STT settings -->
 <div id="modal-stt" class="modal hidden">
   <div class="modal-box wide">
-    <h3 data-i18n="stt.title">🎤 Speech Recognition (STT)</h3>
+    <h3 class="modal-title"><span class="modal-ico" data-icon="mic"></span><span data-i18n="stt.title">Speech Recognition (STT)</span></h3>
     <div class="form-col">
       <label><span data-i18n="stt.engine">Engine</span><select id="s-stt-provider">
         <option value="openai" data-i18n="stt.provider.openai">Whisper</option>
@@ -439,7 +439,7 @@
       <label id="wrap-stt-base" class="hidden"><span data-i18n="stt.baseUrl">Base URL</span><input id="s-stt-base" placeholder="https://api.openai.com/v1" /></label>
       <label><span data-i18n="llm.apiKey">API Key</span><input id="s-stt-key" type="password" placeholder="sk-…" /></label>
       <label><span data-i18n="stt.model">Model</span><input id="s-stt-model" list="dl-stt-models" placeholder="whisper-1" /><datalist id="dl-stt-models"></datalist>
-        <button id="btn-stt-fetch" class="ghost small-btn" data-i18n="stt.fetchModels">⚡ Fetch models</button></label>
+        <button id="btn-stt-fetch" class="ghost small-btn"><span data-icon="bolt"></span><span data-i18n="stt.fetchModels">Fetch models</span></button></label>
       <p class="hint" data-i18n="stt.hint"></p>
     </div>
     <div class="modal-actions">
@@ -450,11 +450,11 @@
 </div>
 <!-- Character card menu -->
 <div id="char-menu" class="pop-menu hidden">
-  <button data-act="edit" data-i18n="charMenu.edit">✏️ Edit card</button>
-  <button data-act="quick" data-i18n="charMenu.quick">🎀 Change model / voice</button>
-  <button data-act="duplicate" data-i18n="charMenu.duplicate">⧉ Duplicate card</button>
-  <button data-act="export" data-i18n="charMenu.export">📤 Export</button>
-  <button data-act="delete" data-i18n="charMenu.delete">🗑 Delete</button>
+  <button data-act="edit"><span data-icon="pencil"></span><span data-i18n="charMenu.edit">Edit card</span></button>
+  <button data-act="quick"><span data-icon="layers"></span><span data-i18n="charMenu.quick">Change model / voice</span></button>
+  <button data-act="duplicate"><span data-icon="copy"></span><span data-i18n="charMenu.duplicate">Duplicate card</span></button>
+  <button data-act="export"><span data-icon="export"></span><span data-i18n="charMenu.export">Export</span></button>
+  <button data-act="delete"><span data-icon="trash"></span><span data-i18n="charMenu.delete">Delete</span></button>
 </div>
 
 <!-- Quick model / voice -->
@@ -478,44 +478,44 @@
      只是把入口收拢，按「角色 / 外观 / 模型 / 语音 / 记忆 / Agent / 设备 / 通用」分组。 -->
 <div id="modal-menu" class="modal hidden">
   <div class="modal-box wide">
-    <h3 data-i18n="center.title">⚙ Settings</h3>
+    <h3 class="modal-title"><span class="modal-ico" data-icon="settings"></span><span data-i18n="center.title">Settings</span></h3>
     <p class="hint" data-i18n="center.hint">Every page below is the same settings page as before — grouped, nothing removed.</p>
     <div class="menu-list">
       <div class="menu-group-title" data-i18n="center.g1">Character &amp; company</div>
-      <button data-action="edit-card" id="menu-char"><span class="menu-label" data-i18n="center.character">🧍 Character card</span><span class="menu-sub" id="menu-sub-char"></span></button>
-      <button data-target="modal-persona"><span class="menu-label" data-i18n="studio.menu">✨ Persona Studio</span><span class="menu-sub" id="menu-sub-persona"></span></button>
-      <button data-target="modal-perform"><span class="menu-label" data-i18n="menu.perform">🎭 Performance</span><span class="menu-sub" id="menu-sub-perform"></span></button>
+      <button data-action="edit-card" id="menu-char"><span class="menu-label"><span class="menu-ico" data-icon="person"></span><span data-i18n="center.character">Character card</span></span><span class="menu-sub" id="menu-sub-char"></span></button>
+      <button data-target="modal-persona"><span class="menu-label"><span class="menu-ico" data-icon="spark"></span><span data-i18n="studio.menu">Persona Studio</span></span><span class="menu-sub" id="menu-sub-persona"></span></button>
+      <button data-target="modal-perform"><span class="menu-label"><span class="menu-ico" data-icon="mask"></span><span data-i18n="menu.perform">Performance</span></span><span class="menu-sub" id="menu-sub-perform"></span></button>
 
       <div class="menu-group-title" data-i18n="center.g2">Stage &amp; appearance</div>
-      <button data-target="modal-model"><span class="menu-label" data-i18n="menu.model">🎀 Live2D Model Settings</span><span class="menu-sub" id="menu-sub-model"></span></button>
-      <button data-target="modal-theme"><span class="menu-label" data-i18n="menu.theme">🎨 Appearance</span><span class="menu-sub" id="menu-sub-theme"></span></button>
-      <button data-action="overlay"><span class="menu-label" data-i18n="menu.overlay">🖼 Borderless Stage</span><span class="menu-sub" id="menu-sub-overlay"></span></button>
+      <button data-target="modal-model"><span class="menu-label"><span class="menu-ico" data-icon="layers"></span><span data-i18n="menu.model">Live2D Model Settings</span></span><span class="menu-sub" id="menu-sub-model"></span></button>
+      <button data-target="modal-theme"><span class="menu-label"><span class="menu-ico" data-icon="palette"></span><span data-i18n="menu.theme">Appearance</span></span><span class="menu-sub" id="menu-sub-theme"></span></button>
+      <button data-action="overlay"><span class="menu-label"><span class="menu-ico" data-icon="frame"></span><span data-i18n="menu.overlay">Borderless Stage</span></span><span class="menu-sub" id="menu-sub-overlay"></span></button>
 
       <div class="menu-group-title" data-i18n="center.g3">Models &amp; intelligence</div>
-      <button data-target="modal-llm"><span class="menu-label" data-i18n="menu.llm">💬 Chat Settings (LLM)</span><span class="menu-sub" id="menu-sub-llm"></span></button>
+      <button data-target="modal-llm"><span class="menu-label"><span class="menu-ico" data-icon="chat"></span><span data-i18n="menu.llm">Chat Settings (LLM)</span></span><span class="menu-sub" id="menu-sub-llm"></span></button>
 
       <div class="menu-group-title" data-i18n="center.g4">Voice &amp; live conversation</div>
-      <button data-target="modal-tts"><span class="menu-label" data-i18n="menu.tts">🔊 Text-to-Speech (TTS)</span><span class="menu-sub" id="menu-sub-tts"></span></button>
-      <button data-target="modal-stt"><span class="menu-label" data-i18n="menu.stt">🎤 Speech Recognition (STT)</span><span class="menu-sub" id="menu-sub-stt"></span></button>
+      <button data-target="modal-tts"><span class="menu-label"><span class="menu-ico" data-icon="speaker"></span><span data-i18n="menu.tts">Text-to-Speech (TTS)</span></span><span class="menu-sub" id="menu-sub-tts"></span></button>
+      <button data-target="modal-stt"><span class="menu-label"><span class="menu-ico" data-icon="mic"></span><span data-i18n="menu.stt">Speech Recognition (STT)</span></span><span class="menu-sub" id="menu-sub-stt"></span></button>
 
       <div class="menu-group-title" data-i18n="center.g5">Memory &amp; knowledge</div>
-      <button data-target="modal-embedding"><span class="menu-label" data-i18n="menu.embedding">🧠 Memory &amp; Knowledge</span><span class="menu-sub" id="menu-sub-embedding"></span></button>
+      <button data-target="modal-embedding"><span class="menu-label"><span class="menu-ico" data-icon="book"></span><span data-i18n="menu.embedding">Memory &amp; Knowledge</span></span><span class="menu-sub" id="menu-sub-embedding"></span></button>
 
       <div class="menu-group-title" data-i18n="center.g6">Agent &amp; permissions</div>
-      <button data-action="agent"><span class="menu-label" data-i18n="center.agent">🤖 Agent workspace &amp; approval</span><span class="menu-sub" id="menu-sub-agent"></span></button>
-      <button data-action="computer"><span class="menu-label" data-i18n="menu.computerRow">🖥 Computer control</span><span class="menu-sub" id="menu-sub-computer"></span></button>
+      <button data-action="agent"><span class="menu-label"><span class="menu-ico" data-icon="agent"></span><span data-i18n="center.agent">Agent workspace &amp; approval</span></span><span class="menu-sub" id="menu-sub-agent"></span></button>
+      <button data-action="computer"><span class="menu-label"><span class="menu-ico" data-icon="desktop"></span><span data-i18n="menu.computerRow">Computer control</span></span><span class="menu-sub" id="menu-sub-computer"></span></button>
 
       <div class="menu-group-title" data-i18n="center.g7">Devices &amp; extensions</div>
-      <button data-action="mc"><span class="menu-label" data-i18n="menu.mc">🎮 Minecraft Companion</span><span class="menu-sub" id="menu-sub-mc"></span></button>
-      <button data-action="chess"><span class="menu-label" data-i18n="menu.chess">♟ Chess</span><span class="menu-sub" id="menu-sub-chess"></span></button>
+      <button data-action="mc"><span class="menu-label"><span class="menu-ico" data-icon="gamepad"></span><span data-i18n="menu.mc">Minecraft Companion</span></span><span class="menu-sub" id="menu-sub-mc"></span></button>
+      <button data-action="chess"><span class="menu-label"><span class="menu-ico" data-icon="pawn"></span><span data-i18n="menu.chess">Chess</span></span><span class="menu-sub" id="menu-sub-chess"></span></button>
 
       <div class="menu-group-title" data-i18n="center.g8">General</div>
       <div class="menu-row">
-        <span class="menu-row-label" data-i18n="menu.language">🌐 Language</span>
+        <span class="menu-row-label"><span class="menu-ico" data-icon="globe"></span><span data-i18n="menu.language">Language</span></span>
         <div id="lang-switch" class="lang-switch"></div>
       </div>
-      <button data-action="datadir" data-i18n="menu.datadir">📂 Open Data Folder</button>
-      <button data-action="about" data-i18n="menu.about">ℹ️ About AILEEN (version &amp; diagnostics)</button>
+      <button data-action="datadir"><span class="menu-label"><span class="menu-ico" data-icon="folder"></span><span data-i18n="menu.datadir">Open Data Folder</span></span></button>
+      <button data-action="about"><span class="menu-label"><span class="menu-ico" data-icon="info"></span><span data-i18n="menu.about">About AILEEN</span></span></button>
     </div>
     <div class="modal-actions">
       <button id="menu-cancel" data-i18n="menu.close">Close</button>
@@ -526,7 +526,7 @@
 <!-- Performance -->
 <div id="modal-perform" class="modal hidden">
   <div class="modal-box">
-    <h3 data-i18n="perform.title">🎭 Performance</h3>
+    <h3 class="modal-title"><span class="modal-ico" data-icon="mask"></span><span data-i18n="perform.title">Performance</span></h3>
     <div class="form-col">
       <label><span data-i18n="perform.narration">Parenthetical actions &amp; inner thoughts</span>
         <select id="p-narration">
@@ -556,13 +556,13 @@
 <!-- Live2D model settings -->
 <div id="modal-model" class="modal hidden">
   <div class="modal-box wide">
-    <h3 data-i18n="model.title">🎀 Live2D Model Settings</h3>
+    <h3 class="modal-title"><span class="modal-ico" data-icon="layers"></span><span data-i18n="model.title">Live2D Model Settings</span></h3>
     <div class="form-col">
       <label><span data-i18n="model.current">Current model</span><select id="m-model"></select></label>
       <div class="row-btns">
-        <button id="btn-add-model" class="ghost" data-i18n="model.fromFolder">📁 Import from folder</button>
-        <button id="btn-add-url-model" class="ghost" data-i18n="model.fromUrl">🔗 Load from URL</button>
-        <button id="btn-refresh-models" class="ghost" data-i18n="model.refresh">🔄 Refresh list</button>
+        <button id="btn-add-model" class="ghost"><span data-icon="folder"></span><span data-i18n="model.fromFolder">Import from folder</span></button>
+        <button id="btn-add-url-model" class="ghost"><span data-icon="link"></span><span data-i18n="model.fromUrl">Load from URL</span></button>
+        <button id="btn-refresh-models" class="ghost"><span data-icon="regenerate"></span><span data-i18n="model.refresh">Refresh list</span></button>
       </div>
       <div id="m-url-form" class="add-url-form hidden">
         <input id="m-url-input" data-i18n-ph="model.urlPlaceholder" />
@@ -583,7 +583,7 @@
 <!-- Appearance -->
 <div id="modal-theme" class="modal hidden">
   <div class="modal-box">
-    <h3 data-i18n="theme.title">🎨 Appearance</h3>
+    <h3 class="modal-title"><span class="modal-ico" data-icon="palette"></span><span data-i18n="theme.title">Appearance</span></h3>
     <div class="form-col">
       <label><span data-i18n="theme.presets">Theme presets</span>
         <div id="theme-presets" class="theme-presets"></div>
@@ -604,7 +604,7 @@
 <!-- Screen picker -->
 <div id="modal-screen" class="modal hidden">
   <div class="modal-box">
-    <h3 data-i18n="screen.title">📷 Choose a screen</h3>
+    <h3 class="modal-title"><span class="modal-ico" data-icon="camera"></span><span data-i18n="screen.title">Choose a screen to send to the character</span></h3>
     <div id="screen-grid" class="screen-grid"></div>
     <div class="modal-actions">
       <button id="screen-cancel" data-i18n="screen.cancel">Cancel</button>
@@ -615,7 +615,7 @@
 <!-- About -->
 <div id="modal-about" class="modal hidden">
   <div class="modal-box">
-    <h3 data-i18n="about.title">ℹ️ About AILEEN</h3>
+    <h3 class="modal-title"><span class="modal-ico" data-icon="info"></span><span data-i18n="about.title">About AILEEN</span></h3>
     <div id="about-body" class="about-body"></div>
     <p class="hint" data-i18n="about.hint"></p>
     <div class="modal-actions">
@@ -626,7 +626,7 @@
 <!-- Minecraft companion -->
 <div id="modal-mc" class="modal hidden">
   <div class="modal-box wide">
-    <h3 data-i18n="mc.title">🎮 Minecraft AI Companion</h3>
+    <h3 class="modal-title"><span class="modal-ico" data-icon="gamepad"></span><span data-i18n="mc.title">Minecraft AI Companion</span></h3>
     <div class="form-col">
       <div class="mc-row">
         <label><span data-i18n="mc.host">Server address</span><input id="mc-host" placeholder="127.0.0.1" /></label>
@@ -636,9 +636,9 @@
       <div id="mc-persona" class="mc-persona">—</div>
       <label class="check"><input id="mc-autoreply" type="checkbox" /> <span data-i18n="mc.autoReply">Let the AI reply to in-game chat</span></label>
       <div class="row-btns">
-        <button id="mc-connect" class="primary" data-i18n="mc.connect">🔌 Connect</button>
+        <button id="mc-connect" class="primary"><span data-icon="plug"></span><span id="mc-connect-label" data-i18n="mc.connect">Connect</span></button>
         <button id="mc-disconnect" class="ghost" data-i18n="mc.disconnect">Disconnect</button>
-        <button id="mc-follow" class="ghost" data-i18n="mc.follow">🚶 Follow me</button>
+        <button id="mc-follow" class="ghost"><span data-icon="play"></span><span data-i18n="mc.follow">Follow me</span></button>
         <button id="mc-stopfollow" class="ghost" data-i18n="mc.stopFollow">Stop</button>
       </div>
       <div id="mc-status" class="mc-status" data-i18n="mc.statusIdle">Not connected</div>
@@ -664,7 +664,7 @@
 <!-- Chess -->
 <div id="modal-chess" class="modal hidden">
   <div class="modal-box wide">
-    <h3 data-i18n="chess.title">♟ Chess</h3>
+    <h3 class="modal-title"><span class="modal-ico" data-icon="pawn"></span><span data-i18n="chess.title">Chess</span></h3>
     <div class="chess-layout">
       <div class="chess-left">
         <div id="chess-board" class="chess-board"></div>

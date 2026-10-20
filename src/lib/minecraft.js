@@ -8,6 +8,8 @@ import { $, toast } from './dom.js';
 import { streamChat } from './llm.js';
 import { buildSystemPrompt } from './characters.js';
 import { t } from './i18n.js';
+import { escapeHtml } from './markdown.js';
+import { iconSvg } from './icons.js';
 
 let autoReply = false;
 let replying = false;
@@ -46,23 +48,27 @@ function renderStatus(st) {
   if (!box) return;
   if (!st) { box.textContent = t('mc.statusIdle'); box.className = 'mc-status'; return; }
   if (st.connected) {
+    // 生命/饥饿/坐标这几段要带图标，所以走 innerHTML —— 文本部分一律 escapeHtml，
+    // 服务器地址和玩家名都是用户自己填的，不能直接拼进 HTML。
     const bits = [
-      t('mc.connected', { host: st.host, port: st.port }),
-      t('mc.botName', { name: st.username }),
-      st.health != null ? '❤ ' + Math.round(st.health) : '',
-      st.food != null ? '🍗 ' + Math.round(st.food) : '',
-      st.pos ? '坐标 ' + st.pos.x + ',' + st.pos.y + ',' + st.pos.z : '',
-      st.players && st.players.length ? t('mc.online', { n: st.players.length }) : '',
-      st.following ? t('mc.following', { name: st.following }) : '',
+      escapeHtml(t('mc.connected', { host: st.host, port: st.port })),
+      escapeHtml(t('mc.botName', { name: st.username })),
+      st.health != null ? iconSvg('heart', 13) + ' ' + Math.round(st.health) : '',
+      st.food != null ? iconSvg('food', 13) + ' ' + Math.round(st.food) : '',
+      st.pos ? escapeHtml(t('mc.pos')) + ' ' + Math.round(st.pos.x) + ',' + Math.round(st.pos.y) + ',' + Math.round(st.pos.z) : '',
+      st.players && st.players.length ? escapeHtml(t('mc.online', { n: st.players.length })) : '',
+      st.following ? escapeHtml(t('mc.following', { name: st.following })) : '',
     ].filter(Boolean);
-    box.textContent = bits.join(' · ');
+    box.innerHTML = bits.join(' · ');
     box.className = 'mc-status on';
   } else {
     box.textContent = st.lastError ? t('mc.statusIdle') + ' · ' + st.lastError : t('mc.statusIdle');
     box.className = 'mc-status' + (st.lastError ? ' err' : '');
   }
   const btn = el('mc-connect');
-  if (btn) btn.textContent = st.connected ? t('mc.reconnect') : t('mc.connect');
+  const btnLabel = el('mc-connect-label');
+  if (btnLabel) btnLabel.textContent = st.connected ? t('mc.reconnect') : t('mc.connect');
+  else if (btn) btn.textContent = st.connected ? t('mc.reconnect') : t('mc.connect');
 }
 
 // ---------------- AI 自动回复 ----------------

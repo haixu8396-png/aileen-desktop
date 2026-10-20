@@ -1,7 +1,7 @@
 // ============================================================
-// 人设生成室（设置 → ✨ 人设生成）
+// 人设生成室（设置 → 人设生成）
 //
-// 和角色编辑器里那颗「✨ 生成」的区别：这里**先选原型、再锁定**。
+// 和角色编辑器里那颗「生成」按钮的区别：这里**先选原型、再锁定**。
 // 只给一句灵感时，模型很容易写成通用助手（也就是「乱写」）；
 // 把原型「怎么演」锁死后，出来的人才稳定属于你要的那一类。
 //
@@ -33,10 +33,21 @@ export function setStudioMode(mode) {
   if (char) char.focus();
 }
 
+// 原型卡前面那颗圆形徽章：取本地化名字的第一个字。
+// 用单字徽章而不是 Emoji —— 三种语言下都成立（「傲」「ツ」「T」），
+// 也不再为 30 个原型维护 30 个风格不一的图形。
+function monogram(text) {
+  const s = String(text || '').trim();
+  return s ? s.slice(0, 1).toUpperCase() : '·';
+}
+
 function chipEntries(list) {
   const lang = getLang();
   return [{ id: '', icon: '·', text: t('studio.none') }]
-    .concat(list.map((x) => ({ id: x.id, icon: x.icon, text: labelOf(x, lang) })));
+    .concat(list.map((x) => {
+      const text = labelOf(x, lang);
+      return { id: x.id, icon: monogram(text), text };
+    }));
 }
 
 function renderChips(box, list, current, onPick) {

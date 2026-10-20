@@ -834,7 +834,13 @@ button.icon-btn.small { width: 30px; height: 30px; font-size: 14px; }
 }
 .arch-chip:hover { border-color: #ff7eb3; }
 .arch-chip.on { background: rgba(255, 126, 179, 0.16); border-color: #ff7eb3; color: #fff; }
-.arch-chip .arch-icon { font-size: 14px; }
+.arch-chip .arch-icon {
+  width: 18px; height: 18px; border-radius: 50%; flex: none;
+  display: inline-flex; align-items: center; justify-content: center;
+  background: rgba(255, 255, 255, 0.07);
+  color: var(--muted); font-size: 11px; font-weight: 600; line-height: 1;
+}
+.arch-chip.on .arch-icon { background: rgba(255, 126, 179, 0.28); color: #fff; }
 .studio-opt { margin-top: 14px; border-top: 1px solid var(--line, #2c3040); padding-top: 12px; }
 .studio-opt summary { cursor: pointer; font-size: 13px; color: var(--muted); }
 .studio-opt[open] summary { margin-bottom: 12px; }
@@ -1053,6 +1059,24 @@ html.agent-mode button.primary {
 .icon-btn [data-icon], .icon-btn .ico { width: 16px; height: 16px; }
 button.realtime-btn [data-icon] { margin-right: 4px; }
 .scroll-down [data-icon] { width: 15px; height: 15px; }
+/* 文字按钮里「图标 + 文案」：给图标留一点呼吸，并让它在基线上略微下压（视觉居中） */
+button > [data-icon] { vertical-align: -0.18em; }
+button > [data-icon] + span { margin-left: 6px; }
+/* 设置中心：每行左边一个线性图标，hover 时跟着主题色亮起来 */
+.menu-label { display: flex; align-items: center; gap: 9px; }
+.menu-row-label { display: flex; align-items: center; gap: 9px; }
+.menu-ico { color: var(--muted); }
+.menu-ico .ico { width: 17px; height: 17px; }
+.menu-list button:hover .menu-ico, .menu-row:hover .menu-ico { color: var(--accent); }
+/* 设置页标题：图标在前，标题文字是 flex 项，不会被 data-i18n 覆盖掉 */
+.modal-box h3.modal-title { display: flex; align-items: center; gap: 9px; }
+.modal-ico { color: var(--accent); }
+.modal-ico .ico { width: 18px; height: 18px; }
+/* 角色卡徽章 / 消息操作 / 模型列表 / 联机状态：图标尺寸比按钮小一号 */
+.ci-badge .ico { width: 13px; height: 13px; }
+.msg-actions .ico { width: 14px; height: 14px; }
+.url-item .ico { width: 13px; height: 13px; }
+.mc-status .ico { width: 13px; height: 13px; vertical-align: -0.15em; }
 /* ---------- 空状态（无角色 / 无会话） ---------- */
 .empty-state {
   flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center;

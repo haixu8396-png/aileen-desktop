@@ -5,6 +5,7 @@ import { getSettings, deepMerge, hasApiKey } from './settings.js';
 import { streamChat } from './llm.js';
 import { buildSystemPrompt } from './characters.js';
 import { renderMarkdown, escapeHtml } from './markdown.js';
+import { iconSvg } from './icons.js';
 import { t, getLang } from './i18n.js';
 import { createMarkerParser } from './marker-parser.js';
 import { createReplyPacer } from './reply-pacer.js';
@@ -129,26 +130,26 @@ export function makeMsgEl(role, content, index, isLastAssistant) {
   acts.className = 'msg-actions';
   if (role === 'assistant') {
     const sp = document.createElement('button');
-    sp.textContent = '🔊';
+    sp.innerHTML = iconSvg('speaker', 14);
     sp.title = t('chat.readAloud');
     sp.onclick = () => speakText(content);
     acts.appendChild(sp);
   }
   const cp = document.createElement('button');
-  cp.textContent = '⧉';
+  cp.innerHTML = iconSvg('copy', 14);
   cp.title = t('chat.copy');
   cp.onclick = () => copyText(content);
   acts.appendChild(cp);
   if (isLastAssistant) {
     const rg = document.createElement('button');
-    rg.textContent = '↻';
+    rg.innerHTML = iconSvg('regenerate', 14);
     rg.title = t('chat.regenerate');
     rg.onclick = () => regenerateLast();
     acts.appendChild(rg);
   }
   if (typeof index === 'number') {
     const del = document.createElement('button');
-    del.textContent = '✕';
+    del.innerHTML = iconSvg('close', 14);
     del.title = t('chat.deleteMsg');
     del.onclick = () => deleteMessage(index);
     acts.appendChild(del);
@@ -477,7 +478,7 @@ export async function runAssistantReply(userContent, forceSpeak, image) {
   seal(true);
 
   if (streamErr && !(streamErr.name === 'AbortError') && preview) {
-    preview.innerHTML = '<span style="color:#ff9aa8">⚠ ' + escapeHtml(String(streamErr.message || streamErr)) + '</span>';
+    preview.innerHTML = '<span style="color:#ff9aa8">' + iconSvg('info', 14) + ' ' + escapeHtml(String(streamErr.message || streamErr)) + '</span>';
   }
   setBusy(false);
   renderMessages();   // 统一重画：拿到正确的下标与各种消息操作

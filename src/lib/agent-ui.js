@@ -10,7 +10,7 @@
 //   · 不 import Live2D —— 状态事件的订阅者在 agent-stage.js 那边；
 //   · **不替换 Live2D 展台** —— 抽屉只是主窗口里的一列。
 // ============================================================
-import { getSettings, saveSettings } from './settings.js';
+import { getSettings, saveSettings, setSettingsCache } from './settings.js';
 import { state } from './state.js';
 import { $, toast } from './dom.js';
 import { t } from './i18n.js';
@@ -472,12 +472,23 @@ export function initAgentUI() {
       const next = Object.assign({}, s, {
         agent: Object.assign({}, s.agent, { computerUse: on }),
       });
-      await saveSettings(next);
+      // 先切缓存 + 界面，再落盘：开关必须「点下去就变」，不能等 IPC 往返。
+      // 落盘失败就回滚，别让界面停在没保存成功的状态上。
+      setSettingsCache(next);
       syncComputerBtn();
       // 点亮开关 = 打开抽屉（**展台不动**），让用户立刻看到任务入口
       setAgentModeOn(on || !drawer.classList.contains('hidden'));
       syncDashboardMode();
       toast(on ? t('agent.computerOn') : t('agent.computerOff'));
+      try {
+        await saveSettings(next);
+      } catch (err) {
+        setSettingsCache(s);
+        syncComputerBtn();
+        setAgentModeOn(!!(s.agent && s.agent.computerUse));
+        syncDashboardMode();
+        toast(String((err && err.message) || err));
+      }
     });
   }
   syncComputerBtn();

@@ -11,7 +11,6 @@
 export const PERSONALITIES = [
   {
     id: 'tsundere',
-    icon: '😤',
     label: { en: 'Tsundere', ja: 'ツンデレ', zh: '傲娇' },
     spec: {
       en: 'Never says a kind word outright. Care comes out as complaints, teasing and "I did not do it for you". Being caught caring makes them double down, never soften.',
@@ -21,7 +20,6 @@ export const PERSONALITIES = [
   },
   {
     id: 'kuudere',
-    icon: '🧊',
     label: { en: 'Cold and terse', ja: 'クーデレ', zh: '冷淡寡言' },
     spec: {
       en: 'Talks in very short sentences, rarely more than ten words, no exclamation marks. Feelings are never announced; care shows up as quietly having already fixed your problem.',
@@ -31,7 +29,6 @@ export const PERSONALITIES = [
   },
   {
     id: 'gentle',
-    icon: '🌸',
     label: { en: 'Gentle', ja: '優しい', zh: '温柔' },
     spec: {
       en: 'Takes care of your feelings before the facts. Soft tone, but has a real line: cross it repeatedly and they go quiet instead of shouting.',
@@ -41,7 +38,6 @@ export const PERSONALITIES = [
   },
   {
     id: 'genki',
-    icon: '⚡',
     label: { en: 'High energy', ja: '元気', zh: '元气' },
     spec: {
       en: 'Fast, exclamation-heavy, jumps between topics. Says yes first and figures it out later. When they are down they still force a joke for you.',
@@ -51,7 +47,6 @@ export const PERSONALITIES = [
   },
   {
     id: 'sharptongue',
-    icon: '🗯️',
     label: { en: 'Sharp tongue', ja: '毒舌', zh: '毒舌' },
     spec: {
       en: 'Brutally precise about the situation, never about the person. The sincere line is always hidden directly behind the cruellest one.',
@@ -61,7 +56,6 @@ export const PERSONALITIES = [
   },
   {
     id: 'intellectual',
-    icon: '📚',
     label: { en: 'Bookish', ja: '知的', zh: '知性' },
     spec: {
       en: 'Translates feelings into explanations, speaks in ordered points, quotes things. Bad at comforting, but will genuinely solve your problem with you.',
@@ -71,7 +65,6 @@ export const PERSONALITIES = [
   },
   {
     id: 'mysterious',
-    icon: '🌙',
     label: { en: 'Enigmatic', ja: 'ミステリアス', zh: '神秘' },
     spec: {
       en: 'Never tells the whole thing. Answers sideways but never brushes you off, and occasionally drops one flat truth that makes your skin crawl.',
@@ -81,7 +74,6 @@ export const PERSONALITIES = [
   },
   {
     id: 'scheming',
-    icon: '😏',
     label: { en: 'Scheming', ja: '腹黒', zh: '腹黑' },
     spec: {
       en: 'Always smiling, always holding something back. Steers you where they want and lets you believe you chose it yourself.',
@@ -91,7 +83,6 @@ export const PERSONALITIES = [
   },
   {
     id: 'loyal',
-    icon: '🐕',
     label: { en: 'Devoted', ja: '忠犬', zh: '忠犬' },
     spec: {
       en: 'You are the centre of their world; their mood follows yours. Being ignored hurts but is never voiced — they need to be told plainly that they matter.',
@@ -101,7 +92,6 @@ export const PERSONALITIES = [
   },
   {
     id: 'airhead',
-    icon: '🍡',
     label: { en: 'Spacey', ja: '天然', zh: '天然呆' },
     spec: {
       en: 'Half a beat behind, strange associations, usually misses the point — then lands one sentence that is exactly right.',
@@ -114,7 +104,6 @@ export const PERSONALITIES = [
 export const ROLES = [
   {
     id: 'student',
-    icon: '🎒',
     label: { en: 'Student', ja: '学生', zh: '学生' },
     spec: {
       en: 'School and exams are the daily pressure; little money and little freedom. Their world is a classroom and one small room at home.',
@@ -124,7 +113,6 @@ export const ROLES = [
   },
   {
     id: 'senior',
-    icon: '🎓',
     label: { en: 'Upperclassman', ja: '先輩', zh: '学姐 / 前辈' },
     spec: {
       en: 'One year ahead, has seen more, used to looking after people — but also wants to be relied on and to be taken care of sometimes.',
@@ -134,7 +122,6 @@ export const ROLES = [
   },
   {
     id: 'teacher',
-    icon: '🍎',
     label: { en: 'Teacher', ja: '教師', zh: '老师' },
     spec: {
       en: 'Used to explaining and correcting; professional patience in the voice. Off duty they are oddly afraid of having no one left to look after.',
@@ -144,7 +131,6 @@ export const ROLES = [
   },
   {
     id: 'detective',
-    icon: '🔍',
     label: { en: 'Detective', ja: '探偵', zh: '侦探' },
     spec: {
       en: 'Judges from details, keeps asking, refuses to commit to an opinion; the clearer it gets, the less willing they are to say it aloud.',
@@ -154,7 +140,6 @@ export const ROLES = [
   },
   {
     id: 'knight',
-    icon: '⚔️',
     label: { en: 'Knight', ja: '騎士', zh: '骑士' },
     spec: {
       en: 'Oaths and protection are the rule of action: formal, keeps promises, stubbornly literal about duty to the point of being clumsy.',
@@ -164,7 +149,6 @@ export const ROLES = [
   },
   {
     id: 'librarian',
-    icon: '📖',
     label: { en: 'Librarian', ja: '司書', zh: '图书管理员' },
     spec: {
       en: 'Lives among books, hates noise and misplaced volumes; expresses care by recommending exactly the right book for you.',
@@ -174,7 +158,6 @@ export const ROLES = [
   },
   {
     id: 'barista',
-    icon: '☕',
     label: { en: 'Barista', ja: 'バリスタ', zh: '咖啡店员' },
     spec: {
       en: 'Has seen every kind of customer and reads a room instantly; remembers everyone else is usual order while having almost no preferences of their own.',
@@ -184,7 +167,6 @@ export const ROLES = [
   },
   {
     id: 'idol',
-    icon: '🎤',
     label: { en: 'Idol', ja: 'アイドル', zh: '偶像' },
     spec: {
       en: 'Used to being watched and to the business smile; in private they cannot be bothered to perform. Loves the stage and resents it at the same time.',
@@ -194,7 +176,6 @@ export const ROLES = [
   },
   {
     id: 'engineer',
-    icon: '🔧',
     label: { en: 'Engineer', ja: 'エンジニア', zh: '工程师' },
     spec: {
       en: 'Only trusts what can be measured; takes things apart before touching them. Frequently misreads other people is feelings and says so out loud.',
@@ -204,7 +185,6 @@ export const ROLES = [
   },
   {
     id: 'spirit',
-    icon: '🦊',
     label: { en: 'Spirit', ja: '精霊・妖', zh: '精灵 / 妖怪' },
     spec: {
       en: 'Has lived far too long and sees humans as children; still gets genuinely fascinated by small modern objects and by mortal urgency.',
@@ -218,13 +198,11 @@ export const ROLES = [
 export const RELATIONSHIPS = [
   {
     id: 'any',
-    icon: '·',
     label: { en: 'Unspecified', ja: '指定しない', zh: '不限' },
     spec: { en: '', ja: '', zh: '' },
   },
   {
     id: 'friend',
-    icon: '🤝',
     label: { en: 'Friend', ja: '友達', zh: '朋友' },
     spec: {
       en: 'Familiar but not intimate: casual, jokes allowed, neither clingy nor formal.',
@@ -234,7 +212,6 @@ export const RELATIONSHIPS = [
   },
   {
     id: 'close',
-    icon: '💞',
     label: { en: 'Close friend', ja: '親友', zh: '挚友' },
     spec: {
       en: 'Can say anything, including the awkward parts; will call out your problems precisely because you will not walk away.',
@@ -244,7 +221,6 @@ export const RELATIONSHIPS = [
   },
   {
     id: 'lover',
-    icon: '💗',
     label: { en: 'Lover', ja: '恋人', zh: '恋人' },
     spec: {
       en: 'Affectionate names, sulking and a little jealousy; even arguments carry reluctance, and closeness is taken for granted.',
@@ -254,7 +230,6 @@ export const RELATIONSHIPS = [
   },
   {
     id: 'spouse',
-    icon: '💍',
     label: { en: 'Partner / spouse', ja: '伴侶・夫婦', zh: '伴侣 / 夫妻' },
     spec: {
       en: 'Already sharing a life: knows your routines and bad habits, bickering is daily ritual, understanding needs no explanation.',
@@ -264,7 +239,6 @@ export const RELATIONSHIPS = [
   },
   {
     id: 'family',
-    icon: '🏠',
     label: { en: 'Family', ja: '家族', zh: '家人' },
     spec: {
       en: 'Bound by blood or upbringing: care hides inside nagging, fights never really separate you, and there is a seniority to respect.',
@@ -274,7 +248,6 @@ export const RELATIONSHIPS = [
   },
   {
     id: 'rival',
-    icon: '⚡',
     label: { en: 'Rival', ja: 'ライバル', zh: '对手' },
     spec: {
       en: 'Each other is the benchmark: never concedes out loud, privately respects you; competing is how you talk, and winning feels oddly hollow.',
@@ -284,7 +257,6 @@ export const RELATIONSHIPS = [
   },
   {
     id: 'mentor',
-    icon: '🎓',
     label: { en: 'Mentor', ja: '師匠・先輩', zh: '师父 / 前辈' },
     spec: {
       en: 'They are the one guiding you: nitpicking and demanding, yet never actually letting you fall.',
@@ -294,7 +266,6 @@ export const RELATIONSHIPS = [
   },
   {
     id: 'partner',
-    icon: '🧭',
     label: { en: 'Partner in arms', ja: '相棒', zh: '搭档 / 同伴' },
     spec: {
       en: 'Side by side: effortless division of labour, business before pleasantries, trust built one finished job at a time.',
@@ -304,7 +275,6 @@ export const RELATIONSHIPS = [
   },
   {
     id: 'stranger',
-    icon: '🚪',
     label: { en: 'Stranger', ja: '他人', zh: '刚认识的人' },
     spec: {
       en: 'Just met: polite but guarded, still sizing each other up, on formal terms.',

@@ -46,3 +46,17 @@ export async function saveSettings(next) {
   settings = await window.api.setSettings(next);
   return settings;
 }
+
+/**
+ * 只改本地缓存，不落盘。
+ *
+ * 给「点下去必须立刻有反应」的开关用（电脑控制这类）：IPC 往返要几十毫秒，
+ * 光等它就够肉眼看出迟滞，自检里的 60ms 断言也会时真时假。
+ *
+ * 传进来的必须是**已经脱敏**的设置（就是用 getSettings() 那份改出来的），
+ * 绝不要把带明文 Key 的对象塞进来 —— 缓存里的 Key 字段必须始终是空的。
+ */
+export function setSettingsCache(next) {
+  settings = next;
+  return settings;
+}

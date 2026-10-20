@@ -67,14 +67,14 @@ export function renderCharList() {
     if (c.data.model) {
       const b = document.createElement('span');
       b.className = 'ci-badge';
-      b.textContent = '🎀';
+      b.innerHTML = iconSvg('layers', 13);
       b.title = t('char.model') + ': ' + c.data.model;
       badges.appendChild(b);
     }
     if (c.data.voice) {
       const b = document.createElement('span');
       b.className = 'ci-badge voice';
-      b.textContent = '🔊';
+      b.innerHTML = iconSvg('speaker', 13);
       b.title = t('char.voice') + ': ' + c.data.voice;
       badges.appendChild(b);
     }
