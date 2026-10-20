@@ -43,7 +43,7 @@ body {
 
 /* 状态提示：贴在底部边缘（工具条上方），低对比，不遮脸 */
 .ov-status {
-  position: fixed; left: 50%; bottom: 52px; transform: translateX(-50%);
+  position: fixed; left: 50%; bottom: 74px; transform: translateX(-50%);
   max-width: 90%;
   padding: 4px 12px;
   border-radius: 999px;
@@ -58,9 +58,10 @@ body {
 }
 .ov-status.hidden { display: none; }
 
-/* 悬浮 UI 容器：这一整块就是鼠标交互热区（收起时只有工具条那么大） */
+/* 悬浮 UI 容器：这一整块就是鼠标交互热区（收起时只有工具条那么大）。
+   底边留 22px：系统缩放手柄在窗口边缘，热区压上去会把拖动变成缩放（CI 门禁要求 ≥14px）。 */
 #ov-ui {
-  position: fixed; left: 50%; bottom: 10px; transform: translateX(-50%);
+  position: fixed; left: 50%; bottom: 22px; transform: translateX(-50%);
   display: flex; flex-direction: column; align-items: center; gap: 8px;
   max-width: calc(100% - 12px);
   pointer-events: auto;
