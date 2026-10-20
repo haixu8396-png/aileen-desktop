@@ -140,7 +140,7 @@
   "model.urlList": "読み込み済みのURLモデル",
   "model.noLocal": "ローカルモデルはまだありません",
   "model.noUrl": "URLモデルはまだありません",
-  "model.hint": "フォルダからインポートすると、モデルは models/ にコピーされます。URLモデルは保存され、ここで削除できます。モーションと表情は引き続きステージから操作します。",
+  "model.hint": "フォルダーから読み込むと models/ にコピーされます。URL モデルは保存され、ここで削除できます。モーションと表情は下に一覧され、ステージで試せます。",
   "model.close": "閉じる",
   "model.localList": "ディスク上のモデル",
   "model.delete": "削除",
@@ -792,5 +792,12 @@
   "mc.say": "何か話す",
   "devices.mcOff": "未接続",
   "devices.chessReady": "未開始",
-  "overlay.continueMain": "メインウィンドウで続ける"
+  "overlay.continueMain": "メインウィンドウで続ける",
+  "stage.actions": "モーションと表情",
+  "stage.actionsDesc": "このモデルが実際に持つものを一覧します。クリックするとステージで試せます。",
+  "stage.capsNoModel": "モデルが未選択です。上で読み込んでください。",
+  "stage.capsEmpty": "このモデルにはモーション/表情の定義がありません。",
+  "stage.capsFailed": "モデル定義を読めませんでした：{msg}",
+  "stage.tryMotion": "モーション「{name}」を再生",
+  "stage.tryExpression": "表情「{name}」を適用"
 }

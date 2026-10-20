@@ -34,6 +34,7 @@ export function initLive2D() {
   bindStageScale();
   updateStageModelName();
   syncOverlayModel();
+  refreshStageCapabilities();
 }
 
 /** 主窗口里没有模型实例了 —— 保留接口给旧调用点，明确返回 null */
@@ -98,6 +99,7 @@ export function populateStageModelSelect() {
     main.onchange = () => {
       updateStageModelName();
       syncOverlayModel();
+      refreshStageCapabilities();
     };
   }
   updateStageModelName();
@@ -175,6 +177,67 @@ function bindStageScale() {
       saveSettings(Object.assign({}, s, { stage: Object.assign({}, s.stage, { scale: v }) })).catch(() => {});
     }, 400);
   });
+}
+
+/** 设置页里的「动作 / 表情」试演：从模型 json 里读真实的组名，点一下推给展台 */
+let capsCache = { url: '', motions: [], expressions: [], error: '' };
+
+export async function refreshStageCapabilities() {
+  const boxM = $('stage-motion-chips');
+  const boxE = $('stage-expr-chips');
+  const hint = $('stage-caps-hint');
+  if (!boxM || !boxE) return;
+  const model = currentStageModel();
+  const url = model && model.url ? String(model.url) : '';
+  const draw = () => {
+    boxM.innerHTML = '';
+    boxE.innerHTML = '';
+    if (!url) {
+      if (hint) hint.textContent = t('stage.capsNoModel');
+      return;
+    }
+    if (capsCache.error) {
+      if (hint) hint.textContent = t('stage.capsFailed', { msg: capsCache.error });
+      return;
+    }
+    if (!capsCache.motions.length && !capsCache.expressions.length) {
+      if (hint) hint.textContent = t('stage.capsEmpty');
+      return;
+    }
+    if (hint) hint.textContent = '';
+    for (const name of capsCache.motions) {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'chip';
+      b.textContent = name;
+      b.onclick = () => { stageMotion(name); toast(t('stage.tryMotion', { name })); };
+      boxM.appendChild(b);
+    }
+    for (const name of capsCache.expressions) {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'chip';
+      b.textContent = name;
+      b.onclick = () => { stageExpression(name); toast(t('stage.tryExpression', { name })); };
+      boxE.appendChild(b);
+    }
+  };
+  if (capsCache.url === url) { draw(); return; }
+  capsCache = { url, motions: [], expressions: [], error: '' };
+  if (!url) { draw(); return; }
+  try {
+    const res = await fetch(url, { cache: 'no-cache' });
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const json = await res.json();
+    const fr = json.FileReferences || json;
+    const motions = fr.Motions || fr.motions || {};
+    const exprs = fr.Expressions || fr.expressions || [];
+    capsCache.motions = Object.keys(motions || {});
+    capsCache.expressions = (Array.isArray(exprs) ? exprs : []).map((e) => (typeof e === 'string' ? e : (e && (e.Name || e.name)) || '')).filter(Boolean);
+  } catch (err) {
+    capsCache.error = String((err && err.message) || err);
+  }
+  draw();
 }
 
 // ---------------- 展台窗口 ----------------
@@ -335,6 +398,7 @@ export async function refreshModelsAfterAdd() {
   rebuildLive2D();
   renderLocalList();
   renderUrlList();
+  refreshStageCapabilities();
   const current = state.current;
   if (current && current.data && current.data.model) {
     const idx = state.models.findIndex((m) => m.file === current.data.model);

@@ -25,6 +25,7 @@ import {
   initLive2D, updateStageModelName, populateStageModelSelect, setStageModelIndex, syncOverlayModel,
   currentStageModel, stageModelDisabled, openModelModal, addModelFromFolder, showUrlForm, submitUrlForm,
   refreshModelsAfterAdd, applyStageScale, toggleStage, resetStagePosition, renderLocalList, renderUrlList,
+  refreshStageCapabilities,
 } from './lib/stage.js';
 import {
   send, renderMessages, setBusy, ttsSettingsForCharacter, clearMessages, regenerateLast, resumeWithAgent,
@@ -549,7 +550,7 @@ function bindPages() {
   onPageEnter('memory', () => renderMemoryPage());
   onPageEnter('tasks', () => renderTasksPage());
   onPageEnter('devices', () => syncDevicesPage());
-  onPageEnter('settings', () => { fillAllSettings(); syncDevicesPage(); });
+  onPageEnter('settings', () => { fillAllSettings(); syncDevicesPage(); refreshStageCapabilities(); });
 }
 
 async function importCard() {

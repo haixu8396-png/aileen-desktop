@@ -140,7 +140,7 @@
   "model.urlList": "已加载的 URL 模型",
   "model.noLocal": "还没有本地模型",
   "model.noUrl": "还没有 URL 模型",
-  "model.hint": "从文件夹导入会将模型复制到 models/。URL 模型会被保存，并可在此处移除。动作和表情仍在舞台中控制。",
+  "model.hint": "从文件夹导入会将模型复制到 models/。URL 模型会被保存，并可在此处移除。动作与表情在下面按模型列出，点一下在展台上试演。",
   "model.close": "关闭",
   "model.localList": "本地模型（在磁盘上）",
   "model.delete": "删除",
@@ -792,5 +792,12 @@
   "mc.say": "说点什么",
   "devices.mcOff": "未连接",
   "devices.chessReady": "未开始",
-  "overlay.continueMain": "在主窗口中继续"
+  "overlay.continueMain": "在主窗口中继续",
+  "stage.actions": "动作与表情",
+  "stage.actionsDesc": "按当前模型里真实存在的动作/表情列出，点一下就在展台上试演。模型没有定义时这里会是空的。",
+  "stage.capsNoModel": "还没有选择模型 —— 先在上面导入或选择一个。",
+  "stage.capsEmpty": "这个模型没有定义动作或表情。",
+  "stage.capsFailed": "读取模型定义失败：{msg}",
+  "stage.tryMotion": "试演动作「{name}」",
+  "stage.tryExpression": "试试表情「{name}」"
 }
