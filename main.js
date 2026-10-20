@@ -165,6 +165,22 @@ const DEFAULT_SETTINGS = {
     workspace: '',           // 空 = 用默认工作区（见 registerAgentIpc）
     requireMedium: true,     // 写文件/打补丁/git commit 是否要确认
     computerUse: false,      // 电脑控制总开关：开 = 对话走 Agent（Chat 作入口）
+    // 0.8：授权模式（manual / batch / trust），有范围、有期限、可撤销
+    authorization: {
+      mode: 'manual',
+      scope: 'task',         // task = 仅当前任务；persistent = 持续生效（有 TTL）
+      allowHighRisk: false,  // 完全信任下是否也自动执行非不可逆的 HIGH
+      tools: null,
+      workspace: '',
+      expiresAt: null,
+      grantedAt: null,
+      revokedAt: null,
+    },
+    // 0.8：预算与恢复
+    maxRounds: 20,           // 单「段」轮数上限
+    roundBudget: 60,         // 任务总轮数预算（用尽 → 保存检查点并暂停，可续跑）
+    maxRetries: 1,           // 只读工具失败后的自动重试次数
+    readOnlyParallel: true,  // 同轮只读工具是否受控并行
   },
 };
 
@@ -753,6 +769,9 @@ function registerMcIpc() {
 }
 
 function createWindow() {
+  // AILEEN_SELFTEST_QUIET=1：自检时**不要抢前台**（用户可能正在全屏干别的事）。
+  // 仍然创建并显示窗口（capturePage 需要可见），但用 showInactive 显示，不激活。
+  const quiet = !!process.env.AILEEN_SELFTEST_QUIET;
   const win = new BrowserWindow({
     width: 1480,
     height: 940,
@@ -761,12 +780,16 @@ function createWindow() {
     title: 'AILEEN',
     backgroundColor: '#14151a',
     autoHideMenuBar: true,
+    show: !quiet,
     webPreferences: {
       preload: path.join(APP_ROOT, 'preload.js'),
       contextIsolation: true,
       nodeIntegration: false,
     },
   });
+  if (quiet) {
+    try { win.showInactive(); } catch (err) { /* 旧版 Electron 没有就算了 */ }
+  }
 
   mainWin = win;
   mcBot.init((channel, payload) => { if (mainWin && !mainWin.isDestroyed()) mainWin.webContents.send(channel, payload); });

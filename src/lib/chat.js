@@ -18,6 +18,7 @@ import { createToolRegistry, TOOL_SPECS, withBaseExecutors } from '../agent/tool
 import { buildPersonaSystemPrompt, buildTaskMessage, buildToolContext, assertPersonaPreserved } from '../agent/context-engine.js';
 import { createAgentBridge, createAgentLlm, isSensitivePath } from './agent-bridge.js';
 import { onAgentEvent, bindAgentRun, initAgentDashboard } from './agent-dashboard.js';
+import { normalizeAuthorization } from '../agent/authorization.js';
 import { createContextEngine, DEFAULT_BUDGET } from '../context/engine.js';
 import { createRetrievalAdapters, ensureEngines } from './memory-host.js';
 
@@ -497,7 +498,7 @@ export async function runAssistantReply(userContent, forceSpeak, image) {
  *   3. 汇报用**当前角色的语气**（同一个 system prompt、同一张卡），
  *      不可能突然变成 "Task completed successfully."。
  */
-export async function sendWithAgent(userContent) {
+export async function sendWithAgent(userContent, opts = {}) {
   const cur = state.current;
   if (!cur) throw new Error(t('chat.needChar'));
   if (!hasApiKey('llm')) {
@@ -505,7 +506,9 @@ export async function sendWithAgent(userContent) {
     hooks.openLlmModal();
     return '';
   }
-  pushMsg('user', userContent);
+  const resume = opts && opts.checkpoint ? opts.checkpoint : null;
+  // 续跑不新增用户气泡（任务还是同一个任务），只在抽屉日志里体现
+  if (!resume) pushMsg('user', userContent);
 
   const s = getSettings();
   const agentCfg = s.agent || {};
@@ -571,6 +574,13 @@ export async function sendWithAgent(userContent) {
     bridge: createAgentBridge(),
     isSensitive: isSensitivePath,
     permissionConfig: { requireMedium: agentCfg.requireMedium !== false },
+    // 0.8：授权（模式 / 范围 / 有效期）+ 预算 + 恢复策略，全部来自设置
+    authorization: normalizeAuthorization(agentCfg.authorization || {}, { now: Date.now() }),
+    maxRounds: agentCfg.maxRounds,
+    roundBudget: agentCfg.roundBudget,
+    maxRetries: agentCfg.maxRetries,
+    parallelReadOnly: agentCfg.readOnlyParallel !== false,
+    checkpoint: resume || undefined,
     history: ctx.messages.filter((m) => m.role !== 'system'),
     // 每一轮请求也由 Context Engine 组装（工具结果/历史都按预算裁），
     // 而不是让 runtime 再拼一遍 —— 再多一条拼装路径就等于没统一。
@@ -581,7 +591,7 @@ export async function sendWithAgent(userContent) {
     },
     signal: state.abortCtrl.signal,
     onEvent: (type, payload) => {
-      // 事件同时喂给 Dashboard 与 Live2D（各自订阅，runtime 不认识它们）
+      // 事件同时喂给抽屉与 Live2D（各自订阅，runtime 不认识它们）
       if (typeof hooks.agentEvent === 'function') hooks.agentEvent(type, payload);
     },
   });
@@ -595,12 +605,20 @@ export async function sendWithAgent(userContent) {
     const api = await started.done;
     answer = String((api.run && api.run.answer) || '').trim();
     if (api.run && api.run.error) failure = String(api.run.error);
+    // 预算用尽：把检查点存起来，抽屉上的「继续」用它断点续跑
+    if (api.budget && api.budget.canContinue) {
+      state.pendingCheckpoint = api.checkpoint('budget');
+      state.pendingCheckpointTask = userContent;
+    } else if (api.run && api.run.status === 'completed') {
+      state.pendingCheckpoint = null;
+      state.pendingCheckpointTask = '';
+    }
   } catch (err) {    failure = String((err && err.message) || err);
   } finally {
     state.abortCtrl = null;
   }
 
-  // 角色自己的汇报回到对话框；工具日志**不进**聊天气泡（那是 Dashboard 的事）
+  // 角色自己的汇报回到对话框；工具日志**不进**聊天气泡（那是抽屉的事）
   if (answer) {
     await revealReply(answer);
   } else if (failure) {
@@ -608,6 +626,18 @@ export async function sendWithAgent(userContent) {
   }
   setBusy(false);
   return answer;
+}
+
+/**
+ * 断点续跑：用上一次的检查点重开一次任务。
+ * **不新增用户气泡**（任务没变），进度由 runtime 通过检查点摘要注入。
+ */
+export async function resumeWithAgent(checkpoint) {
+  const cp = checkpoint && checkpoint.checkpoint ? checkpoint : state.pendingCheckpoint;
+  if (!cp) return '';
+  const task = String(cp.task || state.pendingCheckpointTask || '').trim();
+  if (!task) return '';
+  return sendWithAgent(task, { checkpoint: cp });
 }
 
 export async function send(text) {

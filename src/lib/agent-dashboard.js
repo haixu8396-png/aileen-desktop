@@ -1,15 +1,13 @@
 // ============================================================
-// Agent Control Dashboard
+// Agent Control Dashboard（现在的形态：主窗口里的抽屉）
 //
-// 位置：**原来 Live2D 展台那块区域**。为什么让它接管：
-// 电脑控制要显示日志/状态/截图/Tool Calls，而 Live2D 也要空间 ——
-// 两个都挤在右边只会互相打架。所以：
+// 0.8 起**不再接管 Live2D 展台**：
+//   · 展台是陪伴体验的核心，Agent 干活时它必须一直开着；
+//   · 任务详情搬到主窗口右侧的 #agent-drawer（可收起）。
+// 所以这里只负责「抽屉的可见性 + 状态/工具/截图」，绝不碰展台的可见性。
 //
-//   电脑控制开始 → Live2D 让位，Dashboard 顶上
-//   完成 / 暂停 / 取消 / 退出 → Live2D 回来
-//
-// 它是**纯订阅者**：只认 Agent 事件，不反向调 runtime 的内部状态。
-// 聊天区负责「人和 AILEEN 说话」，这里负责「AILEEN 到底在干什么」。
+// 它仍是**纯订阅者**：只认 Agent 事件，不反向调 runtime 的内部状态。
+// 聊天区负责「人和 AILEEN 说话」，抽屉负责「AILEEN 到底在干什么」。
 // ============================================================
 import { $, toast } from './dom.js';
 import { t } from './i18n.js';
@@ -19,27 +17,27 @@ import { AGENT_EVENT, AGENT_STATUS, RUN_STATUS } from '../agent/events.js';
 let controller = null;
 let approval = null;
 let logEl = null;
-/** 这次对话是否正在跑 Agent（跑的过程中不能被「退出控制模式」把面板抽走） */
+/** 这次对话是否正在跑 Agent（跑的过程中不能被「退出控制模式」把抽屉抽走） */
 let running = false;
-/** 任务结束后的「延迟归位」定时器句柄 —— 不清会被下一轮任务继承，面板会莫名消失 */
+/** 任务结束后的「延迟归位」定时器句柄 —— 不清会被下一轮任务继承，抽屉会莫名消失 */
 let settleTimer = null;
 
 const MAX_LINES = 500;
 const TOOL_HISTORY = 40;
 let toolCalls = [];
 
-/** 只切「哪块可见」，不管模式从哪来 */
+/**
+ * 只切「抽屉可不可见」。
+ * **展台的任何元素都不在这里动** —— 这是 0.8 的硬要求：Agent 不得替换展台。
+ */
 function applyPanelVisibility(on) {
-  const panel = $('stage-panel');
-  if (!panel) return;
-  const dash = $('agent-dashboard');
-  if (dash) dash.classList.toggle('hidden', !on);
-  // Live2D 的三块全部让位：舞台本体、模型选择条、动作/表情控件
-  for (const sel of ['#stage-container', '.stage-model-bar', '.stage-controls']) {
-    const el = panel.querySelector(sel) || document.querySelector(sel);
-    if (el) el.classList.toggle('hidden', on);
+  const drawer = $('agent-drawer');
+  if (!drawer) return;
+  drawer.classList.toggle('hidden', !on);
+  // 用一个 body 级类名让主窗口的栅格知道「抽屉占了一列」，方便做宽度过渡
+  if (document.body && document.body.classList) {
+    document.body.classList.toggle('agent-drawer-open', !!on);
   }
-  panel.classList.toggle('agent-controlling', on);
 }
 
 /** 电脑控制的总开关（读设置） */
@@ -53,15 +51,25 @@ function computerUseOn() {
 }
 
 /**
- * 同步「控制模式」：
- *   开关打开 → Dashboard 常驻（Live2D 让位），哪怕还没开始干活
- *   开关关闭且没在跑 → Live2D 回来
- *
- * 为什么要这样：用户点亮开关**就是在说「我要用控制模式」**，
- * 界面上必须立刻有反应，而不是等他发一条消息才知道切过去了。
+ * 用户手动打开抽屉时把「钉住」标记打开。
+ * 没有这个标记的话，`syncDashboardMode()` 会在「电脑控制关着 + 没在跑」时
+ * 立刻把用户刚点开的抽屉又收回去（点 btn-agent 看起来像没反应）。
+ */
+let pinned = false;
+export function pinDrawer(on) {
+  pinned = !!on;
+  applyPanelVisibility(pinned || computerUseOn() || running);
+}
+
+/**
+ * 同步「抽屉可见性」：
+ *   Agent 在跑 → 抽屉开着（用户能看见进度）
+ *   电脑控制开关打开且没在跑 → 也打开（用户点开关就是在说「我要用」）
+ *   用户手动打开 → 一直开着，直到他自己关
+ *   都关掉 → 抽屉收起，**展台始终保持原样**
  */
 export function syncDashboardMode() {
-  const on = computerUseOn() || running;
+  const on = pinned || computerUseOn() || running;
   applyPanelVisibility(on);
   if (on && !running) {
     setStatus(AGENT_STATUS.IDLE);
@@ -70,7 +78,7 @@ export function syncDashboardMode() {
 }
 
 function logLine(kind, text) {
-  const box = logEl || $('dash-log');
+  const box = logEl || $('ag-log') || $('dash-log');
   if (!box) return;
   const stamp = new Date().toLocaleTimeString('en-GB', { hour12: false });
   const row = document.createElement('div');
@@ -82,7 +90,7 @@ function logLine(kind, text) {
 }
 
 function clearLog() {
-  const box = logEl || $('dash-log');
+  const box = logEl || $('ag-log') || $('dash-log');
   if (box) box.innerHTML = '';
 }
 
@@ -152,21 +160,28 @@ function showScreen(info) {
   }
 }
 
+/**
+ * 审批卡片：0.8 起**只有一张**（agent-ui 那张 #ag-approval）。
+ * 这里不再重复渲染卡片，只把「有没有待批」这个状态记下来，
+ * 免得同一个待确认操作在抽屉里出现两遍。
+ */
 function showApproval(req) {
   approval = req;
-  const box = $('dash-approval');
-  if (!box) return;
-  if ($('dash-risk')) {
-    $('dash-risk').textContent = String(req.riskLevel || 'HIGH');
-    $('dash-risk').className = 'agent-risk risk-' + String(req.riskLevel || 'HIGH').toLowerCase();
+  const box = $('ag-approval');
+  if (box && box.classList.contains('hidden')) {
+    // agent-ui 没接上（比如单测里只注入了 dashboard 事件）时兜底渲染
+    if ($('ag-approval-risk')) {
+      $('ag-approval-risk').textContent = String(req.riskLevel || 'HIGH');
+      $('ag-approval-risk').className = 'agent-risk risk-' + String(req.riskLevel || 'HIGH').toLowerCase();
+    }
+    if ($('ag-approval-text')) $('ag-approval-text').textContent = req.preview || req.name;
+    box.classList.remove('hidden');
   }
-  if ($('dash-approval-text')) $('dash-approval-text').textContent = req.preview || req.name;
-  box.classList.remove('hidden');
 }
 
 function hideApproval() {
   approval = null;
-  const box = $('dash-approval');
+  const box = $('ag-approval');
   if (box) box.classList.add('hidden');
 }
 
@@ -282,6 +297,7 @@ export function bindAgentRun(runController) {
 export function resetDashboard() {
   running = false;
   controller = null;
+  pinned = false;   // 复位时把「用户钉住」也清掉，否则自检/重启后抽屉关不掉
   if (settleTimer) { clearTimeout(settleTimer); settleTimer = null; }   // 别让旧定时器把状态改回来
   hideApproval();
   setControls();
@@ -289,28 +305,29 @@ export function resetDashboard() {
 }
 
 export function initAgentDashboard() {
-  logEl = $('dash-log');
-  // 直接把事件接到 Dashboard（chat.js 里的 hooks.agentEvent 指到这里）
+  logEl = $('ag-log') || $('dash-log');
+  // 单条审批的处理按钮在 agent-ui.js 里接（同一张卡片，不重复接两次）
   if ($('dash-approve')) $('dash-approve').addEventListener('click', () => decide(true));
   if ($('dash-reject')) $('dash-reject').addEventListener('click', () => decide(false));
   if ($('dash-pause')) $('dash-pause').addEventListener('click', () => { if (controller) { controller.pause(); setControls(); } });
   if ($('dash-resume')) $('dash-resume').addEventListener('click', () => { if (controller) { controller.resume(); setControls(); } });
   if ($('dash-cancel')) $('dash-cancel').addEventListener('click', () => { if (controller) { controller.cancel(); setControls(); } });
-  // 初始状态跟着「电脑控制」开关走：开着就直接是控制模式
+  // 初始状态跟着「电脑控制」开关走：开着就直接打开抽屉（展台不动）
   const s = getSettings();
   applyPanelVisibility(!!(s && s.agent && s.agent.computerUse));
 }
 
-/** 自检用：Dashboard 当前可见吗、日志有多少行 */
+/** 自检用：抽屉当前可见吗、日志有多少行、有没有待批 */
 export function dashboardState() {
-  const dash = $('agent-dashboard');
+  const drawer = $('agent-drawer');
   const stage = $('stage-container');
   return {
-    visible: !!dash && !dash.classList.contains('hidden'),
+    visible: !!drawer && !drawer.classList.contains('hidden'),
     status: ($('dash-status') || {}).textContent || '',
     task: ($('dash-task') || {}).textContent || '',
-    logLines: (($('dash-log') || {}).childElementCount) || 0,
-    approvalVisible: !!$('dash-approval') && !$('dash-approval').classList.contains('hidden'),
+    logLines: (($('ag-log') || $('dash-log') || {}).childElementCount) || 0,
+    approvalVisible: !!$('ag-approval') && !$('ag-approval').classList.contains('hidden'),
+    // 0.8：Agent 干活时展台**必须可见**（旧版这里是 stageHidden，语义已经反过来）
     stageHidden: !!stage && stage.classList.contains('hidden'),
   };
 }

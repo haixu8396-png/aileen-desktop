@@ -267,7 +267,7 @@ win.webContents.on('did-finish-load', () => {
             && toggleDetail.accentBlue === true
             && toggleDetail.startBtnBlue === true
             && toggleDetail.dashboardShown === true
-            && toggleDetail.stageHidden === true
+            && toggleDetail.stageVisible === true
             && !!toggleDetail.afterOff
             && toggleDetail.afterOff.settingOff === true
             && toggleDetail.afterOff.modeClassOff === true
@@ -289,7 +289,7 @@ win.webContents.on('did-finish-load', () => {
             && dashDetail.toolCount >= 17
             && dashDetail.hiddenBeforeRun === true
             && dashDetail.visibleDuringRun === true
-            && dashDetail.stageHiddenDuringRun === true
+            && dashDetail.stageVisibleDuringRun === true
             && dashDetail.approvalShown === true
             && dashDetail.logLines >= 3
             && dashDetail.approvalHiddenAfterFinish === true;

@@ -240,7 +240,37 @@ function normalizeSettings(raw, defaults) {
       // 电脑控制总开关：开 = 对话走 Agent（Chat 作入口），关 = 纯聊天。
       // 它只决定「要不要给模型工具」，不绕过任何权限。
       computerUse: asBool(agent.computerUse, false),
+      // ---- 0.8：授权模式（有范围、有期限、可撤销）----
+      // 注意：allowHighRisk 只影响「完全信任模式下 **非不可逆** 的 HIGH 操作」，
+      // 不可逆操作（删除 / push / 装包 / shell / 危险命令 / 敏感路径 / 越界）
+      // 在任何模式下都要单独确认 —— permission.js 那条硬约束没有被放宽。
+      authorization: normalizeAuthorizationCfg(agent.authorization),
+      // ---- 0.8：预算与恢复 ----
+      maxRounds: Math.round(asNum(agent.maxRounds, 1, 50, 20)),          // 单「段」轮数
+      roundBudget: Math.round(asNum(agent.roundBudget, 1, 400, 60)),      // 任务总预算
+      maxRetries: Math.round(asNum(agent.maxRetries, 0, 3, 1)),           // 只读工具失败重试
+      readOnlyParallel: asBool(agent.readOnlyParallel, true),             // 只读工具受控并行
     },
+  };
+}
+
+/** 授权配置归一化（CJS 侧；规则与 src/agent/authorization.js 保持一致） */
+function normalizeAuthorizationCfg(raw) {
+  const r = (raw && typeof raw === 'object') ? raw : {};
+  const MODES = ['manual', 'batch', 'trust'];
+  const mode = MODES.includes(r.mode) ? r.mode : 'manual';
+  const scope = r.scope === 'persistent' ? 'persistent' : 'task';
+  return {
+    mode,
+    scope,
+    allowHighRisk: r.allowHighRisk === true,
+    tools: Array.isArray(r.tools)
+      ? r.tools.map((x) => String(x)).filter((x) => x && x.length <= 64).slice(0, 64)
+      : null,
+    workspace: asStr(r.workspace, 1000),
+    expiresAt: Number.isFinite(r.expiresAt) ? Number(r.expiresAt) : null,
+    grantedAt: Number.isFinite(r.grantedAt) ? Number(r.grantedAt) : null,
+    revokedAt: Number.isFinite(r.revokedAt) ? Number(r.revokedAt) : null,
   };
 }
 

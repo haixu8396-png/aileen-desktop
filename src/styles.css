@@ -1,15 +1,54 @@
 /* ============ AILEEN 主题 ============ */
+/* 设计令牌：颜色 / 字号 / 间距 / 圆角 / 阴影 / 动效 都在这里，组件只引用变量。
+   主窗口（信息密度高）和展台（角色优先）共享同一套品牌语言，
+   但可以各自选择不同的密度 —— 而不是每个组件自己写一套魔法数字。 */
 :root {
   --bg: #14151a;
   --panel: #1c1e27;
   --panel2: #232633;
+  --panel3: #2a2e3d;
   --line: #2c3040;
+  --line-soft: #232634;
   --text: #e8e8f2;
   --muted: #9aa0b4;
+  --muted-2: #767d92;
   --accent: #ff7eb3;
   --accent2: #38b0de;
+  --accent-agent: #3d8bfd;
   --danger: #ff5d6c;
+  --ok: #53d18b;
+  --warn: #f0b45b;
   --radius: 12px;
+  --radius-sm: 8px;
+  --radius-lg: 16px;
+  --radius-pill: 999px;
+  --sp-1: 4px;
+  --sp-2: 8px;
+  --sp-3: 12px;
+  --sp-4: 16px;
+  --sp-5: 24px;
+  --sp-6: 32px;
+  --fs-xs: 11px;
+  --fs-sm: 12px;
+  --fs-md: 13px;
+  --fs-lg: 15px;
+  --fs-xl: 18px;
+  --lh-tight: 1.35;
+  --lh-body: 1.65;
+  --shadow-1: 0 1px 2px rgba(0, 0, 0, 0.25);
+  --shadow-2: 0 6px 20px rgba(0, 0, 0, 0.35);
+  --shadow-3: 0 18px 60px rgba(0, 0, 0, 0.5);
+  --dur-fast: 120ms;
+  --dur-mid: 200ms;
+  --dur-slow: 320ms;
+  --ease: cubic-bezier(0.2, 0.7, 0.2, 1);
+  --sidebar-w: 232px;
+  --stage-w: 400px;
+  --drawer-w: 380px;
+}
+@media (prefers-reduced-motion: reduce) {
+  :root { --dur-fast: 0ms; --dur-mid: 0ms; --dur-slow: 0ms; }
+  * { animation-duration: 0.001ms !important; animation-iteration-count: 1 !important; transition-duration: 0.001ms !important; }
 }
 * { box-sizing: border-box; margin: 0; padding: 0; }
 /* 全局兜底：以前只有各组件自己写 .xxx.hidden，漏掉的元素（如 #typing）会一直显示 */
@@ -72,7 +111,12 @@ button.icon-btn.tts-on { color: var(--accent); border-color: var(--accent); }
 /* 关键：grid 必须把行高钉死，否则内容一多，整行会被撑到窗口之外，
    而 body 是 overflow:hidden —— 结果就是消息区既不出现滚动条也滚不动。
    flex/grid 的子项默认 min-height:auto（不肯缩到内容以下），所以下面几处都要显式 min-height:0。 */
-#app { display: grid; grid-template-columns: 232px 1fr 400px; grid-template-rows: minmax(0, 1fr); height: 100vh; }
+#app { display: grid; grid-template-columns: var(--sidebar-w) minmax(0, 1fr) var(--stage-w); grid-template-rows: minmax(0, 1fr); height: 100vh; transition: grid-template-columns var(--dur-mid) var(--ease); }
+/* Agent 抽屉打开时多出一列（主窗口里，**不占用展台**） */
+#app:has(#agent-drawer:not(.hidden)) { grid-template-columns: var(--sidebar-w) minmax(0, 1fr) var(--stage-w) var(--drawer-w); }
+@media (max-width: 1180px) {
+  #app:has(#agent-drawer:not(.hidden)) { grid-template-columns: var(--sidebar-w) minmax(0, 1fr) 320px var(--drawer-w); }
+}
 
 /* ---------- 侧栏 ---------- */
 #sidebar {
@@ -855,41 +899,98 @@ html.agent-mode button.primary {
   padding: 6px 10px; border-radius: 6px; margin: 6px 0;
 }
 
-/* ---------- Agent Control Dashboard（接管原 Live2D 展台区域） ---------- */
-#agent-dashboard {
-  display: flex; flex-direction: column; gap: 8px;
-  flex: 1; min-height: 0; padding: 10px; overflow-y: auto;
+/* ---------- Agent 抽屉（主窗口内，可收起；**不再占用/替换展台**） ---------- */
+.agent-drawer {
+  display: flex; flex-direction: column; min-height: 0;
+  background: var(--panel);
+  border-left: 1px solid var(--line);
+  animation: drawer-in var(--dur-mid) var(--ease);
 }
-#agent-dashboard.hidden { display: none; }
-.agent-dash-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
-.agent-dash-title { font-size: 13px; font-weight: 600; color: var(--accent-agent, #3d8bfd); }
-.agent-dash-sec { display: flex; flex-direction: column; gap: 4px; }
-.agent-dash-label { font-size: 11px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); }
+@keyframes drawer-in {
+  from { opacity: 0; transform: translateX(12px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+.agent-drawer.hidden { display: none; }
+.drawer-head {
+  display: flex; align-items: center; gap: var(--sp-2);
+  padding: var(--sp-3) var(--sp-4);
+  border-bottom: 1px solid var(--line);
+  flex: 0 0 auto;
+}
+.drawer-title { font-size: var(--fs-lg); font-weight: 600; color: var(--accent-agent); }
+.drawer-head .agent-status { margin-left: auto; }
+.drawer-body {
+  flex: 1; min-height: 0; overflow-y: auto;
+  padding: var(--sp-3) var(--sp-4) var(--sp-4);
+  display: flex; flex-direction: column; gap: var(--sp-3);
+}
+.drawer-sec {
+  display: flex; flex-direction: column; gap: var(--sp-2);
+  padding: var(--sp-3); border: 1px solid var(--line-soft); border-radius: var(--radius);
+  background: var(--panel2);
+}
+.drawer-label {
+  display: flex; align-items: center; justify-content: space-between; gap: var(--sp-2);
+  font-size: var(--fs-xs); text-transform: uppercase; letter-spacing: .04em;
+  color: var(--muted);
+}
+.agent-drawer select,
+.agent-drawer textarea { width: 100%; }
+.agent-drawer textarea { min-height: 60px; resize: vertical; }
+/* 授权徽章：当前模式一直可见，一眼知道「现在是哪种审批」 */
+.auth-badge {
+  font-size: var(--fs-xs); padding: 2px 8px; border-radius: var(--radius-pill);
+  border: 1px solid var(--line); background: var(--panel); color: var(--muted);
+  white-space: nowrap;
+}
+.auth-badge.auth-manual { color: var(--ok); border-color: rgba(83, 209, 139, 0.4); }
+.auth-badge.auth-batch { color: var(--accent2); border-color: rgba(56, 176, 222, 0.45); }
+.auth-badge.auth-trust { color: var(--warn); border-color: rgba(240, 180, 91, 0.5); background: rgba(240, 180, 91, 0.10); }
+.auth-badge.auth-trust-off { color: var(--muted-2); border-color: var(--line); }
+.hint.warn { color: var(--warn); }
+/* 批量审批清单 */
+.batch-list {
+  display: flex; flex-direction: column; gap: 6px;
+  max-height: 220px; overflow-y: auto; margin-bottom: var(--sp-2);
+}
+.batch-item {
+  display: flex; align-items: flex-start; gap: var(--sp-2);
+  padding: 6px 8px; border: 1px solid var(--line); border-radius: var(--radius-sm);
+  background: var(--panel); cursor: pointer;
+}
+.batch-item:hover { border-color: var(--accent-agent); }
+.batch-item input { margin-top: 2px; accent-color: var(--accent-agent); }
+.batch-item-text { font-size: var(--fs-sm); color: var(--text); word-break: break-word; flex: 1; }
+/* 执行详情：主窗口里不需要像原来那么高，日志矮一点 */
+#agent-dashboard {
+  display: flex; flex-direction: column; gap: var(--sp-3);
+  padding: var(--sp-3); border: 1px solid var(--line-soft); border-radius: var(--radius);
+}
+.agent-dash-sec { display: flex; flex-direction: column; gap: var(--sp-1); }
+.agent-dash-label { font-size: var(--fs-xs); text-transform: uppercase; letter-spacing: .04em; color: var(--muted); }
 .agent-dash-task {
-  font-size: 13px; color: var(--text); background: var(--panel2);
-  border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px;
+  font-size: var(--fs-md); color: var(--text); background: var(--panel);
+  border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 8px 10px;
   word-break: break-word; max-height: 90px; overflow-y: auto;
 }
-.agent-dash-now { font-size: 12px; color: var(--accent2); min-height: 18px; word-break: break-word; }
-/* Dashboard 里的日志比弹窗里矮一些 —— 右边这块本来就窄 */
-#agent-dashboard .agent-log { height: 170px; margin-top: 0; }
-.agent-dash-tools { display: flex; flex-direction: column; gap: 2px; font-size: 12px; color: var(--muted); }
-.agent-tool-row.ok { color: #7fd6a0; }
-.agent-tool-row.err { color: #ff9aa6; }
+.agent-dash-now { font-size: var(--fs-sm); color: var(--accent2); min-height: 18px; word-break: break-word; }
+.agent-drawer .agent-log { height: 200px; margin-top: 0; }
+.agent-dash-tools { display: flex; flex-direction: column; gap: 2px; font-size: var(--fs-sm); color: var(--muted); }
+.agent-tool-row.ok { color: var(--ok); }
+.agent-tool-row.err { color: var(--danger); }
 .agent-dash-screen {
-  font-size: 12px; color: var(--muted); background: var(--bg);
-  border: 1px dashed var(--line); border-radius: 8px; padding: 8px; min-height: 40px;
+  font-size: var(--fs-sm); color: var(--muted); background: var(--bg);
+  border: 1px dashed var(--line); border-radius: var(--radius-sm); padding: 8px; min-height: 40px;
 }
 .agent-dash-screen-meta { margin-bottom: 6px; color: var(--accent2); }
 .agent-dash-shot { width: 100%; border-radius: 6px; border: 1px solid var(--line); display: block; }
 /* 状态色：一眼看出在干活 / 等确认 / 出事 */
-.status-thinking, .status-planning { color: var(--accent-agent2, #56c8f5); }
-.status-working, .status-using_tool { color: #ffd479; }
-.status-waiting_approval { color: var(--accent-agent, #3d8bfd); border-color: var(--accent-agent, #3d8bfd); }
-.status-paused { color: #ffd479; }
-.status-completed, .status-success { color: #7fd6a0; }
-.status-failed, .status-error { color: #ff9aa6; }
+.status-thinking, .status-planning { color: #56c8f5; }
+.status-working, .status-using_tool { color: var(--warn); }
+.status-waiting_approval { color: var(--accent-agent); border-color: var(--accent-agent); }
+.status-paused { color: var(--warn); }
+.status-completed, .status-success { color: var(--ok); }
+.status-failed, .status-error { color: var(--danger); }
 .status-cancelled { color: var(--muted); }
 /* 侧栏的电脑控制开关：开着的状态要显眼，否则用户会忘了自己开着 */
-#btn-computer.computer-on { color: var(--accent-agent, #3d8bfd); border-color: var(--accent-agent, #3d8bfd); }
-#stage-panel.agent-controlling { border-left-color: var(--accent-agent, #3d8bfd); }
+#btn-computer.computer-on { color: var(--accent-agent); border-color: var(--accent-agent); }

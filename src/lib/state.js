@@ -68,6 +68,9 @@ export const state = {
   currentMenuFile: null,
   quickFile: null,
   voiceLoop: false,
+  /** 预算用尽的任务：检查点与任务原文（抽屉上的「继续」用它断点续跑） */
+  pendingCheckpoint: null,
+  pendingCheckpointTask: '',
 };
 
 export const tts = new TTS();

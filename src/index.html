@@ -75,56 +75,8 @@
     <button id="btn-expand-stage" class="edge-toggle right hidden" data-i18n-title="stage.expand" title="Show the stage">‹</button>
   </main>
 
-  <!-- Right: Live2D stage -->
+  <!-- Right: Live2D stage（Agent 工作期间**不再**被替换，展台常驻） -->
   <aside id="stage-panel">
-    <!-- Agent 控制仪表板：电脑控制期间接管这块区域（Live2D 让位，避免两边抢空间） -->
-    <div id="agent-dashboard" class="agent-dash hidden">
-      <div class="agent-dash-head">
-        <span class="agent-dash-title" data-i18n="dash.title">Agent Control Dashboard</span>
-        <span id="dash-status" class="agent-status" data-i18n="dash.idle">Idle</span>
-      </div>
-
-      <div class="agent-dash-sec">
-        <div class="agent-dash-label" data-i18n="dash.task">Task</div>
-        <div id="dash-task" class="agent-dash-task">—</div>
-      </div>
-
-      <div class="agent-dash-sec">
-        <div class="agent-dash-label" data-i18n="dash.now">Current operation</div>
-        <div id="dash-now" class="agent-dash-now">—</div>
-      </div>
-
-      <div id="dash-approval" class="agent-approval hidden">
-        <div class="agent-approval-head">
-          <span id="dash-risk" class="agent-risk">HIGH</span>
-          <span data-i18n="dash.needApproval">Waiting for approval</span>
-        </div>
-        <p id="dash-approval-text" class="agent-approval-text"></p>
-        <div class="agent-actions">
-          <button id="dash-approve" class="primary small-btn" data-i18n="agent.approve">Approve</button>
-          <button id="dash-reject" class="danger small-btn" data-i18n="agent.reject">Reject</button>
-        </div>
-      </div>
-
-      <div class="agent-dash-label" data-i18n="dash.log">Operation log</div>
-      <div id="dash-log" class="agent-log"></div>
-
-      <div class="agent-dash-sec">
-        <div class="agent-dash-label" data-i18n="dash.tools">Tool calls</div>
-        <div id="dash-tools" class="agent-dash-tools">—</div>
-      </div>
-
-      <div class="agent-dash-sec">
-        <div class="agent-dash-label" data-i18n="dash.screen">Screen / Vision</div>
-        <div id="dash-screen" class="agent-dash-screen" data-i18n="dash.noScreen">Not captured yet</div>
-      </div>
-
-      <div class="agent-actions">
-        <button id="dash-pause" class="ghost small-btn" disabled data-i18n="agent.pause">⏸ Pause</button>
-        <button id="dash-resume" class="ghost small-btn" disabled data-i18n="agent.resume">⏵ Resume</button>
-        <button id="dash-cancel" class="danger small-btn" disabled data-i18n="agent.cancel">⏹ Cancel</button>
-      </div>
-    </div>
     <div class="stage-head">
       <span data-i18n="stage.title">Live2D Stage</span>
       <button id="btn-collapse-stage" class="icon-btn tiny" data-i18n-title="stage.collapse" title="Hide the stage">›</button>
@@ -144,6 +96,114 @@
           <button id="btn-float-stage" class="chip" data-i18n-title="stage.floatTip" data-i18n="menu.overlay">🖼 Borderless Stage</button>
         </div>
       </div>
+    </div>
+  </aside>
+
+  <!-- Agent 抽屉：主窗口内的可收起侧栏。
+       关键：它**不占据也不替换** Live2D 展台 —— Agent 干活时陪伴不消失。 -->
+  <aside id="agent-drawer" class="agent-drawer hidden">
+    <div class="drawer-head">
+      <span class="drawer-title" data-i18n="agent.title">Agent</span>
+      <span id="dash-status" class="agent-status" data-i18n="dash.idle">Idle</span>
+      <button id="ag-close" class="icon-btn tiny" data-i18n-title="menu.close" title="Close">✕</button>
+    </div>
+
+    <div class="drawer-body">
+      <!-- 授权：逐项 / 批量 / 完全信任 + 范围 + 撤销 -->
+      <section class="drawer-sec">
+        <div class="drawer-label">
+          <span data-i18n="agent.authMode">Approval mode</span>
+          <span id="ag-auth-badge" class="auth-badge"></span>
+        </div>
+        <select id="ag-auth-mode">
+          <option value="manual" data-i18n="agent.authManual">Ask every time (safest)</option>
+          <option value="batch" data-i18n="agent.authBatch">Batch approval</option>
+          <option value="trust" data-i18n="agent.authTrust">Full trust (scoped)</option>
+        </select>
+        <label class="check"><input id="ag-auth-persist" type="checkbox" /> <span data-i18n="agent.authPersist">Keep for 30 minutes (otherwise: this task only)</span></label>
+        <label class="check"><input id="ag-allow-high" type="checkbox" /> <span data-i18n="agent.allowHigh">Also auto-run HIGH-risk operations</span></label>
+        <p id="ag-trust-warn" class="hint warn hidden" data-i18n="agent.trustWarn">Full trust still asks for irreversible or dangerous operations, and never leaves the authorised workspace.</p>
+        <div class="agent-actions">
+          <button id="ag-auth-revoke" class="ghost small-btn" data-i18n="agent.revoke">Reset to safest mode</button>
+          <span id="ag-budget" class="hint"></span>
+        </div>
+      </section>
+
+      <!-- 任务 -->
+      <section class="drawer-sec">
+        <textarea id="ag-task" rows="2" data-i18n-ph="agent.taskPh" placeholder="e.g. find why the tests fail and fix it"></textarea>
+        <div class="agent-line">
+          <span class="agent-label" data-i18n="agent.workspace">Workspace</span>
+          <span id="ag-workspace" class="agent-workspace">—</span>
+          <button id="ag-workspace-edit" class="ghost small-btn" data-i18n="agent.change">Change</button>
+        </div>
+        <div id="ag-workspace-box" class="agent-line hidden">
+          <input id="ag-workspace-input" data-i18n-ph="agent.workspacePh" placeholder="D:\path\to\project" />
+          <button id="ag-workspace-save" class="primary small-btn" data-i18n="char.save">Save</button>
+        </div>
+        <label class="check"><input id="ag-require-medium" type="checkbox" /> <span data-i18n="agent.requireMedium">Ask before writing files or patching</span></label>
+        <div class="agent-actions">
+          <button id="ag-start" class="primary" data-i18n="agent.start">▶ Start</button>
+          <button id="ag-pause" class="ghost" disabled data-i18n="agent.pause">⏸ Pause</button>
+          <button id="ag-resume" class="ghost" disabled data-i18n="agent.resume">⏵ Resume</button>
+          <button id="ag-continue" class="ghost small-btn hidden" data-i18n="agent.continue">⏩ Continue</button>
+          <button id="ag-cancel" class="danger" disabled data-i18n="agent.cancel">⏹ Cancel</button>
+        </div>
+        <div class="agent-statusline">
+          <span id="ag-status" class="agent-status" data-i18n="agent.stateIdle">Idle</span>
+          <span id="ag-round" class="hint"></span>
+        </div>
+      </section>
+
+      <!-- 单条审批 -->
+      <div id="ag-approval" class="agent-approval hidden">
+        <div class="agent-approval-head">
+          <span id="ag-approval-risk" class="agent-risk">HIGH</span>
+          <span data-i18n="agent.waitingApproval">Waiting for approval</span>
+        </div>
+        <p id="ag-approval-text" class="agent-approval-text"></p>
+        <div class="agent-actions">
+          <button id="ag-approve" class="primary small-btn" data-i18n="agent.approve">Approve</button>
+          <button id="ag-approve-always" class="ghost small-btn" data-i18n="agent.approveAlways">Approve &amp; remember</button>
+          <button id="ag-reject" class="danger small-btn" data-i18n="agent.reject">Reject</button>
+        </div>
+      </div>
+
+      <!-- 批量审批清单 -->
+      <div id="ag-batch" class="agent-approval hidden">
+        <div class="agent-approval-head">
+          <span id="ag-batch-risk" class="agent-risk">HIGH</span>
+          <span id="ag-batch-title" data-i18n="agent.batchTitle">Operations waiting for approval</span>
+        </div>
+        <div id="ag-batch-list" class="batch-list"></div>
+        <div class="agent-actions">
+          <button id="ag-batch-approve" class="primary small-btn" data-i18n="agent.approveAll">Approve all</button>
+          <button id="ag-batch-reject" class="danger small-btn" data-i18n="agent.rejectAll">Reject all</button>
+        </div>
+      </div>
+
+      <!-- 执行详情（原 Dashboard 的内容，现在在主窗口抽屉里） -->
+      <div id="agent-dashboard" class="agent-dash">
+        <div class="agent-dash-sec">
+          <div class="agent-dash-label" data-i18n="dash.task">Task</div>
+          <div id="dash-task" class="agent-dash-task">—</div>
+        </div>
+        <div class="agent-dash-sec">
+          <div class="agent-dash-label" data-i18n="dash.now">Current operation</div>
+          <div id="dash-now" class="agent-dash-now">—</div>
+        </div>
+        <div class="agent-dash-sec">
+          <div class="agent-dash-label" data-i18n="dash.tools">Tool calls</div>
+          <div id="dash-tools" class="agent-dash-tools">—</div>
+        </div>
+        <div class="agent-dash-sec">
+          <div class="agent-dash-label" data-i18n="dash.screen">Screen / Vision</div>
+          <div id="dash-screen" class="agent-dash-screen" data-i18n="dash.noScreen">Not captured yet</div>
+        </div>
+      </div>
+
+      <div class="drawer-label" data-i18n="dash.log">Operation log</div>
+      <div id="ag-log" class="agent-log"></div>
     </div>
   </aside>
 </div>
@@ -625,59 +685,6 @@
   </div>
 </div>
 
-<!-- Agent 任务面板（Coding Agent 第一版：单 Agent + 工具循环） -->
-<div id="agent-panel" class="modal hidden">
-  <div class="modal-box agent-box">
-    <h3 data-i18n="agent.title">🤖 Agent</h3>
-    <p class="hint" data-i18n-html="agent.intro"></p>
-
-    <label><span data-i18n="agent.task">Task</span>
-      <textarea id="ag-task" rows="3" data-i18n-ph="agent.taskPh" placeholder="e.g. find why the tests fail and fix it"></textarea></label>
-
-    <div class="agent-line">
-      <span class="agent-label" data-i18n="agent.workspace">Workspace</span>
-      <span id="ag-workspace" class="agent-workspace">—</span>
-      <button id="ag-workspace-edit" class="ghost small-btn" data-i18n="agent.change">Change</button>
-    </div>
-    <div id="ag-workspace-box" class="agent-line hidden">
-      <input id="ag-workspace-input" data-i18n-ph="agent.workspacePh" placeholder="D:\path\to\project" />
-      <button id="ag-workspace-save" class="primary small-btn" data-i18n="char.save">Save</button>
-    </div>
-
-    <label class="check"><input id="ag-require-medium" type="checkbox" /> <span data-i18n="agent.requireMedium">Ask before writing files or patching</span></label>
-
-    <div class="agent-actions">
-      <button id="ag-start" class="primary" data-i18n="agent.start">▶ Start</button>
-      <button id="ag-pause" class="ghost" disabled data-i18n="agent.pause">⏸ Pause</button>
-      <button id="ag-resume" class="ghost" disabled data-i18n="agent.resume">⏵ Resume</button>
-      <button id="ag-cancel" class="danger" disabled data-i18n="agent.cancel">⏹ Cancel</button>
-    </div>
-
-    <div class="agent-statusline">
-      <span id="ag-status" class="agent-status" data-i18n="agent.stateIdle">Idle</span>
-      <span id="ag-round" class="hint"></span>
-    </div>
-
-    <div id="ag-approval" class="agent-approval hidden">
-      <div class="agent-approval-head">
-        <span id="ag-approval-risk" class="agent-risk">HIGH</span>
-        <span data-i18n="agent.waitingApproval">Waiting for approval</span>
-      </div>
-      <p id="ag-approval-text" class="agent-approval-text"></p>
-      <div class="agent-actions">
-        <button id="ag-approve" class="primary small-btn" data-i18n="agent.approve">Approve</button>
-        <button id="ag-approve-always" class="ghost small-btn" data-i18n="agent.approveAlways">Approve &amp; remember</button>
-        <button id="ag-reject" class="danger small-btn" data-i18n="agent.reject">Reject</button>
-      </div>
-    </div>
-
-    <div id="ag-log" class="agent-log"></div>
-
-    <div class="modal-actions">
-      <button id="ag-close" data-i18n="menu.close">Close</button>
-    </div>
-  </div>
-</div>
 
 <div id="toast" class="toast hidden"></div>
 <script type="module" src="./main.js"></script>

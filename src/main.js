@@ -20,7 +20,7 @@ import {
   openModelModal, addModelFromFolder, showUrlForm, submitUrlForm, refreshModelsAfterAdd, bindTtsMotion, applyStageScale,
 } from './lib/stage.js';
 import {
-  send, renderMessages, setBusy, ttsSettingsForCharacter, clearMessages, regenerateLast,
+  send, renderMessages, setBusy, ttsSettingsForCharacter, clearMessages, regenerateLast, resumeWithAgent,
 } from './lib/chat.js';
 import {
   renderCharList, renderEmptyState, selectCharacter, refreshCharacters, findChar,
@@ -45,7 +45,7 @@ import { createReplyPacer } from './lib/reply-pacer.js';
 import { parsePersonaResponse, buildPersonaMessages } from './lib/persona.js';
 import { openPersonaStudio, closePersonaStudio, bindPersonaStudio, studioFormOptions } from './lib/persona-studio.js';
 import { openChessModal, bindChess } from './lib/chess.js';
-import { initAgentUI, injectAgentEvent } from './lib/agent-ui.js';
+import { initAgentUI, injectAgentEvent, setResumeHandler } from './lib/agent-ui.js';
 import { initAgentDashboard, onAgentEvent, dashboardState, resetDashboard } from './lib/agent-dashboard.js';
 import { createToolRegistry, TOOL_SPECS, withBaseExecutors } from './agent/tool-registry.js';
 import { buildPersonaSystemPrompt, personaPosition, assertPersonaPreserved } from './agent/context-engine.js';
@@ -119,6 +119,8 @@ async function boot() {
   bindMc();
   bindChess();
   initAgentUI();
+  // 「继续执行」= 用检查点重开一次任务。回调在这里注入，避免 chat ↔ agent-ui 互相 import。
+  setResumeHandler((checkpoint) => resumeWithAgent(checkpoint));
   // Agent 事件的总出口：Dashboard 负责画，chat.js 只负责发
   hooks.agentEvent = (type, payload) => {
     try { onAgentEvent(type, payload); } catch (err) { console.warn('[agent] dashboard 事件处理失败', err && err.message); }
@@ -896,7 +898,8 @@ window.__AILEEN_AGENT_TEST = {
  */
 window.__AILEEN_PROBE_AGENT = async () => {
   const out = {};
-  const panel = document.getElementById('agent-panel');
+  // 0.8：Agent 面板 = 主窗口右侧抽屉（#agent-drawer）
+  const panel = document.getElementById('agent-drawer');
   window.__AILEEN_OPEN('agent');
   out.panelOpen = !!panel && !panel.classList.contains('hidden');
   for (const id of ['ag-task', 'ag-start', 'ag-pause', 'ag-resume', 'ag-cancel', 'ag-approval', 'ag-log', 'ag-status', 'ag-workspace']) {
@@ -938,14 +941,15 @@ window.__AILEEN_PREVIEW_APPROVAL = () => {
 
 // 自检钩子：点亮「电脑控制」开关要**立刻**发生两件事
 //   1) 整个界面转蓝（主色 + 按钮）
-//   2) 右侧 Live2D 立刻换成 Dashboard（不用等发消息）
+//   2) 主窗口右侧的 Agent 抽屉打开（不用等发消息）—— **但 Live2D 展台不变**
 // 验完把设置还原，避免影响后面的断言。
 window.__AILEEN_PROBE_COMPUTER_TOGGLE = async () => {
   const out = {};
   const app = window.__AILEEN_AGENT_TEST;
   if (!app) { out.error = '测试接口未暴露'; return out; }
   const btn = document.getElementById('btn-computer');
-  const dash = document.getElementById('agent-dashboard');
+  // 0.8：开关打开的是「抽屉」，展台永远保持原样（旧版这里是拿 Dashboard 顶掉展台）
+  const dash = document.getElementById('agent-drawer');
   const stage = document.getElementById('stage-container');
   if (!btn || !dash || !stage) { out.error = '控件缺失'; return out; }
   const rootEl = document.documentElement;
@@ -965,11 +969,11 @@ window.__AILEEN_PROBE_COMPUTER_TOGGLE = async () => {
   out.modeClassOn = rootEl.classList.contains('agent-mode');
   out.accentBlue = getComputedStyle(rootEl).getPropertyValue('--accent-agent').trim().toLowerCase() === '#3d8bfd';
   out.startBtnBlue = /61,\s*139,\s*253|3d8bfd/.test(getComputedStyle(document.getElementById('ag-start')).backgroundImage.toLowerCase());
-  out.dashboardShown = !dash.classList.contains('hidden');       // ← 立刻出现
-  out.stageHidden = stage.classList.contains('hidden');           // ← Live2D 让位
+  out.dashboardShown = !dash.classList.contains('hidden');       // ← 抽屉立刻出现
+  out.stageVisible = !stage.classList.contains('hidden');        // ← 展台**不能**被让位
   out.hintShown = (document.getElementById('dash-now') || {}).textContent || '';
 
-  // 关掉 → 两样都要退回去
+  // 关掉 → 抽屉收回去，展台始终可见
   btn.click();
   await new Promise((r) => setTimeout(r, 60));
   out.afterOff = {
@@ -1023,7 +1027,8 @@ window.__AILEEN_PROBE_DASHBOARD = () => {
 
   const mid = app.dashboard.state();
   out.visibleDuringRun = mid.visible === true;
-  out.stageHiddenDuringRun = mid.stageHidden === true;   // Live2D 必须让位
+  // 0.8：Agent 干活时展台**必须还在**（旧版要求它让位，语义已经反过来）
+  out.stageVisibleDuringRun = mid.stageHidden === false;
   out.taskShown = mid.task;
   out.logLines = mid.logLines;
   out.approvalShown = mid.approvalVisible === true;
@@ -1065,8 +1070,8 @@ window.__AILEEN_PROBE_AGENT_AFTER = () => {
   out.hasReject = !!reject;
   if (reject) reject.click();
   out.hiddenAfterReject = !!box && box.classList.contains('hidden');
-  // 关掉面板后主色要还原（蓝色只属于 Agent 模式）
-  const panel = document.getElementById('agent-panel');
+  // 关掉抽屉后主色要还原（蓝色只属于 Agent 模式）
+  const panel = document.getElementById('agent-drawer');
   const rootEl = document.documentElement;
   const closeBtn = document.getElementById('ag-close');
   if (closeBtn) closeBtn.click();
