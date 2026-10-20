@@ -51,12 +51,15 @@ export const AGENT_EVENT = {
   STEP: 'step',                // { step, phase: 'llm' | 'tool' | 'final' }
   TEXT: 'text',                // { text } 模型正文增量
   REASONING: 'reasoning',      // { text } 推理模型思考增量
-  TOOL_CALL: 'tool_call',      // { name, args, callId }
-  TOOL_RESULT: 'tool_result',  // { name, callId, ok, summary, durationMs }
-  APPROVAL_REQUEST: 'approval_request', // { id, name, riskLevel, args, preview }
-  APPROVAL_DECIDED: 'approval_decided', // { id, approved, remember }
+  TOOL_CALL: 'tool_call',      // { name, args, callId, riskLevel, reason }
+  TOOL_RESULT: 'tool_result',  // { name, callId, ok, summary, durationMs, retries }
+  TOOL_RETRY: 'tool_retry',    // { name, callId, attempt, error } 只读工具失败后的自动重试
+  APPROVAL_REQUEST: 'approval_request', // { id, name, riskLevel, args, preview } | { id, batch, items }
+  APPROVAL_DECIDED: 'approval_decided', // { id, approved, remember, decisions? }
+  AUTH_UPDATED: 'auth_updated', // { mode, scope, active, revoked, expiresAt }
+  CHECKPOINT: 'checkpoint',     // { reason, run_id, task, rounds, roundBudget, checkpoint }
   NOTICE: 'notice',            // { level, code, message } 提示/错误（非致命）
-  FINISHED: 'finished',        // { status, answer, error }
+  FINISHED: 'finished',        // { status, answer, error, paused?, pauseReason?, canContinue? }
 };
 
 /**

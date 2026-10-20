@@ -4,7 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { runAgent } from '../../src/agent/runtime.js';
 import { createToolRegistry, TOOL_SPECS, withBaseExecutors } from '../../src/agent/tool-registry.js';
-import { RUN_STATUS, AGENT_EVENT, AGENT_STATUS } from '../../src/agent/events.js';
+import { RUN_STATUS, AGENT_EVENT, AGENT_STATUS, createEventBus } from '../../src/agent/events.js';
 
 // ---------------------------------------------------------------------------
 // 用真实文件系统 + 假 LLM 跑完整的 Agent 循环。
@@ -448,22 +448,97 @@ describe('暂停 / 继续 / 取消', () => {
 });
 
 describe('循环上限与失败', () => {
-  it('到轮数上限会停下并给出提示（不会无限循环）', async () => {
+  it('任务预算用尽：保存进度并暂停（不是完成、不是失败），进度可续跑', async () => {
     const notices = [];
+    const checkpoints = [];
+    // 永远在调工具的模型：不续跑就永远不结束 → 用它验证「不会无限循环」
+    let calls = 0;
+    const llm = async () => {
+      calls += 1;
+      if (calls <= 3) {
+        return { text: '还在做', toolCalls: [{ id: 'c' + calls, function: { name: 'list_files', arguments: '{}' } }] };
+      }
+      return { text: '做完了', toolCalls: [] };
+    };
     const { api, done } = runAgent({
-      task: '永远在调工具的模型',
+      task: '长任务',
       workspace,
       registry: registry(),
       bridge,
       isSensitive,
       maxRounds: 3,
-      llm: scriptedLlm([{ text: '', toolCalls: [{ id: 'loop', function: { name: 'list_files', arguments: '{}' } }] }]),
+      roundBudget: 3,
+      llm,
     });
     api.bus.on(AGENT_EVENT.NOTICE, (n) => notices.push(n));
+    api.bus.on(AGENT_EVENT.CHECKPOINT, (c) => checkpoints.push(c));
     const run = (await done).run;
+
+    // 预算用尽 = paused（可继续），且**进度在检查点里**
     expect(run.rounds).toBe(3);
-    expect(run.status).toBe(RUN_STATUS.COMPLETED);
-    expect(notices.some((n) => n.code === 'MAX_ROUNDS')).toBe(true);
+    expect(run.status).toBe(RUN_STATUS.PAUSED);
+    expect(run.pauseReason).toBe('budget');
+    expect(notices.some((n) => n.code === 'BUDGET_EXHAUSTED')).toBe(true);
+    expect(checkpoints.some((c) => c.reason === 'budget')).toBe(true);
+    expect(run.checkpoint.steps.length).toBeGreaterThan(0);
+    expect(run.checkpoint.roundsSpent).toBe(3);
+    expect(api.budget.canContinue).toBe(true);
+  });
+
+  it('断点续跑：用检查点重开一次，已完成的操作不重复执行，并且能跑完', async () => {
+    const notices = [];
+    const firstCalls = [];
+    const first = runAgent({
+      task: '写文件任务',
+      workspace,
+      registry: registry(),
+      bridge,
+      isSensitive,
+      maxRounds: 2,
+      roundBudget: 2,
+      llm: async () => {
+        firstCalls.push(1);
+        return { text: '', toolCalls: [{ id: 'same', function: { name: 'write_file', arguments: JSON.stringify({ path: 'resume.txt', content: '内容A' }) } }] };
+      },
+      // 写文件是 MEDIUM：默认要审批，这里直接批
+      requestApproval: async () => ({ approved: true }),
+    });
+    first.api.bus.on(AGENT_EVENT.NOTICE, (n) => notices.push(n));
+    const firstRun = (await first.done).run;
+    expect(firstRun.status).toBe(RUN_STATUS.PAUSED);
+    const saved = first.api.checkpoint('budget');
+    expect(saved.checkpoint.completed.length).toBeGreaterThan(0);
+
+    // 第二次：同一个写操作（同参数）→ 应当被跳过；然后给终答
+    // 事件总线先建好再订阅：续跑提示是在 runAgent 启动时就同步发出来的
+    const bus2 = createEventBus();
+    bus2.on(AGENT_EVENT.NOTICE, (n) => notices.push(n));
+    let secondRound = 0;
+    const second = runAgent({
+      task: '写文件任务',
+      workspace,
+      registry: registry(),
+      bridge,
+      isSensitive,
+      bus: bus2,
+      maxRounds: 5,
+      roundBudget: 5,
+      checkpoint: saved,
+      requestApproval: async () => ({ approved: true }),
+      llm: async () => {
+        secondRound += 1;
+        if (secondRound === 1) {
+          return { text: '', toolCalls: [{ id: 'same2', function: { name: 'write_file', arguments: JSON.stringify({ path: 'resume.txt', content: '内容A' }) } }] };
+        }
+        return { text: '接着做完了', toolCalls: [] };
+      },
+    });
+    const secondRun = (await second.done).run;
+    expect(secondRun.status).toBe(RUN_STATUS.COMPLETED);
+    expect(secondRun.answer).toBe('接着做完了');
+    // 续跑时那条重复的写操作被跳过（记进工具日志，但 ok 且带 skipped 标记）
+    expect(secondRun.tool_calls.some((c) => c.name === 'write_file')).toBe(false);
+    expect(notices.some((n) => n.code === 'RESUMED_FROM_CHECKPOINT')).toBe(true);
   });
 
   it('LLM 报错：run 进 failed，错误信息保留', async () => {
