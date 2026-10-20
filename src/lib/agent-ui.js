@@ -457,7 +457,11 @@ export function initAgentUI() {
     const on = !!(s.agent && s.agent.computerUse);
     const btn = $('btn-computer');
     if (!btn) return;
-    btn.textContent = on ? t('agent.computerOn') : t('agent.computerOff');
+    // 图标是内联 SVG（data-icon），这里只改文案，别把图标一起覆盖掉
+    const label = $('btn-computer-label');
+    const text = on ? t('agent.computerOn') : t('agent.computerOff');
+    if (label) label.textContent = text;
+    else btn.textContent = text;
     btn.classList.toggle('computer-on', on);
     btn.setAttribute('aria-pressed', on ? 'true' : 'false');
   };

@@ -317,9 +317,16 @@ input:focus-visible, select:focus-visible, textarea:focus-visible { border-color
 /* ---------- 侧栏 ---------- */
 #sidebar { padding: var(--sp-3) var(--sp-3) var(--sp-2); gap: var(--sp-2); }
 .side-head { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-2); }
-.logo { font-size: 19px; padding: 0 2px 0; }
+.logo { font-size: 19px; padding: 0 2px 0; display: flex; align-items: center; gap: var(--sp-2); }
+.logo .logo-mark { color: var(--accent); display: inline-flex; }
+.logo .logo-text { letter-spacing: 0.06em; }
 .sidebar-actions { display: flex; flex-direction: column; gap: var(--sp-1); }
-button.block { margin-bottom: 0; }
+button.block { margin-bottom: 0; display: flex; align-items: center; justify-content: center; gap: var(--sp-2); }
+/* 侧栏/设置里带图标的按钮：图标固定宽，文字左对齐（不加图标时也不会变形） */
+.side-foot button { justify-content: flex-start; }
+.side-foot button [data-icon] { color: var(--muted); flex: none; }
+.side-foot button:hover [data-icon] { color: var(--accent); }
+.btn-label { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
 .side-search { position: relative; display: flex; align-items: center; }
 .side-search .search-icon {
@@ -1046,3 +1053,11 @@ html.agent-mode button.primary {
 .icon-btn [data-icon], .icon-btn .ico { width: 16px; height: 16px; }
 button.realtime-btn [data-icon] { margin-right: 4px; }
 .scroll-down [data-icon] { width: 15px; height: 15px; }
+/* ---------- 空状态（无角色 / 无会话） ---------- */
+.empty-state {
+  flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: var(--sp-3); text-align: center; padding: var(--sp-6);
+}
+.empty-state .empty-mark { color: var(--accent); opacity: 0.85; }
+.empty-state .empty-title { color: var(--text); font-size: var(--fs-lg); line-height: var(--lh-body); max-width: 34em; }
+.empty-state .empty-desc { color: var(--muted); font-size: var(--fs-md); max-width: 34em; }

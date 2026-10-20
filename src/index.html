@@ -12,27 +12,27 @@
   <!-- Left: characters -->
   <aside id="sidebar">
     <div class="side-head">
-      <div class="logo"><span class="logo-heart">✦</span> AILEEN</div>
+      <div class="logo"><span class="logo-mark" data-icon="mark" data-icon-size="22"></span><span class="logo-text">AILEEN</span></div>
       <button id="btn-collapse-sidebar" class="icon-btn tiny" data-i18n-title="sidebar.collapse" title="Collapse">‹</button>
     </div>
 
     <div class="sidebar-actions">
-      <button id="btn-new-card" class="primary block" data-i18n-title="sidebar.newTip" data-i18n="nav.newChar">＋ New Character</button>
-      <button id="btn-import-card" class="ghost block" data-i18n-title="sidebar.importTip" data-i18n="nav.importCard">Import Card</button>
+      <button id="btn-new-card" class="primary block" data-i18n-title="sidebar.newTip"><span data-icon="plus"></span><span class="btn-label" data-i18n="nav.newChar">New Character</span></button>
+      <button id="btn-import-card" class="ghost block" data-i18n-title="sidebar.importTip"><span data-icon="import"></span><span class="btn-label" data-i18n="nav.importCard">Import Card</span></button>
     </div>
 
     <div class="side-search">
-      <span class="search-icon" aria-hidden="true">🔍</span>
+      <span class="search-icon" data-icon="search" aria-hidden="true"></span>
       <input id="char-search" type="search" autocomplete="off" data-i18n-ph="sidebar.search" placeholder="Search characters…" />
     </div>
 
     <div class="side-body"><div id="char-list" class="char-list"></div></div>
 
     <div class="side-foot">
-      <button id="btn-settings-menu" class="ghost block" data-i18n-title="app.settingsTip" data-i18n="nav.settings">⚙ Settings</button>
-      <button id="btn-agent" class="ghost block" data-i18n-title="agent.openTip" data-i18n="agent.open">🤖 Agent</button>
-      <button id="btn-computer" class="ghost block" data-i18n-title="agent.computerTip" data-i18n="agent.computer">🖥 Computer control: off</button>
-      <button id="btn-open-data" class="ghost block" data-i18n-title="app.dataTip" data-i18n="nav.dataDir">📂 Data Folder</button>
+      <button id="btn-settings-menu" class="ghost block" data-i18n-title="app.settingsTip"><span data-icon="settings"></span><span class="btn-label" data-i18n="nav.settings">Settings</span></button>
+      <button id="btn-agent" class="ghost block" data-i18n-title="agent.openTip"><span data-icon="agent"></span><span class="btn-label" data-i18n="agent.open">Agent</span></button>
+      <button id="btn-computer" class="ghost block" data-i18n-title="agent.computerTip"><span data-icon="desktop"></span><span class="btn-label" id="btn-computer-label" data-i18n="agent.computer">Computer control: off</span></button>
+      <button id="btn-open-data" class="ghost block" data-i18n-title="app.dataTip"><span data-icon="folder"></span><span class="btn-label" data-i18n="nav.dataDir">Data Folder</span></button>
     </div>
   </aside>
 
@@ -65,7 +65,7 @@
     </div>
     <footer id="input-bar">
       <button id="btn-screenshot" class="icon-btn" data-i18n-title="chat.screenshotTitle" title="Screenshot"><span data-icon="camera"></span></button>
-      <button id="btn-realtime" class="realtime-btn" data-i18n-title="chat.realtimeTitle" data-i18n="chat.realtime">🎙 Live voice</button>
+      <button id="btn-realtime" class="realtime-btn" data-i18n-title="chat.realtimeTitle"><span data-icon="waveform"></span><span class="btn-label" data-i18n="chat.realtime">Live voice</span></button>
       <button id="btn-mic" class="icon-btn mic" data-i18n-title="chat.micTitle" title="Voice input"><span data-icon="mic"></span></button>
       <textarea id="input" rows="1" data-i18n-ph="chat.inputPlaceholder" placeholder="Say something…"></textarea>
       <button id="btn-send" class="primary" data-i18n="chat.send">Send</button>

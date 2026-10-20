@@ -11,6 +11,7 @@ import { setStageModelIndex, updateStageModelName, syncOverlayModel } from './st
 import { t } from './i18n.js';
 import { generatePersonaCard } from './persona.js';
 import { broadcastSession } from './session-coordinator.js';
+import { iconSvg } from './icons.js';
 
 export function findChar(file) {
   return state.characters.find((c) => c.file === file);
@@ -99,8 +100,13 @@ export function renderEmptyState() {
   $('chat-name').textContent = 'AILEEN';
   $('chat-desc').textContent = t('chat.emptyDesc');
   const box = $('messages');
-  box.innerHTML = '<div class="msg assistant">' + t('chat.welcome') + '</div>';
+  // 空状态：品牌标识 + 引导语，安静居中（不用一个假的气泡冒充对话）
+  box.innerHTML = '<div class="empty-state">'
+    + '<span class="empty-mark" aria-hidden="true">' + iconSvg('mark', 34) + '</span>'
+    + '<p class="empty-title">' + t('chat.welcome') + '</p>'
+    + '</div>';
   scrollBottom();
+  broadcastSession('messages');
 }
 
 export function updateChatHeader() {
