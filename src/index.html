@@ -46,15 +46,15 @@
       </div>
       <span id="chat-status" class="status-dot off" data-i18n-title="chat.statusNoKey"></span>
       <div class="chat-actions">
-        <button id="btn-speak" class="icon-btn" data-i18n-title="chat.speakTitle" title="Read the last reply aloud">🔊</button>
-        <button id="btn-regen" class="icon-btn" data-i18n-title="chat.regenerate" title="Regenerate">↻</button>
-        <button id="btn-stop" class="icon-btn" data-i18n-title="chat.stopTitle" title="Stop" disabled>⏹</button>
-        <button id="btn-clear" class="icon-btn" data-i18n-title="chat.clearTitle" title="Clear conversation">🗑</button>
-        <button id="btn-char-actions" class="icon-btn" data-i18n-title="chat.menuTitle" title="Character menu">⋯</button>
+        <button id="btn-speak" class="icon-btn" data-i18n-title="chat.speakTitle" title="Read the last reply aloud"><span data-icon="speaker"></span></button>
+        <button id="btn-regen" class="icon-btn" data-i18n-title="chat.regenerate" title="Regenerate"><span data-icon="regenerate"></span></button>
+        <button id="btn-stop" class="icon-btn" data-i18n-title="chat.stopTitle" title="Stop" disabled><span data-icon="stop"></span></button>
+        <button id="btn-clear" class="icon-btn" data-i18n-title="chat.clearTitle" title="Clear conversation"><span data-icon="trash"></span></button>
+        <button id="btn-char-actions" class="icon-btn" data-i18n-title="chat.menuTitle" title="Character menu"><span data-icon="more"></span></button>
       </div>
     </header>
     <div id="messages" class="messages"></div>
-    <button id="btn-scroll-down" class="scroll-down hidden" data-i18n-title="chat.scrollDown" title="Scroll to bottom">↓</button>
+    <button id="btn-scroll-down" class="scroll-down hidden" data-i18n-title="chat.scrollDown" title="Scroll to bottom"><span data-icon="arrowDown"></span></button>
     <div id="typing" class="typing hidden" data-i18n="chat.thinking">Thinking…</div>
     <div id="attach-bar" class="attach-bar hidden">
       <div class="attach-item">
@@ -64,9 +64,9 @@
       </div>
     </div>
     <footer id="input-bar">
-      <button id="btn-screenshot" class="icon-btn" data-i18n-title="chat.screenshotTitle" title="Screenshot">📷</button>
+      <button id="btn-screenshot" class="icon-btn" data-i18n-title="chat.screenshotTitle" title="Screenshot"><span data-icon="camera"></span></button>
       <button id="btn-realtime" class="realtime-btn" data-i18n-title="chat.realtimeTitle" data-i18n="chat.realtime">🎙 Live voice</button>
-      <button id="btn-mic" class="icon-btn mic" data-i18n-title="chat.micTitle" title="Voice input">🎤</button>
+      <button id="btn-mic" class="icon-btn mic" data-i18n-title="chat.micTitle" title="Voice input"><span data-icon="mic"></span></button>
       <textarea id="input" rows="1" data-i18n-ph="chat.inputPlaceholder" placeholder="Say something…"></textarea>
       <button id="btn-send" class="primary" data-i18n="chat.send">Send</button>
     </footer>

@@ -1038,3 +1038,11 @@ html.agent-mode button.primary {
 .status-cancelled { color: var(--muted); }
 /* 侧栏的电脑控制开关：开着的状态要显眼，否则用户会忘了自己开着 */
 #btn-computer.computer-on { color: var(--accent-agent); border-color: var(--accent-agent); }
+
+/* ---------- 图标（内联 SVG） ---------- */
+/* 尺寸跟字号走、颜色继承 currentColor：换主题、换 hover 状态都不用另写规则 */
+[data-icon] { display: inline-flex; align-items: center; justify-content: center; line-height: 0; }
+.ico { display: block; flex: none; }
+.icon-btn [data-icon], .icon-btn .ico { width: 16px; height: 16px; }
+button.realtime-btn [data-icon] { margin-right: 4px; }
+.scroll-down [data-icon] { width: 15px; height: 15px; }

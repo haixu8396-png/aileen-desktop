@@ -14,6 +14,7 @@ import { streamChat } from './lib/llm.js';
 import { LLM_PROVIDERS, presetLlmBase, presetEmbeddingBase, state, hooks, tts, stt } from './lib/state.js';
 import { $, toast, autoGrowInput } from './lib/dom.js';
 import { escapeHtml } from './lib/markdown.js';
+import { applyIcons } from './lib/icons.js';
 import {
   initLive2D, rebuildLive2D, updateStageModelName, populateStageModelSelect, setStageModelIndex, syncOverlayModel,
   currentStageModel, stageModelDisabled,
@@ -143,6 +144,8 @@ async function boot() {
   refreshChatStatus();
   buildLangSwitch();
   applyI18n();
+  // 图标：把 data-icon 占位替换成内联 SVG（在 i18n 之后 —— 先让文案落位，再补图形）
+  applyIcons();
   $('input').focus();
 }
 
