@@ -41,11 +41,17 @@
 
 - `styles.css` 补齐颜色分级、间距、字号、圆角、阴影、动效与 `prefers-reduced-motion`；抽屉/徽章/批量清单/展台面板统一引用令牌。
 
+### 🎨 设置中心与界面细节
+
+- 设置入口整理成**统一设置中心**（8 组：角色与陪伴 / 展台与外观 / 模型与智能 / 语音与实时交流 / 记忆与知识库 / Agent 与权限 / 设备与扩展 / 通用）。每一行打开的还是原来那个设置页 —— **没有删任何选项**，只是把入口收拢并按组显示当前值（角色名 / 审批模式 / 电脑控制状态）。
+- 对话区排版与通用细节：消息间距/圆角/行高、Markdown（引用/表格/代码/列表）、细滚动条、`focus-visible` 键盘焦点环、消息入场动效（尊重减少动态效果）、禁用态与空状态。
+- **Agent 检查点落盘**：`src/main/storage/checkpoint-store.cjs` + IPC `agent:checkpoint` → `<userData>/agent/checkpoint.json`（原子写、只留最近一次、坏文件当没有）。预算用尽时写盘，正常完成时清掉，启动时读回 —— 关掉应用之后也能继续上次的任务。
+
 ### 🧪 测试
 
-- 新增 `tests/unit/agent/authorization.test.mjs`（36 项）与 `tests/integration/agent-authorization.test.mjs`（10 项）：批量审批、逐项拒绝、参数变化重新审批、信任模式启停与撤销、不可逆/高危命令仍要问、只读并行、失败重试、步骤校验。
+- 新增 `tests/unit/agent/authorization.test.mjs`（36 项）、`tests/integration/agent-authorization.test.mjs`（10 项）、`tests/unit/checkpoint-store.test.mjs`（8 项）：批量审批、逐项拒绝、参数变化重新审批、信任模式启停与撤销、不可逆/高危命令仍要问、只读并行、失败重试、步骤校验、检查点落盘往返。
 - 运行 `runtime` 的轮数用例改成「预算用尽 → 暂停 → 用检查点续跑」。
-- 合计 **758 项 / 48 文件**；新增自检开关 `AILEEN_SELFTEST_QUIET=1`（不抢前台）、`AILEEN_SELFTEST_OVERLAY_PANEL=chat|more`（截图核对悬浮面板）。
+- 合计 **766 项 / 49 文件**；新增自检开关 `AILEEN_SELFTEST_QUIET=1`（不抢前台）、`AILEEN_SELFTEST_OVERLAY_PANEL=chat|more`（截图核对悬浮面板）；新增门禁 `checkpointOk`（检查点真机往返）。
 
 ## [0.7.0] - 2026-10-06
 
