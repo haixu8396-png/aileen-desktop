@@ -108,6 +108,13 @@ const CHANNELS = {
     index: v.optional(v.num({ min: 0, max: 999 })),
   }, { allowUnknown: false })),
   'overlay:openMain': v.NO_ARGS,
+  // Agent 检查点（断点续跑）：只允许 save / load / clear 三种操作。
+  // 内容按「不透明 JSON」处理 —— 结构校验在 src/main/storage/checkpoint-store.cjs 与
+  // src/agent/state.js 里（那边才知道 checkpoint 的字段），这里只挡住类型与体积。
+  'agent:checkpoint': v.args(v.object({
+    op: v.oneOf(['save', 'load', 'clear']),
+    data: v.optional(v.any()),
+  }, { allowUnknown: false })),
 
   // ---- Minecraft ----
   'mc:connect': v.args(v.object({

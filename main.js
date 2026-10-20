@@ -21,6 +21,7 @@ const { menuText } = require('./shared/menu-i18n.cjs');
 const { attachSelfTest } = require('./src/main/self-test.cjs');
 const { startStaticServer } = require('./src/main/server/static-server.cjs');
 const { createSettingsStore } = require('./src/main/storage/settings-store.cjs');
+const { createCheckpointStore } = require('./src/main/storage/checkpoint-store.cjs');
 const { registerEmbeddingIpc } = require('./shared/embedding-ipc.cjs');
 const { registerStoreIpc } = require('./shared/store-ipc.cjs');
 
@@ -1226,6 +1227,20 @@ function registerIpc() {
     getSettings: readSettings,
     log: (...args) => console.log('[embedding]', ...args),
   });
+
+  // Agent 检查点：断点续跑用（<userData>/agent/checkpoint.json，只存最近一次）
+  {
+    const cpStore = createCheckpointStore({
+      file: path.join(USER_DATA_DIR, 'agent', 'checkpoint.json'),
+      log: (...args) => console.warn('[agent-checkpoint]', ...args),
+    });
+    validatedHandle('agent:checkpoint', (_e, payload) => {
+      const op = (payload && payload.op) || 'load';
+      if (op === 'save') return cpStore.save(payload.data);
+      if (op === 'clear') return { ok: cpStore.clear() };
+      return { ok: true, data: cpStore.load() };
+    });
+  }
 
   // 记忆库 / 知识库的存储通道：只允许 <userData>/memory 与 /knowledge 两个根
   registerStoreIpc({

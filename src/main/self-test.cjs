@@ -104,7 +104,18 @@ win.webContents.on('did-finish-load', () => {
         }
         await new Promise((r) => setTimeout(r, 800));
       }
-      const img = await win.webContents.capturePage();
+      // capturePage 偶发 UnknownVizError（窗口用 showInactive 显示、表面还没合成好）——
+      // 重试几次，别因为一次截图失败就把整个自检判成「没生成诊断文件」。
+      let img = null;
+      for (let attempt = 0; attempt < 4 && !img; attempt += 1) {
+        try {
+          img = await win.webContents.capturePage();
+        } catch (err) {
+          console.warn('[selftest] capture retry ' + (attempt + 1) + ':', err && err.message);
+          await new Promise((r) => setTimeout(r, 400));
+        }
+      }
+      if (!img) throw new Error('capturePage 连续失败');
       fs.writeFileSync(path.join(SELFTEST_DIR, 'shot.png'), img.toPNG());
       console.log('[selftest] saved shot.png to ' + SELFTEST_DIR);
     } catch (e) {
@@ -542,6 +553,16 @@ win.webContents.on('did-finish-load', () => {
           memoryProbe = { ok: false, error: String((err && err.message) || err) };
         }
         const memoryOk = !!(memoryProbe && memoryProbe.ok === true);
+        // Agent 检查点真机往返：保存 → 读回 → 清除（跨重启续跑的地基）
+        let checkpointProbe = null;
+        try {
+          checkpointProbe = typeof window.__AILEEN_CHECKPOINT_PROBE === 'function'
+            ? await window.__AILEEN_CHECKPOINT_PROBE()
+            : { ok: false, error: '探针未挂载' };
+        } catch (err) {
+          checkpointProbe = { ok: false, error: String((err && err.message) || err) };
+        }
+        const checkpointOk = !!(checkpointProbe && checkpointProbe.ok === true);
         return {
           title: document.title,
           chatName: (document.getElementById('chat-name') || {}).textContent || '',
@@ -620,6 +641,8 @@ win.webContents.on('did-finish-load', () => {
           screenSources,
           memoryOk,
           memoryProbe,
+          checkpointOk,
+          checkpointProbe,
           errors: (window.__AILEEN_ERRORS || []).slice(0, 10),
           modelReady: typeof window.__AILEEN_MODEL_READY === 'function' ? !!window.__AILEEN_MODEL_READY() : 'n/a',
         };

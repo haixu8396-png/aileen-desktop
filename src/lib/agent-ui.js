@@ -11,6 +11,7 @@
 //   · **不替换 Live2D 展台** —— 抽屉只是主窗口里的一列。
 // ============================================================
 import { getSettings, saveSettings } from './settings.js';
+import { state } from './state.js';
 import { $, toast } from './dom.js';
 import { t } from './i18n.js';
 import { startRun } from '../agent/run.js';
@@ -63,7 +64,10 @@ function setControls() {
   const status = controller ? controller.run.status : null;
   const busy = !!status && !['completed', 'failed', 'cancelled'].includes(status);
   const paused = status === RUN_STATUS.PAUSED;
-  const canContinue = !!(controller && controller.budget && controller.budget.canContinue);
+  // 「继续」有两种来源：本轮预算用尽（controller 里有检查点），或者上次没跑完
+  // 的检查点已经从磁盘恢复（state.pendingCheckpoint）。
+  const canContinue = !!(controller && controller.budget && controller.budget.canContinue)
+    || !!state.pendingCheckpoint;
   if ($('ag-start')) $('ag-start').disabled = busy;
   if ($('ag-pause')) $('ag-pause').disabled = !busy || paused;
   if ($('ag-resume')) $('ag-resume').disabled = !paused;
@@ -247,7 +251,14 @@ function onEvent(type, payload) {
       setStatus(cancelled
         ? t('agent.stateCancelled')
         : (pausedBudget ? t('agent.stateBudgetPaused') : (failed ? t('agent.stateError') : t('agent.stateDone'))));
-      if (pausedBudget) logLine('warn', t('agent.logBudgetPaused'));
+      if (pausedBudget) {
+        logLine('warn', t('agent.logBudgetPaused'));
+        // 把检查点落盘：关掉应用之后还能续跑
+        persistCheckpoint();
+      } else if (!cancelled && !failed) {
+        // 正常跑完 → 检查点没用了，清掉（避免下次误续一个已完成的任务）
+        clearPersistedCheckpoint();
+      }
       setControls();
       break;
     }
@@ -358,9 +369,54 @@ export function setAgentModeOn(on) {
   if (root && root.classList) root.classList.toggle('agent-mode', !!on);
 }
 
-/** 注入「继续执行」的实现（main.js 里接 chat.js 的 resumeWithAgent） */
+/** 把「继续执行」的实现（main.js 里接 chat.js 的 resumeWithAgent） */
 export function setResumeHandler(fn) {
   resumeHandler = typeof fn === 'function' ? fn : null;
+}
+
+// ---------------- 检查点落盘（跨重启续跑） ----------------
+/** 把当前的检查点写进 <userData>/agent/checkpoint.json（主进程负责落盘） */
+async function persistCheckpoint() {
+  const api = window.api || {};
+  if (typeof api.agentCheckpoint !== 'function') return false;
+  const cp = (controller && typeof controller.checkpoint === 'function') ? controller.checkpoint('budget') : state.pendingCheckpoint;
+  if (!cp) return false;
+  state.pendingCheckpoint = cp;
+  state.pendingCheckpointTask = String(cp.task || '');
+  try {
+    const res = await api.agentCheckpoint({ op: 'save', data: cp });
+    return !!(res && res.ok);
+  } catch (err) {
+    logLine('warn', '检查点保存失败：' + String((err && err.message) || err));
+    return false;
+  }
+}
+
+async function clearPersistedCheckpoint() {
+  const api = window.api || {};
+  state.pendingCheckpoint = null;
+  state.pendingCheckpointTask = '';
+  if (typeof api.agentCheckpoint !== 'function') return false;
+  try {
+    await api.agentCheckpoint({ op: 'clear' });
+    return true;
+  } catch (err) { return false; }
+}
+
+/** 启动时读一次：上次没跑完的任务，抽屉里直接给「继续」 */
+async function restoreCheckpoint() {
+  const api = window.api || {};
+  if (typeof api.agentCheckpoint !== 'function') return false;
+  try {
+    const res = await api.agentCheckpoint({ op: 'load' });
+    const data = res && res.data;
+    if (!data || !data.task || !data.checkpoint) return false;
+    state.pendingCheckpoint = data;
+    state.pendingCheckpointTask = String(data.task || '');
+    logLine('info', t('agent.logRestored', { task: String(data.task || '').slice(0, 60) }));
+    setControls();
+    return true;
+  } catch (err) { return false; }
 }
 
 /** 当前这轮 run 的控制器（chat.js 用：它在对话里起的 run 要交给抽屉来管按钮） */
@@ -434,7 +490,8 @@ export function initAgentUI() {
     $('ag-continue').addEventListener('click', () => {
       // 预算用尽后的「继续」= 用检查点重开一次任务（断点续跑）
       if (!resumeHandler) return;
-      const cp = controller && typeof controller.checkpoint === 'function' ? controller.checkpoint('budget') : null;
+      const cp = (controller && typeof controller.checkpoint === 'function' ? controller.checkpoint('budget') : null)
+        || state.pendingCheckpoint;
       if (!cp) { toast(t('agent.noCheckpoint')); return; }
       logLine('info', t('agent.logResuming'));
       resumeHandler(cp);
@@ -496,6 +553,8 @@ export function initAgentUI() {
     });
   }
   syncSettingsToForm();
+  // 启动时把上次没跑完的检查点读回来（跨重启续跑）
+  restoreCheckpoint();
 }
 
 function decide(approved, remember) {

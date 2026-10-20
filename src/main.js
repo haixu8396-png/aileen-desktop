@@ -614,6 +614,20 @@ function runMenuAction(action) {
   else if (action === 'perform') openPerformModal();
   else if (action === 'datadir') window.api.openPath(state.appInfo.userDataDir || state.appInfo.dataDir || state.appInfo.appRoot);
   else if (action === 'about') openAboutModal();
+  // 设置中心的两行「动作型」入口（0.8）
+  else if (action === 'edit-card') {
+    // 编辑当前角色卡（没有角色时退化成新建）
+    if (state.current && state.current.file) openCharModal(state.current.file, state.current.data);
+    else openCharModal(null, null);
+  } else if (action === 'agent') {
+    // Agent 工作区 / 审批模式都在抽屉里，这里只是把抽屉打开
+    const btn = $('btn-agent');
+    if (btn) btn.click();
+  } else if (action === 'computer') {
+    const btn = $('btn-computer');
+    if (btn) btn.click();
+    refreshMenuSubtitles();
+  }
 }
 
 async function toggleOverlayStage() {
@@ -828,6 +842,28 @@ window.__AILEEN_MEMORY_PROBE = async () => {
     out.cleaned = !(chk && chk.exists);
     out.ok = out.freshNotCorrupted && out.wrote && out.loadedBack
       && out.recalled && out.deleted && out.cleaned;
+  } catch (err) {
+    out.error = String((err && err.message) || err);
+  }
+  return out;
+};
+
+// 自检钩子：检查点真机往返（渲染层 → 主进程写盘 → 读回 → 清除）
+// 这是「跨重启续跑」的地基：单测用的是内存 fs，只有这条能证明真的落到了磁盘。
+window.__AILEEN_CHECKPOINT_PROBE = async () => {
+  const out = { ok: false, saved: false, loaded: false, cleared: false, error: null };
+  const api = window.api || {};
+  if (typeof api.agentCheckpoint !== 'function') { out.error = '没有 agentCheckpoint'; return out; }
+  const data = { task: 'PROBE-' + Date.now(), checkpoint: { goal: 'probe', steps: [{ tool: 'read_file', ok: true }] }, rounds: 2 };
+  try {
+    await api.agentCheckpoint({ op: 'clear' });
+    out.saved = !!(await api.agentCheckpoint({ op: 'save', data })).ok;
+    const got = await api.agentCheckpoint({ op: 'load' });
+    out.loaded = !!(got && got.data && got.data.task === data.task && got.data.checkpoint);
+    out.cleared = !!(await api.agentCheckpoint({ op: 'clear' })).ok;
+    const after = await api.agentCheckpoint({ op: 'load' });
+    out.cleared = out.cleared && !after.data;
+    out.ok = out.saved && out.loaded && out.cleared;
   } catch (err) {
     out.error = String((err && err.message) || err);
   }

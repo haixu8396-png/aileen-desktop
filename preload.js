@@ -81,6 +81,8 @@ contextBridge.exposeInMainWorld('api', {
   // 展台 → 主窗口：用户的输入与操作请求
   overlayRequest: (payload) => ipcRenderer.invoke('overlay:request', payload),
   overlayOpenMain: () => ipcRenderer.invoke('overlay:openMain'),
+  // Agent 检查点（断点续跑）：{ op: 'save'|'load'|'clear', data? }
+  agentCheckpoint: (payload) => ipcRenderer.invoke('agent:checkpoint', payload),
   overlayReset: () => ipcRenderer.invoke('overlay:reset'),
   onMenuAction: (cb) => ipcRenderer.on('menu:action', (_e, action) => cb(action)),
   // ---- Minecraft 伙伴 ----

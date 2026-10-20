@@ -332,6 +332,18 @@ export function refreshMenuSubtitles() {
   sub('menu-sub-perform', t('perform.' + (b.narration || 'natural')) + ' · ' + t('perform.' + (b.pacing || 'natural')));
   const emb = s.embedding || {};
   sub('menu-sub-embedding', emb.enabled === false ? t('embed.off') : (emb.model || t('embed.builtin')));
+  // 设置中心新增的三行副标题（0.8）：角色 / Agent 授权 / 电脑控制开关。
+  // 副标题只是「一眼看到当前值」，算不出来也不该让整个菜单报错。
+  try {
+    const cur = state.current;
+    sub('menu-sub-char', (cur && cur.data && String(cur.data.name || '')) || '—');
+    const auth = s.agent && s.agent.authorization ? s.agent.authorization : {};
+    const mode = String(auth.mode || 'manual');
+    sub('menu-sub-agent', mode === 'trust'
+      ? t('agent.authTrustTag', { scope: auth.scope === 'persistent' ? t('agent.scopePersistent') : t('agent.scopeTask') })
+      : t(mode === 'batch' ? 'agent.authBatchTag' : 'agent.authManualTag'));
+    sub('menu-sub-computer', (s.agent && s.agent.computerUse) ? t('agent.computerOn') : t('agent.computerOff'));
+  } catch (err) { /* 忽略 */ }
   refreshChatStatus();
 }
 
