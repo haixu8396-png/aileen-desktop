@@ -1,0 +1,138 @@
+/* ============================================================
+   AILEEN — 设计令牌（唯一一套）
+   ------------------------------------------------------------
+   只有这一层定义颜色/字号/间距/圆角/阴影/动效，其他文件一律引用变量。
+   主题切换靠 <html data-theme="light|dark">（跟随系统时由 JS 写入具体值）。
+
+   视觉基调：暖纸色底 + 柔和玫瑰强调 + 灰紫中性 + 少量鼠尾草绿状态色。
+   主色只用于「下一步」和「当前选中」，不铺大面积，不做粉紫渐变。
+   ============================================================ */
+
+:root {
+  color-scheme: light;
+
+  /* ---- 颜色：浅色（默认） ---- */
+  --app-bg: #f6f3f0;
+  --surface: #fffcfa;
+  --surface-raised: #ffffff;
+  --surface-soft: #f0ebe8;
+  --surface-sunken: #efebe7;
+  --text-primary: #39333a;
+  --text-secondary: #756d75;
+  --text-tertiary: #9b929a;
+  --border: #e7dfe0;
+  --border-strong: #d9cfd1;
+  --accent: #c87898;
+  --accent-hover: #b76888;
+  --accent-soft: #f5e5ec;
+  --accent-contrast: #ffffff;
+  --lavender: #a99ac7;
+  --sage: #829f91;
+  --warning: #b88d4e;
+  --danger: #bc6268;
+  --overlay-glass: 255, 252, 250;
+  --shadow-color: 57, 51, 58;
+
+  /* ---- 字号 ---- */
+  --font-sans: "Segoe UI Variable Text", "Segoe UI", "Microsoft YaHei UI", "PingFang SC", "Hiragino Sans GB", system-ui, sans-serif;
+  --fs-2xs: 11px;
+  --fs-xs: 12px;
+  --fs-sm: 13px;
+  --fs-md: 14px;
+  --fs-lg: 15px;
+  --fs-xl: 17px;
+  --fs-2xl: 20px;
+  --fs-3xl: 24px;
+  --lh-body: 1.72;
+  --lh-tight: 1.4;
+
+  /* ---- 间距（4 的倍数） ---- */
+  --sp-1: 4px;
+  --sp-2: 8px;
+  --sp-3: 12px;
+  --sp-4: 16px;
+  --sp-5: 20px;
+  --sp-6: 24px;
+  --sp-8: 32px;
+  --sp-10: 40px;
+  --sp-12: 48px;
+
+  /* ---- 圆角 ---- */
+  --r-sm: 8px;
+  --r-md: 12px;
+  --r-lg: 16px;
+  --r-xl: 18px;
+  --r-pill: 999px;
+
+  /* ---- 阴影：非常柔和，不堆三层黑影 ---- */
+  --shadow-1: 0 1px 2px rgba(var(--shadow-color), 0.05), 0 2px 6px rgba(var(--shadow-color), 0.04);
+  --shadow-2: 0 6px 18px rgba(var(--shadow-color), 0.08), 0 2px 6px rgba(var(--shadow-color), 0.05);
+  --shadow-3: 0 18px 48px rgba(var(--shadow-color), 0.16), 0 4px 12px rgba(var(--shadow-color), 0.08);
+  --focus-ring: 0 0 0 2px var(--surface-raised), 0 0 0 4px rgba(200, 120, 152, 0.45);
+
+  /* ---- 动效：只做透明度/位移，不做发光与呼吸 ---- */
+  --dur-1: 120ms;
+  --dur-2: 180ms;
+  --ease: cubic-bezier(0.22, 0.61, 0.36, 1);
+
+  /* ---- 布局尺寸 ---- */
+  --sidebar-w: 244px;
+  --sidebar-w-collapsed: 72px;
+  --topbar-h: 68px;
+  --reading-w: 860px;
+  --composer-w: 900px;
+  --drawer-w: 388px;
+  --settings-nav-w: 216px;
+}
+
+/* ---- 暖暗色 ---- */
+html[data-theme='dark'] {
+  color-scheme: dark;
+  --app-bg: #211e23;
+  --surface: #29252c;
+  --surface-raised: #322d35;
+  --surface-soft: #3a333d;
+  --surface-sunken: #262229;
+  --text-primary: #f1eaf0;
+  --text-secondary: #bdb1bc;
+  --text-tertiary: #948a94;
+  --border: #453b46;
+  --border-strong: #544855;
+  --accent: #da91ad;
+  --accent-hover: #e6a4bc;
+  --accent-soft: #44313c;
+  --accent-contrast: #2a2026;
+  --lavender: #b8a9d4;
+  --sage: #9ab8a8;
+  --warning: #d2a869;
+  --danger: #d97f86;
+  --overlay-glass: 41, 37, 44;
+  --shadow-color: 8, 6, 9;
+  --focus-ring: 0 0 0 2px var(--surface-raised), 0 0 0 4px rgba(218, 145, 173, 0.45);
+}
+
+/* ---- 强调色变体：只改主色与主色柔底，其他令牌不动 ---- */
+html[data-accent='sage'] { --accent: #7e9c8d; --accent-hover: #6d8a7c; --accent-soft: #e6efe9; }
+html[data-accent='lavender'] { --accent: #9a8ab9; --accent-hover: #887aa6; --accent-soft: #efebf6; }
+html[data-accent='amber'] { --accent: #b98b52; --accent-hover: #a87c46; --accent-soft: #f6ecdd; }
+html[data-theme='dark'][data-accent='sage'] { --accent: #9ab8a8; --accent-hover: #a9c6b6; --accent-soft: #33413a; }
+html[data-theme='dark'][data-accent='lavender'] { --accent: #b8a9d4; --accent-hover: #c6b9e0; --accent-soft: #3b3348; }
+html[data-theme='dark'][data-accent='amber'] { --accent: #d2a869; --accent-hover: #dfb87e; --accent-soft: #443a2c; }
+
+/* ---- 减少动态效果：用户设置或系统偏好任一成立就关掉位移与淡入 ---- */
+html[data-reduce-motion='true'] *,
+html[data-reduce-motion='true'] *::before,
+html[data-reduce-motion='true'] *::after {
+  animation-duration: 0.001ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 0.001ms !important;
+}
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
+}

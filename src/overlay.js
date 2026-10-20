@@ -188,9 +188,23 @@ function renderStage(model) {
 }
 
 // ---------------- 启动 ----------------
+/** 展台与主窗口共享外观：跟随主窗口的主题模式（跟随系统时自己再判断一次） */
+let overlayThemeApplied = 'light';
+function applyOverlayAppearance(appearance) {
+  const app = appearance || {};
+  let mode = app.mode || 'light';
+  if (mode === 'system') {
+    try { mode = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'; } catch (err) { mode = 'light'; }
+  }
+  overlayThemeApplied = mode === 'dark' ? 'dark' : 'light';
+  document.documentElement.setAttribute('data-theme', overlayThemeApplied);
+  document.documentElement.setAttribute('data-reduce-motion', app.reduceMotion ? 'true' : 'false');
+}
+
 async function init() {
   const st = await window.api.overlayGetState();
   if (st && st.language) setLang(st.language);
+  applyOverlayAppearance(st && st.appearance);
   overlayCfg = Object.assign(overlayCfg, (st && st.overlay) || {});
   stageBox.style.opacity = String(overlayCfg.opacity || 1);
   const lockOn = !!(st && st.overlay && st.overlay.interactive);
@@ -225,6 +239,8 @@ window.__AILEEN_OVERLAY_PROBE = () => {
   const canvas = document.querySelector('#ov-stage canvas');
   return {
     hasInstance: !!oml2d,
+    themeApplied: overlayThemeApplied,
+    themeAttr: document.documentElement.getAttribute('data-theme'),
     hasPixiApp: !!app,
     rendererSize: app && app.app && app.app.renderer ? [app.app.renderer.width, app.app.renderer.height] : null,
     canvasAttr: canvas ? [canvas.width, canvas.height] : null,
@@ -410,6 +426,9 @@ if (micBtn) {
 if (document.getElementById('ov-open-main')) {
   document.getElementById('ov-open-main').onclick = () => window.api.overlayOpenMain();
 }
+if (document.getElementById('ov-main-btn')) {
+  document.getElementById('ov-main-btn').onclick = () => window.api.overlayOpenMain();
+}
 if (modelSelect) {
   modelSelect.onchange = () => window.api.overlayRequest({ type: 'model', index: Number(modelSelect.value) || 0 });
 }
@@ -450,6 +469,20 @@ if (typeof window.api.onOverlaySession === 'function') {
         opt.textContent = String(m && m.name ? m.name : '#' + i);
         modelSelect.appendChild(opt);
       });
+    } else if (s.type === 'motion') {
+      // 主窗口（角色回复里的动作标记、Agent 状态演出）遥控展台的动作
+      if (currentModel && s.name) { try { currentModel.motion(String(s.name)); } catch (err) { /* 模型不认这个名字 */ } }
+    } else if (s.type === 'expression') {
+      if (currentModel && s.name) { try { currentModel.expression(String(s.name)); } catch (err) { /* 同上 */ } }
+    } else if (s.type === 'scale') {
+      const v = Number(s.value);
+      if (Number.isFinite(v)) {
+        overlayCfg.scale = v;
+        try { if (oml2d && typeof oml2d.setModelScale === 'function') oml2d.setModelScale(v); } catch (err) { /* 忽略 */ }
+        const sc = document.getElementById('ov-scale');
+        if (sc) sc.value = String(v);
+        syncStageSize(false);
+      }
     }
     reportHitArea();
   });

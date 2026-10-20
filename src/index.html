@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="zh-CN" data-theme="light">
 <head>
 <meta charset="UTF-8" />
 <meta http-equiv="Content-Security-Policy" content="default-src 'self' 'unsafe-inline' 'unsafe-eval' data: blob: http://127.0.0.1:*; script-src 'self' 'unsafe-inline' 'unsafe-eval' blob:; img-src 'self' data: blob: http://127.0.0.1:*; connect-src 'self' http://127.0.0.1:* https:; media-src 'self' blob: http://127.0.0.1:*; style-src 'self' 'unsafe-inline'; font-src 'self' data:" />
@@ -9,699 +9,1094 @@
 </head>
 <body>
 <div id="app">
-  <!-- Left: characters -->
-  <aside id="sidebar">
-    <div class="side-head">
-      <div class="logo"><span class="logo-mark" data-icon="mark" data-icon-size="22"></span><span class="logo-text">AILEEN</span></div>
-      <button id="btn-collapse-sidebar" class="icon-btn tiny" data-i18n-title="sidebar.collapse" title="Collapse">‹</button>
+
+  <!-- ============================================================
+       左侧导航：品牌 / 新建对话 / 主导航 / 常用角色 / 状态与设置
+       ============================================================ -->
+  <nav id="sidebar" aria-label="主导航">
+    <div class="side-brand">
+      <span class="brand-mark" data-icon="mark" data-icon-size="20" aria-hidden="true"></span>
+      <span class="brand-name">AILEEN</span>
+      <button id="btn-collapse-sidebar" class="icon-btn tiny" data-i18n-title="sidebar.collapse" title="收起侧栏">
+        <span data-icon="panelLeft"></span>
+      </button>
     </div>
 
-    <div class="sidebar-actions">
-      <button id="btn-new-card" class="primary block" data-i18n-title="sidebar.newTip"><span data-icon="plus"></span><span class="btn-label" data-i18n="nav.newChar">New Character</span></button>
-      <button id="btn-import-card" class="ghost block" data-i18n-title="sidebar.importTip"><span data-icon="import"></span><span class="btn-label" data-i18n="nav.importCard">Import Card</span></button>
+    <button id="btn-new-chat" class="block" data-i18n-title="sidebar.newChatTip" title="清空当前对话并重新开始">
+      <span data-icon="plus"></span><span data-i18n="nav.newChat">新建对话</span>
+    </button>
+
+    <div class="side-nav" id="side-nav">
+      <button class="nav-item on" data-page="chat"><span data-icon="chat"></span><span data-i18n="nav.chat">对话</span></button>
+      <button class="nav-item" data-page="characters"><span data-icon="person"></span><span data-i18n="nav.characters">角色</span></button>
+      <button class="nav-item" data-page="memory"><span data-icon="book"></span><span data-i18n="nav.memory">记忆与知识库</span></button>
+      <button class="nav-item" data-page="tasks"><span data-icon="agent"></span><span data-i18n="nav.tasks">任务</span><span class="nav-count hidden" id="nav-task-count">0</span></button>
+      <button class="nav-item" data-page="devices"><span data-icon="gamepad"></span><span data-i18n="nav.devices">设备与扩展</span></button>
     </div>
 
-    <div class="side-search">
-      <span class="search-icon" data-icon="search" aria-hidden="true"></span>
-      <input id="char-search" type="search" autocomplete="off" data-i18n-ph="sidebar.search" placeholder="Search characters…" />
+    <div class="side-chars">
+      <div class="side-caption" data-i18n="sidebar.recent">常用角色</div>
+      <div class="side-body"><div id="char-list" class="char-list"></div></div>
     </div>
-
-    <div class="side-body"><div id="char-list" class="char-list"></div></div>
 
     <div class="side-foot">
-      <button id="btn-settings-menu" class="ghost block" data-i18n-title="app.settingsTip"><span data-icon="settings"></span><span class="btn-label" data-i18n="nav.settings">Settings</span></button>
-      <button id="btn-agent" class="ghost block" data-i18n-title="agent.openTip"><span data-icon="agent"></span><span class="btn-label" data-i18n="agent.open">Agent</span></button>
-      <button id="btn-computer" class="ghost block" data-i18n-title="agent.computerTip"><span data-icon="desktop"></span><span class="btn-label" id="btn-computer-label" data-i18n="agent.computer">Computer control: off</span></button>
-      <button id="btn-open-data" class="ghost block" data-i18n-title="app.dataTip"><span data-icon="folder"></span><span class="btn-label" data-i18n="nav.dataDir">Data Folder</span></button>
+      <div class="side-status" id="side-status">
+        <span class="status-dot off" id="side-status-dot"></span>
+        <span id="side-status-text" data-i18n="sidebar.noKey">未配置模型</span>
+      </div>
+      <button id="btn-settings-menu" class="nav-item" data-page="settings">
+        <span data-icon="settings"></span><span data-i18n="nav.settings">设置</span>
+      </button>
     </div>
-  </aside>
+  </nav>
 
-  <!-- Center: chat -->
-  <main id="chat-panel">
-    <header id="chat-header">
-      <img id="chat-avatar" class="chat-avatar" alt="" />
-      <div class="chat-title">
-        <strong id="chat-name">…</strong>
-        <span id="chat-desc"></span>
+  <!-- ============================================================
+       主内容区
+       ============================================================ -->
+  <main id="content">
+
+    <!-- ---------- 对话页 ---------- -->
+    <section id="page-chat" class="page on" aria-label="对话">
+      <header id="chat-header">
+        <span id="chat-avatar" class="avatar lg" aria-hidden="true"></span>
+        <div class="chat-title">
+          <strong id="chat-name">AILEEN</strong>
+          <span id="chat-desc">选择角色开始对话</span>
+        </div>
+        <span id="chat-status" class="status-dot off" data-i18n-title="chat.statusNoKey"></span>
+        <button class="chat-taskbar" id="chat-taskbar" data-i18n-title="tasks.openTip" title="打开任务详情">
+          <span class="dot"></span><span id="chat-taskbar-text" data-i18n="tasks.running">任务进行中</span>
+        </button>
+        <div class="chat-actions">
+          <button id="btn-float-stage" class="icon-btn" data-i18n-title="stage.floatTip" title="显示 / 隐藏桌面展台">
+            <span data-icon="frame"></span>
+          </button>
+          <button id="btn-realtime" class="icon-btn" data-i18n-title="chat.realtimeTitle" title="实时语音通话">
+            <span data-icon="waveform"></span>
+          </button>
+          <button id="btn-char-actions" class="icon-btn" data-i18n-title="chat.menu" title="更多">
+            <span data-icon="more"></span>
+          </button>
+        </div>
+      </header>
+
+      <div id="messages" class="messages"></div>
+      <div id="typing" class="typing hidden" data-i18n="chat.thinking">正在回复…</div>
+      <button id="btn-scroll-down" class="scroll-down hidden" data-i18n-title="chat.scrollDown" title="回到底部">
+        <span data-icon="arrowDown"></span>
+      </button>
+
+      <div id="attach-bar" class="attach-bar hidden">
+        <div class="attach-item">
+          <img id="attach-preview" alt="" />
+          <span id="attach-name"></span>
+          <button id="attach-remove" data-i18n-title="chat.attachRemove" title="移除附件"><span data-icon="close"></span></button>
+        </div>
       </div>
-      <span id="chat-status" class="status-dot off" data-i18n-title="chat.statusNoKey"></span>
-      <div class="chat-actions">
-        <button id="btn-speak" class="icon-btn" data-i18n-title="chat.speakTitle" title="Read the last reply aloud"><span data-icon="speaker"></span></button>
-        <button id="btn-regen" class="icon-btn" data-i18n-title="chat.regenerate" title="Regenerate"><span data-icon="regenerate"></span></button>
-        <button id="btn-stop" class="icon-btn" data-i18n-title="chat.stopTitle" title="Stop" disabled><span data-icon="stop"></span></button>
-        <button id="btn-clear" class="icon-btn" data-i18n-title="chat.clearTitle" title="Clear conversation"><span data-icon="trash"></span></button>
-        <button id="btn-char-actions" class="icon-btn" data-i18n-title="chat.menuTitle" title="Character menu"><span data-icon="more"></span></button>
+
+      <footer id="composer">
+        <div class="composer-box" id="composer-box">
+          <textarea id="input" rows="1" data-i18n-ph="chat.inputPlaceholder" placeholder="说点什么…（Enter 发送，Shift+Enter 换行）"></textarea>
+          <div class="composer-tools">
+            <div class="left">
+              <input id="file-input" type="file" accept="image/*" class="hidden" />
+              <button id="btn-attach" class="icon-btn" data-i18n-title="composer.attach" title="添加图片">
+                <span data-icon="plus"></span>
+              </button>
+              <button id="btn-screenshot" class="icon-btn" data-i18n-title="chat.screenshotTitle" title="截图发给角色">
+                <span data-icon="camera"></span>
+              </button>
+              <button id="btn-mic" class="icon-btn mic" data-i18n-title="chat.micTitle" title="语音输入">
+                <span data-icon="mic"></span>
+              </button>
+            </div>
+            <div class="right">
+              <span id="composer-model" class="composer-model"></span>
+              <button id="btn-stop" class="icon-btn hidden" data-i18n-title="chat.stopTitle" title="停止">
+                <span data-icon="stop"></span>
+              </button>
+              <button id="btn-send" class="send-btn" data-i18n-title="chat.send" title="发送" disabled>
+                <span data-icon="send"></span>
+              </button>
+            </div>
+          </div>
+        </div>
+        <!-- 实时语音激活时替换输入区的监听状态 -->
+        <div class="realtime-bar" id="realtime-bar">
+          <span class="rt-wave"><i></i><i></i><i></i><i></i></span>
+          <span class="rt-label" id="realtime-label" data-i18n="voice.listening">正在聆听…</span>
+          <div class="rt-actions">
+            <button id="btn-realtime-stop" class="ghost small-btn" data-i18n="voice.end">结束通话</button>
+          </div>
+        </div>
+      </footer>
+      <div id="drop-hint" class="drop-hint hidden" data-i18n="chat.dropHint">松开即可作为附件发送</div>
+    </section>
+
+    <!-- ---------- 角色页 ---------- -->
+    <section id="page-characters" class="page" aria-label="角色">
+      <header class="page-head">
+        <div class="ph-text">
+          <h1 data-i18n="characters.title">角色</h1>
+          <span class="ph-desc" data-i18n="characters.desc">创建、编辑与切换你的角色。每个角色有自己的对话与记忆。</span>
+        </div>
+        <div class="ph-actions">
+          <button id="btn-import-card" class="ghost"><span data-icon="import"></span><span data-i18n="nav.importCard">导入角色卡</span></button>
+          <button id="btn-new-card" class="primary"><span data-icon="plus"></span><span data-i18n="nav.newChar">新建角色</span></button>
+        </div>
+      </header>
+      <div class="char-toolbar">
+        <div class="char-search">
+          <span class="search-icon" data-icon="search" aria-hidden="true"></span>
+          <input id="char-search" type="search" autocomplete="off" data-i18n-ph="sidebar.search" placeholder="搜索角色…" />
+        </div>
+        <span class="spacer"></span>
+        <span class="hint" id="char-count"></span>
       </div>
-    </header>
-    <div id="messages" class="messages"></div>
-    <button id="btn-scroll-down" class="scroll-down hidden" data-i18n-title="chat.scrollDown" title="Scroll to bottom"><span data-icon="arrowDown"></span></button>
-    <div id="typing" class="typing hidden" data-i18n="chat.thinking">Thinking…</div>
-    <div id="attach-bar" class="attach-bar hidden">
-      <div class="attach-item">
-        <img id="attach-preview" alt="" />
-        <span id="attach-name"></span>
-        <button id="attach-remove" data-i18n-title="chat.attachRemove" title="Remove"><span data-icon="close"></span></button>
+      <div class="page-body">
+        <div id="character-grid" class="char-grid"></div>
+        <div id="character-empty" class="empty-state hidden">
+          <span class="empty-mark" data-icon="person" data-icon-size="28"></span>
+          <div class="empty-title" data-i18n="characters.emptyTitle">还没有角色</div>
+          <div class="empty-desc" data-i18n="characters.emptyDesc">新建一个角色，或者导入已有的角色卡开始。</div>
+        </div>
       </div>
-    </div>
-    <footer id="input-bar">
-      <button id="btn-screenshot" class="icon-btn" data-i18n-title="chat.screenshotTitle" title="Screenshot"><span data-icon="camera"></span></button>
-      <button id="btn-realtime" class="realtime-btn" data-i18n-title="chat.realtimeTitle"><span data-icon="waveform"></span><span class="btn-label" data-i18n="chat.realtime">Live voice</span></button>
-      <button id="btn-mic" class="icon-btn mic" data-i18n-title="chat.micTitle" title="Voice input"><span data-icon="mic"></span></button>
-      <textarea id="input" rows="1" data-i18n-ph="chat.inputPlaceholder" placeholder="Say something…"></textarea>
-      <button id="btn-send" class="primary" data-i18n="chat.send">Send</button>
-    </footer>
-    <div id="drop-hint" class="drop-hint hidden" data-i18n="chat.dropHint">Drop an image to attach it</div>
-    <button id="btn-expand-sidebar" class="edge-toggle left hidden" data-i18n-title="sidebar.expand" title="Expand">›</button>
-    <button id="btn-expand-stage" class="edge-toggle right hidden" data-i18n-title="stage.expand" title="Show the stage">‹</button>
+    </section>
+
+    <!-- ---------- 角色编辑页 ---------- -->
+    <section id="page-char-edit" class="page" aria-label="角色编辑">
+      <header class="page-head">
+        <button id="f-back" class="icon-btn" data-i18n-title="char.back" title="返回">
+          <span data-icon="arrowLeft"></span>
+        </button>
+        <div class="ph-text">
+          <h1><span class="modal-ico" data-icon="pencil"></span><span id="char-modal-title" data-i18n="char.new">新建角色</span></h1>
+          <span class="ph-desc" data-i18n="char.editDesc">角色设定会写进系统提示词的第一段，也就是它的人格。</span>
+        </div>
+        <div class="ph-actions">
+          <button id="f-export" class="ghost" data-i18n="char.export">导出</button>
+          <button id="f-delete" class="ghost danger hidden" data-i18n="char.delete">删除</button>
+          <button id="f-cancel" class="ghost" data-i18n="char.cancel">取消</button>
+          <button id="f-save" class="primary" data-i18n="char.save">保存</button>
+        </div>
+      </header>
+      <div class="page-body">
+        <div class="editor">
+          <aside class="editor-preview">
+            <span id="f-avatar-preview" class="avatar" aria-hidden="true"></span>
+            <div>
+              <div class="ep-name" id="f-preview-name" data-i18n="char.previewName">角色名</div>
+              <div class="ep-desc" id="f-preview-desc" data-i18n="char.previewDesc">一句话介绍会显示在这里</div>
+            </div>
+            <div class="ep-rows">
+              <div class="ep-row"><span data-icon="layers"></span><span id="f-preview-model" data-i18n="char.noModel">未绑定模型</span></div>
+              <div class="ep-row"><span data-icon="speaker"></span><span id="f-preview-voice" data-i18n="char.noVoice">未绑定声音</span></div>
+            </div>
+            <div class="set-group">
+              <div class="persona-bar">
+                <input id="f-seed" data-i18n-ph="char.genPlaceholder" placeholder="一句灵感，例如：怕吵的旧书店老板" />
+                <button id="f-generate" class="subtle"><span data-icon="spark"></span><span data-i18n="char.genBtn">生成</span></button>
+              </div>
+              <p class="hint" data-i18n="char.genHint">生成会先把草稿填进下面的字段，你可以改完再保存。</p>
+            </div>
+          </aside>
+
+          <div class="editor-form">
+            <div class="set-group">
+              <div class="set-group-head">
+                <h3 data-i18n="char.basic">基本资料</h3>
+                <p data-i18n="char.basicDesc">名字与介绍会显示在对话顶部和角色列表里。</p>
+              </div>
+              <div class="form-grid">
+                <label><span data-i18n="char.name">名字 *</span><input id="f-name" data-i18n-ph="char.namePlaceholder" placeholder="角色名字" /></label>
+                <label><span data-i18n="char.desc">一句话介绍</span><input id="f-desc" data-i18n-ph="char.descPlaceholder" placeholder="例如：一个总是很困的助手" /></label>
+                <label class="full"><span data-i18n="char.avatar">头像</span>
+                  <div class="avatar-row">
+                    <span id="f-avatar-preview-2" class="avatar-preview" aria-hidden="true"></span>
+                    <button id="f-avatar-btn" class="ghost" data-i18n="char.chooseImage">选择图片</button>
+                  </div>
+                </label>
+              </div>
+            </div>
+
+            <div class="set-group">
+              <div class="set-group-head">
+                <h3 data-i18n="char.persona">个性与背景</h3>
+                <p data-i18n="char.personaDesc">这些内容构成它的人格，越具体越不容易变成通用助手。</p>
+              </div>
+              <div class="form-grid">
+                <label class="full"><span data-i18n="char.personality">性格 / 详细设定</span><textarea id="f-personality" rows="4" data-i18n-ph="char.personalityPlaceholder"></textarea></label>
+                <label class="full"><span data-i18n="char.scenario">场景</span><textarea id="f-scenario" rows="2" data-i18n-ph="char.scenarioPlaceholder"></textarea></label>
+                <label class="full"><span data-i18n="char.firstMes">开场白</span><textarea id="f-first" rows="3"></textarea></label>
+                <label class="full"><span data-i18n="char.example">示例对话</span><textarea id="f-example" rows="3" data-i18n-ph="char.examplePlaceholder"></textarea></label>
+              </div>
+            </div>
+
+            <div class="set-group">
+              <div class="set-group-head">
+                <h3 data-i18n="char.modelVoice">模型与声音</h3>
+                <p data-i18n="char.modelVoiceDesc">这里只绑定角色；模型文件和语音引擎在设置里管理。</p>
+              </div>
+              <div class="form-grid">
+                <label><span data-i18n="char.model">Live2D 模型</span><select id="f-model"></select></label>
+                <label><span data-i18n="char.voice">声音</span><select id="f-voice"></select></label>
+              </div>
+            </div>
+
+            <details class="advanced">
+              <summary data-i18n="char.advanced">高级提示词（可选）</summary>
+              <div class="form-grid">
+                <label class="full"><span data-i18n="char.systemPrompt">System Prompt 覆盖</span><textarea id="f-system" rows="3"></textarea>
+                  <span class="hint" data-i18n="char.systemHint">留空即使用默认人格拼装。只有在你明确知道要覆盖什么时才填。</span></label>
+              </div>
+            </details>
+
+            <details class="advanced" id="persona-wrap">
+              <summary data-i18n="studio.menu">人设生成室</summary>
+              <!-- 人设生成室：先选原型、再锁定，生成草稿后填入上面的字段，不直接覆盖已写内容 -->
+              <div id="modal-persona" class="persona-block hidden">
+                <p class="hint" data-i18n="studio.intro"></p>
+                <div class="studio-mode">
+                  <span class="arch-title" data-i18n="studio.mode">模式</span>
+                  <label class="studio-radio"><input type="radio" name="pa-mode" id="pa-mode-original" value="original" checked /><span data-i18n="studio.modeOriginal">原创角色</span></label>
+                  <label class="studio-radio"><input type="radio" name="pa-mode" id="pa-mode-known" value="known" /><span data-i18n="studio.modeKnown">已有角色（动画 / 游戏 / 小说）</span></label>
+                </div>
+                <div id="pa-known-block" class="hidden">
+                  <div class="form-grid">
+                    <label><span data-i18n="studio.charName">角色名</span><input id="pa-char" data-i18n-ph="studio.charNamePh" /></label>
+                    <label><span data-i18n="studio.work">出自哪部作品</span><input id="pa-work" data-i18n-ph="studio.workPh" /></label>
+                    <label><span data-i18n="studio.fidelity">还原程度</span><select id="pa-fidelity">
+                      <option value="strict" data-i18n="studio.fidelityStrict">严格还原</option>
+                      <option value="loose" data-i18n="studio.fidelityLoose">允许自由发挥</option>
+                    </select></label>
+                  </div>
+                </div>
+                <div id="pa-original-block">
+                  <label class="studio-seed"><span data-i18n="studio.seed">一句灵感</span>
+                    <input id="pa-seed" data-i18n-ph="studio.seedPh" placeholder="例如：讨厌安静的夜班图书管理员" /></label>
+                  <div class="arch-group">
+                    <div class="arch-head">
+                      <span class="arch-title" data-i18n="studio.personality">性格原型</span>
+                      <label class="arch-lock" data-i18n-title="studio.lockTip"><input type="checkbox" id="pa-lock-p" checked /><span data-i18n="studio.lock">锁定</span></label>
+                    </div>
+                    <div id="pa-personalities" class="arch-grid"></div>
+                  </div>
+                  <div class="arch-group">
+                    <div class="arch-head">
+                      <span class="arch-title" data-i18n="studio.role">身份原型</span>
+                      <label class="arch-lock" data-i18n-title="studio.lockTip"><input type="checkbox" id="pa-lock-r" checked /><span data-i18n="studio.lock">锁定</span></label>
+                    </div>
+                    <div id="pa-roles" class="arch-grid"></div>
+                  </div>
+                </div>
+                <div class="arch-group">
+                  <div class="arch-head"><span class="arch-title" data-i18n="studio.relHeader">你和它的关系</span></div>
+                  <div class="form-grid">
+                    <label><span data-i18n="studio.rel">你是它的</span><select id="pa-rel"></select></label>
+                    <label><span data-i18n="studio.userName">它该怎么称呼你</span><input id="pa-user" data-i18n-ph="studio.userNamePh" /></label>
+                  </div>
+                </div>
+                <details class="studio-opt">
+                  <summary data-i18n="studio.optional">可选</summary>
+                  <div class="form-grid">
+                    <label><span data-i18n="studio.name">强制名字</span><input id="pa-name" data-i18n-ph="studio.namePh" /></label>
+                    <label><span data-i18n="studio.gender">性别</span><select id="pa-gender"></select></label>
+                    <label><span data-i18n="studio.age">年龄</span><input id="pa-age" data-i18n-ph="studio.agePh" /></label>
+                    <label><span data-i18n="studio.extra">其他要求</span><input id="pa-extra" data-i18n-ph="studio.extraPh" /></label>
+                  </div>
+                </details>
+                <div class="set-actions">
+                  <span class="spacer"></span>
+                  <button id="pa-cancel" data-i18n="char.cancel">取消</button>
+                  <button id="pa-generate" class="primary"><span data-icon="spark"></span><span data-i18n="studio.generate">生成草稿</span></button>
+                </div>
+              </div>
+            </details>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ---------- 记忆与知识库 ---------- -->
+    <section id="page-memory" class="page" aria-label="记忆与知识库">
+      <header class="page-head">
+        <div class="ph-text">
+          <h1 data-i18n="memory.title">记忆与知识库</h1>
+          <span class="ph-desc" data-i18n="memory.desc">长期记忆来自你们的对话，知识库来自你导入的文件；两者都只保存在本机。</span>
+        </div>
+        <div class="ph-actions">
+          <button id="btn-memory-refresh" class="ghost"><span data-icon="regenerate"></span><span data-i18n="memory.refresh">刷新</span></button>
+          <button id="btn-knowledge-import" class="primary"><span data-icon="import"></span><span data-i18n="memory.import">导入文件</span></button>
+          <input id="knowledge-file-input" type="file" multiple accept=".txt,.md,.markdown,.html,.htm,.json,.pdf" class="hidden" />
+        </div>
+      </header>
+      <div class="mem-tabs" id="mem-tabs">
+        <button class="on" data-tab="memory" data-i18n="memory.tabMemory">长期记忆</button>
+        <button data-tab="knowledge" data-i18n="memory.tabKnowledge">知识来源</button>
+      </div>
+      <div class="page-body">
+        <div class="mem-panel on" id="mem-panel-memory">
+          <div class="mem-block">
+            <div class="mem-block-head">
+              <h2 data-i18n="memory.memoryTitle">长期记忆</h2>
+              <span class="badge" id="memory-scope-badge" data-i18n="memory.perCharShort">按角色分开</span>
+              <span class="spacer"></span>
+              <span class="hint" id="memory-status"></span>
+            </div>
+            <p class="mem-note" data-i18n="memory.memoryNote">角色会在回复前按相关度回忆这些内容。删除后立即失效，不可撤销。</p>
+            <div id="memory-list" class="mem-list"></div>
+          </div>
+        </div>
+        <div class="mem-panel" id="mem-panel-knowledge">
+          <div class="mem-block">
+            <div class="mem-block-head">
+              <h2 data-i18n="memory.knowledgeTitle">知识来源</h2>
+              <span class="spacer"></span>
+              <span class="hint" id="knowledge-status"></span>
+            </div>
+            <p class="mem-note" data-i18n="memory.knowledgeNote">支持 TXT / Markdown / HTML / JSON / PDF。导入后按段落切分并建立索引，检索在本地完成。</p>
+            <div id="knowledge-list" class="mem-list"></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ---------- 任务 ---------- -->
+    <section id="page-tasks" class="page" aria-label="任务">
+      <header class="page-head">
+        <div class="ph-text">
+          <h1 data-i18n="tasks.title">任务</h1>
+          <span class="ph-desc" data-i18n="tasks.desc">Agent 用工具替你做事时的完整记录：目标、步骤、审批与产物。</span>
+        </div>
+        <div class="ph-actions">
+          <button id="btn-agent" class="ghost"><span data-icon="agent"></span><span data-i18n="tasks.openDrawer">任务抽屉</span></button>
+        </div>
+      </header>
+      <div class="page-body">
+        <div class="mem-block">
+          <div class="mem-block-head">
+            <h2 data-i18n="tasks.current">当前任务</h2>
+            <span class="badge" id="task-state-badge">—</span>
+          </div>
+          <div class="task-current">
+            <div class="task-current-head">
+              <span class="status-dot off" id="task-dot"></span>
+              <span id="task-title" data-i18n="tasks.none">现在没有正在执行的任务</span>
+            </div>
+            <div class="task-current-goal" id="task-goal"></div>
+            <div class="task-current-meta">
+              <span id="task-round"></span>
+              <span id="task-workspace"></span>
+            </div>
+            <div class="task-steps" id="task-steps"></div>
+          </div>
+        </div>
+        <div class="mem-block">
+          <div class="mem-block-head">
+            <h2 data-i18n="tasks.history">历史任务</h2>
+            <span class="spacer"></span>
+            <span class="hint" data-i18n="tasks.historyNote">本次运行期间的任务记录（尚未落盘历史）。</span>
+          </div>
+          <div class="task-list" id="task-list"></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ---------- 设备与扩展 ---------- -->
+    <section id="page-devices" class="page" aria-label="设备与扩展">
+      <header class="page-head">
+        <div class="ph-text">
+          <h1 data-i18n="devices.title">设备与扩展</h1>
+          <span class="ph-desc" data-i18n="devices.desc">电脑控制、Minecraft 与国际象棋。能力都从这里开启，随时可以关掉。</span>
+        </div>
+      </header>
+      <div class="page-body">
+        <div class="device-grid">
+
+          <section class="device-card">
+            <div class="device-card-head">
+              <span data-icon="desktop"></span>
+              <h2 data-i18n="devices.computer">电脑控制</h2>
+              <span class="badge" id="computer-badge" data-i18n="devices.off">已关闭</span>
+            </div>
+            <p data-i18n="devices.computerDesc">开启后，你在对话里说的话会交给 Agent 执行：读写文件、运行允许的命令、看屏幕、动鼠标键盘。每一步高风险操作都会先问你。</p>
+            <div class="dc-actions">
+              <button id="btn-computer" class="ghost"><span data-icon="desktop"></span><span id="btn-computer-label" data-i18n="agent.computerOff">电脑控制：关闭</span></button>
+            </div>
+          </section>
+
+          <section class="device-card">
+            <div class="device-card-head">
+              <span data-icon="gamepad"></span>
+              <h2 data-i18n="devices.mc">Minecraft 伙伴</h2>
+              <span class="badge" id="mc-status-badge" data-i18n="devices.mcOff">未连接</span>
+            </div>
+            <p data-i18n="devices.mcDesc">让角色进入你的世界：跟随、聊天、听你指挥。基于 mineflayer。</p>
+            <div class="form-col">
+              <div class="mc-row">
+                <label><span data-i18n="mc.host">服务器地址</span><input id="mc-host" placeholder="127.0.0.1" /></label>
+                <label class="mc-narrow"><span data-i18n="mc.port">端口</span><input id="mc-port" type="number" placeholder="25565" /></label>
+                <label><span data-i18n="mc.username">机器人名字</span><input id="mc-username" placeholder="AILEEN" /></label>
+              </div>
+              <div id="mc-persona" class="mc-persona">—</div>
+              <label class="check"><input id="mc-autoreply" type="checkbox" /> <span data-i18n="mc.autoReply">让 AI 回复游戏内聊天</span></label>
+              <div class="row-btns">
+                <button id="mc-connect" class="primary"><span data-icon="plug"></span><span id="mc-connect-label" data-i18n="mc.connect">连接</span></button>
+                <button id="mc-disconnect" class="ghost" data-i18n="mc.disconnect">断开</button>
+                <button id="mc-follow" class="ghost"><span data-icon="play"></span><span data-i18n="mc.follow">跟随我</span></button>
+                <button id="mc-stopfollow" class="ghost" data-i18n="mc.stopFollow">停止</button>
+              </div>
+              <div id="mc-status" class="mc-status" data-i18n="mc.statusIdle">未连接</div>
+              <div class="mc-pad">
+                <button data-mc-dir="forward" data-i18n-title="mc.forward">↑</button>
+                <div class="mc-pad-mid">
+                  <button data-mc-dir="left" data-i18n-title="mc.left">←</button>
+                  <button data-mc-jump="1" data-i18n-title="mc.jump">⤒</button>
+                  <button data-mc-dir="right" data-i18n-title="mc.right">→</button>
+                </div>
+                <button data-mc-dir="back" data-i18n-title="mc.back">↓</button>
+              </div>
+              <label><span data-i18n="mc.say">说点什么</span><input id="mc-say-input" data-i18n-ph="mc.sayPlaceholder" /></label>
+              <div id="mc-log" class="mc-log"></div>
+              <p class="hint" data-i18n-html="mc.hint"></p>
+            </div>
+          </section>
+
+          <section class="device-card wide">
+            <div class="device-card-head">
+              <span data-icon="pawn"></span>
+              <h2 data-i18n="devices.chess">国际象棋</h2>
+              <span class="badge" id="chess-badge" data-i18n="devices.chessReady">未开始</span>
+            </div>
+            <p data-i18n="devices.chessDesc">和角色下一局。它可以一边下棋一边用角色语气点评。</p>
+            <div class="chess-layout">
+              <div class="chess-left">
+                <div id="chess-board" class="chess-board"></div>
+                <div id="chess-captured" class="chess-captured"></div>
+                <div id="chess-status" class="chess-status">—</div>
+              </div>
+              <div class="chess-right">
+                <label><span data-i18n="chess.level">AI 强度</span><select id="chess-level">
+                  <option value="1">1</option><option value="2">2</option><option value="3">3</option>
+                  <option value="4">4</option><option value="5">5</option>
+                </select></label>
+                <div class="chess-field">
+                  <span data-i18n="chess.side">我执</span>
+                  <div id="chess-side-switch" class="seg">
+                    <button data-side="white" data-i18n="chess.white">白</button>
+                    <button data-side="black" data-i18n="chess.black">黑</button>
+                  </div>
+                </div>
+                <label class="check"><input id="chess-banter" type="checkbox" /> <span data-i18n="chess.banter">让角色点评</span></label>
+                <div class="row-btns">
+                  <button id="chess-new" class="ghost" data-i18n="chess.new">新局</button>
+                  <button id="chess-undo" class="ghost" data-i18n="chess.undo">悔棋</button>
+                  <button id="chess-resign" class="ghost" data-i18n="chess.resign">认输</button>
+                  <button id="chess-flip" class="ghost" data-i18n="chess.flip">翻转棋盘</button>
+                </div>
+                <div id="chess-comment" class="chess-comment hidden"></div>
+                <div class="chess-moves-title" data-i18n="chess.moves">着法</div>
+                <div id="chess-moves" class="chess-moves"></div>
+              </div>
+            </div>
+            <p class="hint" data-i18n-html="chess.hint"></p>
+          </section>
+
+        </div>
+      </div>
+    </section>
+
+    <!-- ---------- 设置中心 ---------- -->
+    <section id="page-settings" class="page" aria-label="设置">
+      <header class="page-head">
+        <div class="ph-text">
+          <h1 data-i18n="settings.title">设置</h1>
+          <span class="ph-desc" data-i18n="settings.desc">外观、模型、语音、展台与权限。所有改动只保存在这台电脑上。</span>
+        </div>
+      </header>
+      <div class="settings-layout">
+        <nav class="settings-nav" id="settings-nav">
+          <button class="on" data-sec="appearance"><span data-icon="palette"></span><span data-i18n="settings.appearance">外观与常规</span></button>
+          <button data-sec="companion"><span data-icon="person"></span><span data-i18n="settings.companion">角色与陪伴</span></button>
+          <button data-sec="models"><span data-icon="chat"></span><span data-i18n="settings.models">模型与连接</span></button>
+          <button data-sec="voice"><span data-icon="speaker"></span><span data-i18n="settings.voice">语音与实时交流</span></button>
+          <button data-sec="stage"><span data-icon="layers"></span><span data-i18n="settings.stage">Live2D 与展台</span></button>
+          <button data-sec="memory"><span data-icon="book"></span><span data-i18n="settings.memory">记忆与知识库</span></button>
+          <button data-sec="agent"><span data-icon="agent"></span><span data-i18n="settings.agent">Agent 与安全</span></button>
+          <button data-sec="devices"><span data-icon="gamepad"></span><span data-i18n="settings.devices">设备与扩展</span></button>
+          <button data-sec="advanced"><span data-icon="info"></span><span data-i18n="settings.advanced">高级与诊断</span></button>
+        </nav>
+
+        <div class="settings-body" id="settings-body">
+
+          <!-- 1. 外观与常规 -->
+          <section class="set-sec on" id="set-appearance">
+            <div class="set-sec-head">
+              <h2 data-i18n="settings.appearance">外观与常规</h2>
+              <p data-i18n="settings.appearanceDesc">主题、语言与界面偏好。默认跟着系统的浅色暖纸风格。</p>
+            </div>
+
+            <div class="set-group">
+              <div class="set-group-head"><h3 data-i18n="appearance.theme">主题</h3><p data-i18n="appearance.themeDesc">浅色是默认。暖暗色在夜里更舒服。</p></div>
+              <div class="set-row">
+                <div class="sr-text"><span class="sr-title" data-i18n="appearance.mode">模式</span></div>
+                <div class="sr-control"><div class="seg" id="theme-mode-switch">
+                  <button data-mode="light" class="on" data-i18n="appearance.light">浅色</button>
+                  <button data-mode="dark" data-i18n="appearance.dark">暖暗色</button>
+                  <button data-mode="system" data-i18n="appearance.system">跟随系统</button>
+                </div></div>
+              </div>
+              <div class="set-row">
+                <div class="sr-text"><span class="sr-title" data-i18n="appearance.accent">强调色</span><span class="sr-desc" data-i18n="appearance.accentDesc">只用于主按钮、选中态与焦点环。</span></div>
+                <div class="sr-control"><div id="theme-presets" class="theme-presets"></div></div>
+              </div>
+              <details class="advanced">
+                <summary data-i18n="appearance.customColors">自定义颜色</summary>
+                <div class="form-grid">
+                  <label><span data-i18n="theme.primary">主色</span><input id="t-primary" type="color" /></label>
+                  <label><span data-i18n="theme.secondary">辅助色</span><input id="t-secondary" type="color" /></label>
+                </div>
+                <div class="set-actions">
+                  <button id="t-reset" class="ghost" data-i18n="theme.reset">恢复默认</button>
+                  <span class="spacer"></span>
+                  <button id="t-cancel" class="ghost" data-i18n="char.cancel">取消</button>
+                  <button id="t-save" class="primary" data-i18n="theme.save">保存</button>
+                </div>
+              </details>
+              <div class="set-row">
+                <div class="sr-text"><span class="sr-title" data-i18n="appearance.reduceMotion">减少动效</span><span class="sr-desc" data-i18n="appearance.reduceMotionDesc">关闭淡入与位移动画，长文本更稳。</span></div>
+                <div class="sr-control"><label class="check"><input id="s-reduce-motion" type="checkbox" /></label></div>
+              </div>
+            </div>
+
+            <div class="set-divider"></div>
+
+            <div class="set-group">
+              <div class="set-group-head"><h3 data-i18n="appearance.language">界面语言</h3><p data-i18n="appearance.languageDesc">切换后整个界面立即生效。</p></div>
+              <div class="set-row">
+                <div class="sr-text"><span class="sr-title" data-i18n="menu.language">语言</span></div>
+                <div class="sr-control"><div id="lang-switch" class="lang-switch"></div></div>
+              </div>
+            </div>
+
+            <div class="set-divider"></div>
+
+            <div class="set-group">
+              <div class="set-group-head"><h3 data-i18n="appearance.window">窗口与数据</h3></div>
+              <div class="set-row">
+                <div class="sr-text"><span class="sr-title" data-i18n="menu.datadir">数据目录</span><span class="sr-desc" data-i18n="menu.datadirSub">角色卡、对话、设置与模型都在这里</span></div>
+                <div class="sr-control"><button id="btn-open-data" class="ghost"><span data-icon="folder"></span><span data-i18n="appearance.openFolder">打开文件夹</span></button></div>
+              </div>
+            </div>
+          </section>
+
+          <!-- 2. 角色与陪伴 -->
+          <section class="set-sec" id="set-companion">
+            <div class="set-sec-head">
+              <h2 data-i18n="settings.companion">角色与陪伴</h2>
+              <p data-i18n="settings.companionDesc">角色怎么说话、怎么演出。人格本身在角色编辑页里改。</p>
+            </div>
+            <div class="set-group">
+              <div class="set-group-head"><h3 data-i18n="perform.title">演出</h3><p data-i18n="perform.desc">控制动作描写与回复节奏，让角色更像在“演”而不是在念稿。</p></div>
+              <div class="form-col">
+                <label><span data-i18n="perform.narration">括号动作与内心戏</span>
+                  <select id="p-narration">
+                    <option value="off" data-i18n="perform.off">从不</option>
+                    <option value="rare" data-i18n="perform.rare">偶尔</option>
+                    <option value="natural" data-i18n="perform.natural">自然</option>
+                    <option value="rich" data-i18n="perform.rich">经常</option>
+                  </select>
+                  <span class="hint" data-i18n="perform.narrationHint"></span>
+                </label>
+                <label><span data-i18n="perform.pacing">回复节奏</span>
+                  <select id="p-pacing">
+                    <option value="off" data-i18n="perform.off">从不</option>
+                    <option value="rare" data-i18n="perform.rare">偶尔</option>
+                    <option value="natural" data-i18n="perform.natural">自然</option>
+                  </select>
+                  <span class="hint" data-i18n="perform.pacingHint"></span>
+                </label>
+              </div>
+              <div class="set-actions">
+                <button id="p-cancel" class="ghost" data-i18n="char.cancel">取消</button>
+                <span class="spacer"></span>
+                <button id="p-save" class="primary" data-i18n="perform.save">保存</button>
+              </div>
+            </div>
+            <div class="set-divider"></div>
+            <div class="set-group">
+              <div class="set-group-head"><h3 data-i18n="companion.card">角色卡</h3><p data-i18n="companion.cardDesc">人格、开场白与示例对话在角色编辑页；人设生成器也在那里。</p></div>
+              <div class="set-row">
+                <div class="sr-text"><span class="sr-title" data-i18n="companion.edit">编辑当前角色</span></div>
+                <div class="sr-control"><button id="btn-edit-current-card" class="ghost"><span data-icon="pencil"></span><span data-i18n="menu.editCard">编辑角色卡</span></button></div>
+              </div>
+              <div class="set-row">
+                <div class="sr-text"><span class="sr-title" data-i18n="companion.gallery">角色库</span></div>
+                <div class="sr-control"><button id="btn-goto-characters" class="ghost"><span data-icon="person"></span><span data-i18n="nav.characters">角色</span></button></div>
+              </div>
+            </div>
+          </section>
+
+          <!-- 3. 模型与连接 -->
+          <section class="set-sec" id="set-models">
+            <div class="set-sec-head">
+              <h2 data-i18n="settings.models">模型与连接</h2>
+              <p data-i18n="settings.modelsDesc">对话用的语言模型，以及记忆检索用的嵌入模型。密钥只保存在主进程，不会出现在界面或日志里。</p>
+            </div>
+            <div class="set-group">
+              <div class="set-group-head"><h3 data-i18n="llm.title">对话模型</h3><p data-i18n="llm.desc">选服务商后会自动填好地址与常用模型。</p></div>
+              <div class="form-col">
+                <label><span data-i18n="llm.provider">服务商</span><select id="s-llm-provider">
+                  <option value="deepseek" data-i18n="provider.deepseek">DeepSeek</option>
+                  <option value="openai" data-i18n="provider.openai">OpenAI</option>
+                  <option value="moonshot" data-i18n="provider.moonshot">Moonshot Kimi</option>
+                  <option value="siliconflow" data-i18n="provider.siliconflow">SiliconFlow</option>
+                  <option value="groq" data-i18n="provider.groq">Groq</option>
+                  <option value="zhipu" data-i18n="provider.zhipu">智谱 GLM</option>
+                  <option value="qwen" data-i18n="provider.qwen">阿里云百炼</option>
+                  <option value="xiaomi" data-i18n="provider.xiaomi">小米 MiMo</option>
+                  <option value="openrouter" data-i18n="provider.openrouter">OpenRouter</option>
+                  <option value="ollama" data-i18n="provider.ollama">Ollama（本地）</option>
+                  <option value="custom" data-i18n="provider.custom">自定义</option>
+                </select></label>
+                <label class="check"><input id="s-llm-custom-url" type="checkbox" /> <span data-i18n="llm.customUrl">自定义地址</span></label>
+                <label id="wrap-llm-base" class="hidden"><span data-i18n="llm.baseUrl">Base URL</span><input id="s-llm-base" placeholder="https://api.deepseek.com" /></label>
+                <label><span data-i18n="llm.apiKey">API Key</span><input id="s-llm-key" type="password" placeholder="sk-…" />
+                  <span class="hint" id="llm-key-state"></span></label>
+                <label><span data-i18n="llm.model">模型</span><input id="s-llm-model" list="dl-llm-models" data-i18n-ph="llm.modelPlaceholder" /><datalist id="dl-llm-models"></datalist>
+                  <div class="row-btns">
+                    <button id="btn-llm-fetch" class="ghost small-btn"><span data-icon="bolt"></span><span data-i18n="llm.fetch">获取模型</span></button>
+                    <button id="btn-llm-test" class="ghost small-btn"><span data-icon="plug"></span><span data-i18n="llm.test">测试连接</span></button>
+                  </div>
+                </label>
+                <div class="form-grid">
+                  <label><span data-i18n="llm.temperature">Temperature</span><input id="s-llm-temp" type="number" min="0" max="2" step="0.1" /></label>
+                  <label><span data-i18n="llm.maxTokens">最大输出 Token</span><input id="s-llm-max" type="number" min="1" max="8192" /></label>
+                </div>
+                <p class="hint" data-i18n-html="llm.hint"></p>
+              </div>
+              <div class="set-actions">
+                <span class="saved-hint" data-i18n="settings.saved">已保存</span>
+                <span class="spacer"></span>
+                <button id="s-llm-cancel" class="ghost" data-i18n="char.cancel">取消</button>
+                <button id="s-llm-save" class="primary" data-i18n="llm.save">保存</button>
+              </div>
+            </div>
+
+            <div class="set-divider"></div>
+
+            <div class="set-group">
+              <div class="set-group-head"><h3 data-i18n="embed.title">嵌入模型</h3><p data-i18n="embed.shortDesc">可选。开启后记忆与知识库按语义检索，关掉仍能按关键词工作。</p></div>
+              <div class="form-col">
+                <label class="check"><input id="s-embed-enabled" type="checkbox" /> <span data-i18n="embed.enabled">使用嵌入模型做语义检索</span></label>
+                <label><span data-i18n="embed.provider">服务商</span><select id="s-embed-provider">
+                  <option value="openai">OpenAI</option>
+                  <option value="siliconflow">硅基流动</option>
+                  <option value="qwen">阿里云百炼</option>
+                  <option value="zhipu">智谱 GLM</option>
+                  <option value="ollama">Ollama（本地）</option>
+                  <option value="custom" data-i18n="provider.custom">自定义</option>
+                </select></label>
+                <label class="check"><input id="s-embed-custom-url" type="checkbox" /> <span data-i18n="llm.customUrl">自定义地址</span></label>
+                <label id="wrap-embed-base"><span data-i18n="embed.baseUrl">Base URL</span><input id="s-embed-base" placeholder="https://api.openai.com/v1" /></label>
+                <label><span data-i18n="embed.apiKey">API Key</span><input id="s-embed-key" type="password" placeholder="sk-…" />
+                  <span class="hint" id="embed-key-state"></span></label>
+                <label><span data-i18n="embed.model">嵌入模型</span><input id="s-embed-model" list="dl-embed-models" placeholder="text-embedding-3-small" /><datalist id="dl-embed-models"></datalist>
+                  <div class="row-btns">
+                    <button id="btn-embed-fetch" class="ghost small-btn"><span data-icon="bolt"></span><span data-i18n="embed.fetch">获取模型</span></button>
+                    <button id="btn-embed-test" class="ghost small-btn"><span data-icon="plug"></span><span data-i18n="embed.test">测试</span></button>
+                  </div>
+                </label>
+                <p class="hint" data-i18n-html="embed.hint"></p>
+              </div>
+              <div class="set-actions">
+                <span class="saved-hint" data-i18n="settings.saved">已保存</span>
+                <span class="spacer"></span>
+                <button id="s-embed-cancel" class="ghost" data-i18n="char.cancel">取消</button>
+                <button id="s-embed-save" class="primary" data-i18n="tts.save">保存</button>
+              </div>
+            </div>
+          </section>
+
+          <!-- 4. 语音 -->
+          <section class="set-sec" id="set-voice">
+            <div class="set-sec-head">
+              <h2 data-i18n="settings.voice">语音与实时交流</h2>
+              <p data-i18n="settings.voiceDesc">朗读（TTS）与语音输入（STT）分开配置；实时语音通话在对话页顶部开启。</p>
+            </div>
+            <div class="set-group">
+              <div class="set-group-head"><h3 data-i18n="tts.title">朗读</h3><p data-i18n="tts.desc">把回复念出来。系统语音离线可用，其它引擎需要填地址与密钥。</p></div>
+              <div class="form-col">
+                <label><span data-i18n="tts.engine">引擎</span><select id="s-tts-provider">
+                  <option value="web" data-i18n="tts.provider.web">系统语音（离线）</option>
+                  <option value="openai" data-i18n="tts.provider.openai">OpenAI 兼容 TTS</option>
+                  <option value="fish" data-i18n="tts.provider.fish">Fish Audio</option>
+                  <option value="xiaomi" data-i18n="tts.provider.xiaomi">小米 MiMo TTS</option>
+                </select></label>
+                <label><span data-i18n="tts.language">语言</span><select id="s-tts-language">
+                  <option value="zh" data-i18n="lang.zh">中文</option>
+                  <option value="en" data-i18n="lang.en">英语</option>
+                  <option value="ja" data-i18n="lang.ja">日语</option>
+                  <option value="es" data-i18n="lang.es">西班牙语</option>
+                </select></label>
+                <label class="check hidden" id="wrap-tts-custom"><input id="s-tts-custom-url" type="checkbox" /> <span data-i18n="llm.customUrl">自定义地址</span></label>
+                <label id="wrap-tts-base" class="hidden"><span data-i18n="tts.baseUrl">Base URL</span><input id="s-tts-base" placeholder="https://api.openai.com/v1" /></label>
+                <label><span data-i18n="llm.apiKey">API Key</span><input id="s-tts-key" type="password" placeholder="sk-…" /><span class="hint" id="tts-key-state"></span></label>
+                <label><span data-i18n="llm.model">模型</span><input id="s-tts-model" list="dl-tts-models" placeholder="tts-1" /><datalist id="dl-tts-models"></datalist></label>
+                <label><span data-i18n="tts.voice">音色</span><input id="s-tts-voice" list="dl-tts-voices" data-i18n-ph="tts.voicePlaceholder" /><datalist id="dl-tts-voices"></datalist>
+                  <button id="btn-tts-fetch" class="ghost small-btn"><span data-icon="music"></span><span data-i18n="tts.fetchVoices">获取音色</span></button></label>
+                <label><span data-i18n="tts.rate">语速</span> <span id="s-tts-rate-val" class="hint">1.0×</span>
+                  <input id="s-tts-rate" type="range" min="0.5" max="2" step="0.1" value="1" /></label>
+                <label class="check"><input id="s-tts-auto" type="checkbox" /> <span data-i18n="tts.auto">自动朗读回复</span></label>
+                <p class="hint" data-i18n="tts.hint"></p>
+              </div>
+              <div class="set-actions">
+                <span class="saved-hint" data-i18n="settings.saved">已保存</span>
+                <span class="spacer"></span>
+                <button id="s-tts-cancel" class="ghost" data-i18n="char.cancel">取消</button>
+                <button id="s-tts-save" class="primary" data-i18n="tts.save">保存</button>
+              </div>
+            </div>
+
+            <div class="set-divider"></div>
+
+            <div class="set-group">
+              <div class="set-group-head"><h3 data-i18n="stt.title">语音输入</h3><p data-i18n="stt.desc">单次识别用这里；持续对话用对话页的实时语音。</p></div>
+              <div class="form-col">
+                <label><span data-i18n="stt.engine">引擎</span><select id="s-stt-provider">
+                  <option value="openai" data-i18n="stt.provider.openai">Whisper</option>
+                  <option value="xiaomi" data-i18n="stt.provider.xiaomi">小米 MiMo ASR</option>
+                  <option value="web" data-i18n="stt.provider.web">浏览器识别（实验）</option>
+                </select></label>
+                <label><span data-i18n="stt.language">语言</span><select id="s-stt-language">
+                  <option value="zh" data-i18n="lang.zh">中文</option>
+                  <option value="en" data-i18n="lang.en">英语</option>
+                  <option value="ja" data-i18n="lang.ja">日语</option>
+                  <option value="es" data-i18n="lang.es">西班牙语</option>
+                  <option value="auto" data-i18n="lang.auto">自动识别</option>
+                </select></label>
+                <label class="check hidden" id="wrap-stt-custom"><input id="s-stt-custom-url" type="checkbox" /> <span data-i18n="llm.customUrl">自定义地址</span></label>
+                <label id="wrap-stt-base" class="hidden"><span data-i18n="stt.baseUrl">Base URL</span><input id="s-stt-base" placeholder="https://api.openai.com/v1" /></label>
+                <label><span data-i18n="llm.apiKey">API Key</span><input id="s-stt-key" type="password" placeholder="sk-…" /><span class="hint" id="stt-key-state"></span></label>
+                <label><span data-i18n="stt.model">模型</span><input id="s-stt-model" list="dl-stt-models" placeholder="whisper-1" /><datalist id="dl-stt-models"></datalist>
+                  <button id="btn-stt-fetch" class="ghost small-btn"><span data-icon="bolt"></span><span data-i18n="stt.fetchModels">获取模型</span></button></label>
+                <p class="hint" data-i18n="stt.hint"></p>
+              </div>
+              <div class="set-actions">
+                <span class="saved-hint" data-i18n="settings.saved">已保存</span>
+                <span class="spacer"></span>
+                <button id="s-stt-cancel" class="ghost" data-i18n="char.cancel">取消</button>
+                <button id="s-stt-save" class="primary" data-i18n="stt.save">保存</button>
+              </div>
+            </div>
+          </section>
+
+          <!-- 5. Live2D 与展台 -->
+          <section class="set-sec" id="set-stage">
+            <div class="set-sec-head">
+              <h2 data-i18n="settings.stage">Live2D 与桌面展台</h2>
+              <p data-i18n="settings.stageDesc">角色显示在独立的透明窗口里，主窗口不再常驻展台。动作与表情由展台自己的工具条控制。</p>
+            </div>
+            <div class="set-group">
+              <div class="set-group-head"><h3 data-i18n="stage.models">模型</h3><p data-i18n="stage.modelsDesc">从文件夹导入会复制到数据目录；URL 模型按地址加载。</p></div>
+              <div class="form-col">
+                <label><span data-i18n="model.current">当前模型</span><select id="m-model"></select></label>
+                <div class="row-btns">
+                  <button id="btn-add-model" class="ghost"><span data-icon="folder"></span><span data-i18n="model.fromFolder">从文件夹导入</span></button>
+                  <button id="btn-add-url-model" class="ghost"><span data-icon="link"></span><span data-i18n="model.fromUrl">从 URL 加载</span></button>
+                  <button id="btn-refresh-models" class="ghost"><span data-icon="regenerate"></span><span data-i18n="model.refresh">刷新列表</span></button>
+                </div>
+                <div id="m-url-form" class="add-url-form hidden">
+                  <input id="m-url-input" data-i18n-ph="model.urlPlaceholder" />
+                  <input id="m-url-name" data-i18n-ph="model.namePlaceholder" />
+                  <div class="row-btns">
+                    <button id="m-url-ok" class="primary" data-i18n="model.add">添加</button>
+                    <button id="m-url-cancel" class="ghost" data-i18n="model.cancel">取消</button>
+                  </div>
+                </div>
+                <div class="form-grid">
+                  <label><span data-i18n="model.localList">磁盘上的模型</span><div id="m-local-list" class="url-list"></div></label>
+                  <label><span data-i18n="model.urlList">URL 模型</span><div id="m-url-list" class="url-list"></div></label>
+                </div>
+                <p class="hint" data-i18n="model.hint"></p>
+              </div>
+              <div class="set-actions">
+                <span class="spacer"></span>
+                <button id="m-cancel" class="ghost" data-i18n="model.close">关闭</button>
+              </div>
+            </div>
+            <div class="set-divider"></div>
+            <div class="set-group">
+              <div class="set-group-head"><h3 data-i18n="stage.window">桌面展台</h3><p data-i18n="stage.windowDesc">透明、无边框、置顶，不挡桌面点击。</p></div>
+              <div class="set-row">
+                <div class="sr-text"><span class="sr-title" data-i18n="stage.visible">显示展台</span><span class="sr-desc" data-i18n="stage.visibleDesc">显示或隐藏桌面上的角色窗口。</span></div>
+                <div class="sr-control">
+                  <button id="btn-stage-toggle" class="ghost"><span data-icon="frame"></span><span data-i18n="stage.toggle">显示 / 隐藏</span></button>
+                </div>
+              </div>
+              <div class="set-row">
+                <div class="sr-text"><span class="sr-title" data-i18n="stage.size">角色大小</span><span class="sr-desc" data-i18n="stage.sizeDesc">也可以直接在展台窗口用 −/＋ 调整。</span></div>
+                <div class="sr-control"><input id="stage-scale" type="range" min="0.15" max="1.2" step="0.05" /></div>
+              </div>
+              <div class="set-row">
+                <div class="sr-text"><span class="sr-title" data-i18n="stage.reset">重置位置</span><span class="sr-desc" data-i18n="stage.resetDesc">把展台放回屏幕右下角。</span></div>
+                <div class="sr-control"><button id="btn-stage-reset" class="ghost"><span data-icon="regenerate"></span><span data-i18n="stage.resetBtn">重置</span></button></div>
+              </div>
+              <p class="hint" data-i18n="stage.actionsNote">动作、表情与口型跟随模型实际提供的资源，在展台工具条的「⋯」里选择。</p>
+            </div>
+          </section>
+
+          <!-- 6. 记忆与知识库 -->
+          <section class="set-sec" id="set-memory">
+            <div class="set-sec-head">
+              <h2 data-i18n="settings.memory">记忆与知识库</h2>
+              <p data-i18n="settings.memoryDesc">记忆范围与每次注入的预算。内容本身在「记忆与知识库」页面查看。</p>
+            </div>
+            <div class="set-group">
+              <div class="set-group-head"><h3 data-i18n="embed.perCharacter">记忆范围</h3></div>
+              <div class="form-col">
+                <label><span data-i18n="embed.perCharacter">记忆按角色分开</span>
+                  <select id="s-mem-perchar">
+                    <option value="yes" data-i18n="embed.perCharYes">是 —— 每个角色有自己的记忆</option>
+                    <option value="no" data-i18n="embed.perCharNo">否 —— 共用一份记忆</option>
+                  </select></label>
+                <div class="form-grid">
+                  <label><span data-i18n="embed.memoryTokens">记忆预算（token）</span><input id="s-mem-tokens" type="number" min="0" max="8000" step="100" /></label>
+                  <label><span data-i18n="embed.knowledgeTokens">知识库预算（token）</span><input id="s-know-tokens" type="number" min="0" max="12000" step="100" /></label>
+                </div>
+                <p class="hint" data-i18n-html="embed.hint2"></p>
+              </div>
+              <div class="set-actions">
+                <span class="saved-hint" data-i18n="settings.saved">已保存</span>
+                <span class="spacer"></span>
+                <button id="btn-goto-memory" class="ghost"><span data-icon="book"></span><span data-i18n="memory.open">查看记忆与知识库</span></button>
+                <button id="s-mem-save" class="primary" data-i18n="tts.save">保存</button>
+              </div>
+            </div>
+          </section>
+
+          <!-- 7. Agent 与安全 -->
+          <section class="set-sec" id="set-agent">
+            <div class="set-sec-head">
+              <h2 data-i18n="settings.agent">Agent 与安全</h2>
+              <p data-i18n="settings.agentDesc">谁必须被打断、哪些范围可以放行。高危与不可逆操作永远单独确认。</p>
+            </div>
+            <div class="set-group">
+              <div class="set-group-head"><h3 data-i18n="agent.authMode">审批模式</h3><p data-i18n="agent.authDesc">模式只决定「要不要打断」，不改变风险判定。</p></div>
+              <div class="form-col">
+                <label><span data-i18n="agent.authMode">审批模式</span>
+                  <select id="ag-auth-mode">
+                    <option value="manual" data-i18n="agent.authManual">每次都要问（最安全）</option>
+                    <option value="batch" data-i18n="agent.authBatch">批量确认</option>
+                    <option value="trust" data-i18n="agent.authTrust">完全信任（受范围限制）</option>
+                  </select></label>
+                <div class="agent-line"><span class="agent-label" data-i18n="agent.authState">当前授权</span><span id="ag-auth-badge" class="auth-badge"></span></div>
+                <label class="check"><input id="ag-auth-persist" type="checkbox" /> <span data-i18n="agent.authPersist">保持 30 分钟（否则仅本次任务）</span></label>
+                <label class="check"><input id="ag-allow-high" type="checkbox" /> <span data-i18n="agent.allowHigh">也自动执行 HIGH 风险操作</span></label>
+                <p id="ag-trust-warn" class="hint warn hidden" data-i18n="agent.trustWarn">完全信任仍会单独确认不可逆或危险操作，也不会离开授权的工作区。</p>
+                <label class="check"><input id="ag-require-medium" type="checkbox" /> <span data-i18n="agent.requireMedium">写文件或打补丁前先问我</span></label>
+                <div class="row-btns">
+                  <button id="ag-auth-revoke" class="ghost small-btn" data-i18n="agent.revoke">恢复最安全模式</button>
+                </div>
+              </div>
+            </div>
+            <div class="set-divider"></div>
+            <div class="set-group">
+              <div class="set-group-head"><h3 data-i18n="agent.workspace">工作区</h3><p data-i18n="agent.workspaceDesc">Agent 只能在这个目录里读写文件与执行命令。</p></div>
+              <div class="agent-line">
+                <span class="agent-workspace" id="ag-workspace">—</span>
+                <button id="ag-workspace-edit" class="ghost small-btn" data-i18n="agent.change">修改</button>
+              </div>
+              <div id="ag-workspace-box" class="agent-line hidden">
+                <input id="ag-workspace-input" data-i18n-ph="agent.workspacePh" placeholder="D:\path\to\project" />
+                <button id="ag-workspace-save" class="primary small-btn" data-i18n="char.save">保存</button>
+              </div>
+              <div class="set-actions">
+                <span class="hint" id="ag-budget"></span>
+                <span class="spacer"></span>
+                <button id="btn-open-agent-drawer" class="ghost"><span data-icon="agent"></span><span data-i18n="tasks.openDrawer">任务抽屉</span></button>
+              </div>
+            </div>
+          </section>
+
+          <!-- 8. 设备与扩展 -->
+          <section class="set-sec" id="set-devices">
+            <div class="set-sec-head">
+              <h2 data-i18n="settings.devices">设备与扩展</h2>
+              <p data-i18n="settings.devicesDesc">这些能力有独立页面，避免同一个开关在两处出现。</p>
+            </div>
+            <div class="set-group">
+              <div class="set-row">
+                <div class="sr-text"><span class="sr-title" data-i18n="devices.computer">电脑控制</span><span class="sr-desc" id="set-computer-state" data-i18n="devices.off">已关闭</span></div>
+                <div class="sr-control"><button id="btn-goto-devices" class="ghost"><span data-icon="desktop"></span><span data-i18n="devices.open">去设备页管理</span></button></div>
+              </div>
+              <div class="set-row">
+                <div class="sr-text"><span class="sr-title" data-i18n="devices.mc">Minecraft 伙伴</span><span class="sr-desc" data-i18n="devices.mcShort">连接状态、跟随与聊天</span></div>
+                <div class="sr-control"><button id="btn-goto-devices-mc" class="ghost"><span data-icon="gamepad"></span><span data-i18n="devices.open">去设备页管理</span></button></div>
+              </div>
+              <div class="set-row">
+                <div class="sr-text"><span class="sr-title" data-i18n="devices.chess">国际象棋</span><span class="sr-desc" data-i18n="devices.chessShort">难度、执棋与角色点评</span></div>
+                <div class="sr-control"><button id="btn-goto-devices-chess" class="ghost"><span data-icon="pawn"></span><span data-i18n="devices.open">去设备页管理</span></button></div>
+              </div>
+            </div>
+          </section>
+
+          <!-- 9. 高级与诊断 -->
+          <section class="set-sec" id="set-advanced">
+            <div class="set-sec-head">
+              <h2 data-i18n="settings.advanced">高级与诊断</h2>
+              <p data-i18n="settings.advancedDesc">平时用不到。出问题时再来看。</p>
+            </div>
+            <div class="set-group">
+              <div class="set-row">
+                <div class="sr-text"><span class="sr-title" data-i18n="menu.datadir">数据目录</span><span class="sr-desc" data-i18n="advanced.datadirDesc">角色卡、对话记录、设置与模型</span></div>
+                <div class="sr-control"><button id="btn-open-data-2" class="ghost"><span data-icon="folder"></span><span data-i18n="appearance.openFolder">打开文件夹</span></button></div>
+              </div>
+              <div class="set-row">
+                <div class="sr-text"><span class="sr-title" data-i18n="menu.about">关于与诊断</span><span class="sr-desc" data-i18n="advanced.aboutDesc">版本、运行环境与快捷键</span></div>
+                <div class="sr-control"><button id="btn-open-about" class="ghost"><span data-icon="info"></span><span data-i18n="advanced.aboutOpen">查看</span></button></div>
+              </div>
+            </div>
+          </section>
+
+        </div>
+      </div>
+    </section>
+
   </main>
-
-  <!-- Right: Live2D stage（Agent 工作期间**不再**被替换，展台常驻） -->
-  <aside id="stage-panel">
-    <div class="stage-head">
-      <span data-i18n="stage.title">Live2D Stage</span>
-      <button id="btn-collapse-stage" class="icon-btn tiny" data-i18n-title="stage.collapse" title="Hide the stage">›</button>
-    </div>
-    <div class="stage-model-bar">
-      <select id="stage-model" data-i18n-title="stage.changeModel"></select>
-      <button id="btn-stage-import" class="icon-btn tiny" data-i18n-title="stage.importModel" title="Import a model"><span data-icon="import"></span></button>
-      <button id="btn-stage-refresh" class="icon-btn tiny" data-i18n-title="stage.refreshModels" title="Refresh"><span data-icon="regenerate"></span></button>
-    </div>
-    <div id="stage-container" class="stage-container"></div>
-    <div class="stage-controls">
-      <div class="ctl-row"><label data-i18n="stage.motion">Motion</label><div id="motion-chips" class="chips"></div></div>
-      <div class="ctl-row"><label data-i18n="stage.expression">Expression</label><div id="expr-chips" class="chips"></div></div>
-      <div class="ctl-row"><label data-i18n="stage.scale">Size</label><input id="stage-scale" type="range" min="0.15" max="1.2" step="0.05" /></div>
-      <div class="ctl-row">
-        <div class="chips">
-          <button id="btn-float-stage" class="chip" data-i18n-title="stage.floatTip"><span data-icon="frame"></span><span data-i18n="menu.overlay">Borderless Stage</span></button>
-        </div>
-      </div>
-    </div>
-  </aside>
-
-  <!-- Agent 抽屉：主窗口内的可收起侧栏。
-       关键：它**不占据也不替换** Live2D 展台 —— Agent 干活时陪伴不消失。 -->
-  <aside id="agent-drawer" class="agent-drawer hidden">
-    <div class="drawer-head">
-      <span class="drawer-title" data-i18n="agent.title">Agent</span>
-      <span id="dash-status" class="agent-status" data-i18n="dash.idle">Idle</span>
-      <button id="ag-close" class="icon-btn tiny" data-i18n-title="menu.close" title="Close"><span data-icon="close"></span></button>
-    </div>
-
-    <div class="drawer-body">
-      <!-- 授权：逐项 / 批量 / 完全信任 + 范围 + 撤销 -->
-      <section class="drawer-sec">
-        <div class="drawer-label">
-          <span data-i18n="agent.authMode">Approval mode</span>
-          <span id="ag-auth-badge" class="auth-badge"></span>
-        </div>
-        <select id="ag-auth-mode">
-          <option value="manual" data-i18n="agent.authManual">Ask every time (safest)</option>
-          <option value="batch" data-i18n="agent.authBatch">Batch approval</option>
-          <option value="trust" data-i18n="agent.authTrust">Full trust (scoped)</option>
-        </select>
-        <label class="check"><input id="ag-auth-persist" type="checkbox" /> <span data-i18n="agent.authPersist">Keep for 30 minutes (otherwise: this task only)</span></label>
-        <label class="check"><input id="ag-allow-high" type="checkbox" /> <span data-i18n="agent.allowHigh">Also auto-run HIGH-risk operations</span></label>
-        <p id="ag-trust-warn" class="hint warn hidden" data-i18n="agent.trustWarn">Full trust still asks for irreversible or dangerous operations, and never leaves the authorised workspace.</p>
-        <div class="agent-actions">
-          <button id="ag-auth-revoke" class="ghost small-btn" data-i18n="agent.revoke">Reset to safest mode</button>
-          <span id="ag-budget" class="hint"></span>
-        </div>
-      </section>
-
-      <!-- 任务 -->
-      <section class="drawer-sec">
-        <textarea id="ag-task" rows="2" data-i18n-ph="agent.taskPh" placeholder="e.g. find why the tests fail and fix it"></textarea>
-        <div class="agent-line">
-          <span class="agent-label" data-i18n="agent.workspace">Workspace</span>
-          <span id="ag-workspace" class="agent-workspace">—</span>
-          <button id="ag-workspace-edit" class="ghost small-btn" data-i18n="agent.change">Change</button>
-        </div>
-        <div id="ag-workspace-box" class="agent-line hidden">
-          <input id="ag-workspace-input" data-i18n-ph="agent.workspacePh" placeholder="D:\path\to\project" />
-          <button id="ag-workspace-save" class="primary small-btn" data-i18n="char.save">Save</button>
-        </div>
-        <label class="check"><input id="ag-require-medium" type="checkbox" /> <span data-i18n="agent.requireMedium">Ask before writing files or patching</span></label>
-        <div class="agent-actions">
-          <button id="ag-start" class="primary"><span data-icon="play"></span><span data-i18n="agent.start">Start</span></button>
-          <button id="ag-pause" class="ghost" disabled><span data-icon="pause"></span><span data-i18n="agent.pause">Pause</span></button>
-          <button id="ag-resume" class="ghost" disabled><span data-icon="play"></span><span data-i18n="agent.resume">Resume</span></button>
-          <button id="ag-continue" class="ghost small-btn hidden"><span data-icon="skip"></span><span data-i18n="agent.continue">Continue</span></button>
-          <button id="ag-cancel" class="danger" disabled><span data-icon="stop"></span><span data-i18n="agent.cancel">Cancel</span></button>
-        </div>
-        <div class="agent-statusline">
-          <span id="ag-status" class="agent-status" data-i18n="agent.stateIdle">Idle</span>
-          <span id="ag-round" class="hint"></span>
-        </div>
-      </section>
-
-      <!-- 单条审批 -->
-      <div id="ag-approval" class="agent-approval hidden">
-        <div class="agent-approval-head">
-          <span id="ag-approval-risk" class="agent-risk">HIGH</span>
-          <span data-i18n="agent.waitingApproval">Waiting for approval</span>
-        </div>
-        <p id="ag-approval-text" class="agent-approval-text"></p>
-        <div class="agent-actions">
-          <button id="ag-approve" class="primary small-btn" data-i18n="agent.approve">Approve</button>
-          <button id="ag-approve-always" class="ghost small-btn" data-i18n="agent.approveAlways">Approve &amp; remember</button>
-          <button id="ag-reject" class="danger small-btn" data-i18n="agent.reject">Reject</button>
-        </div>
-      </div>
-
-      <!-- 批量审批清单 -->
-      <div id="ag-batch" class="agent-approval hidden">
-        <div class="agent-approval-head">
-          <span id="ag-batch-risk" class="agent-risk">HIGH</span>
-          <span id="ag-batch-title" data-i18n="agent.batchTitle">Operations waiting for approval</span>
-        </div>
-        <div id="ag-batch-list" class="batch-list"></div>
-        <div class="agent-actions">
-          <button id="ag-batch-approve" class="primary small-btn" data-i18n="agent.approveAll">Approve all</button>
-          <button id="ag-batch-reject" class="danger small-btn" data-i18n="agent.rejectAll">Reject all</button>
-        </div>
-      </div>
-
-      <!-- 执行详情（原 Dashboard 的内容，现在在主窗口抽屉里） -->
-      <div id="agent-dashboard" class="agent-dash">
-        <div class="agent-dash-sec">
-          <div class="agent-dash-label" data-i18n="dash.task">Task</div>
-          <div id="dash-task" class="agent-dash-task">—</div>
-        </div>
-        <div class="agent-dash-sec">
-          <div class="agent-dash-label" data-i18n="dash.now">Current operation</div>
-          <div id="dash-now" class="agent-dash-now">—</div>
-        </div>
-        <div class="agent-dash-sec">
-          <div class="agent-dash-label" data-i18n="dash.tools">Tool calls</div>
-          <div id="dash-tools" class="agent-dash-tools">—</div>
-        </div>
-        <div class="agent-dash-sec">
-          <div class="agent-dash-label" data-i18n="dash.screen">Screen / Vision</div>
-          <div id="dash-screen" class="agent-dash-screen" data-i18n="dash.noScreen">Not captured yet</div>
-        </div>
-      </div>
-
-      <div class="drawer-label" data-i18n="dash.log">Operation log</div>
-      <div id="ag-log" class="agent-log"></div>
-    </div>
-  </aside>
 </div>
-<!-- Character editor -->
-<div id="modal-char" class="modal hidden">
-  <div class="modal-box wide">
-    <h3 id="char-modal-title" data-i18n="char.new">New Character</h3>
-    <div class="persona-bar">
-      <input id="f-seed" data-i18n-ph="char.genPlaceholder" placeholder="One line of inspiration…" />
-      <button id="f-generate" class="ghost"><span data-icon="spark"></span><span data-i18n="char.genBtn">Generate</span></button>
+
+<!-- ============================================================
+     Agent 任务抽屉（覆盖式，不挤压对话，也不碰展台）
+     ============================================================ -->
+<div class="drawer-scrim" id="drawer-scrim"></div>
+<aside id="agent-drawer" class="agent-drawer hidden" aria-label="任务详情">
+  <div class="drawer-head">
+    <span class="drawer-title" data-i18n="agent.title">Agent 任务</span>
+    <span id="dash-status" class="badge" data-i18n="dash.idle">空闲</span>
+    <button id="ag-close" class="icon-btn tiny" data-i18n-title="menu.close" title="关闭"><span data-icon="close"></span></button>
+  </div>
+  <div class="drawer-body">
+    <section class="drawer-sec">
+      <textarea id="ag-task" rows="2" data-i18n-ph="agent.taskPh" placeholder="例如：找出测试为什么失败并修好"></textarea>
+      <div class="agent-actions">
+        <button id="ag-start" class="primary"><span data-icon="play"></span><span data-i18n="agent.start">开始</span></button>
+        <button id="ag-pause" class="ghost" disabled><span data-icon="pause"></span><span data-i18n="agent.pause">暂停</span></button>
+        <button id="ag-resume" class="ghost" disabled><span data-icon="play"></span><span data-i18n="agent.resume">继续</span></button>
+        <button id="ag-continue" class="ghost small-btn hidden"><span data-icon="skip"></span><span data-i18n="agent.continue">断点续跑</span></button>
+        <button id="ag-cancel" class="danger" disabled><span data-icon="stop"></span><span data-i18n="agent.cancel">取消</span></button>
+      </div>
+      <div class="agent-statusline">
+        <span id="ag-status" class="agent-status" data-i18n="agent.stateIdle">空闲</span>
+        <span id="ag-round" class="hint"></span>
+      </div>
+    </section>
+
+    <div id="ag-approval" class="agent-approval hidden">
+      <div class="agent-approval-head">
+        <span id="ag-approval-risk" class="agent-risk">HIGH</span>
+        <span data-i18n="agent.waitingApproval">等待你确认</span>
+      </div>
+      <p id="ag-approval-text" class="agent-approval-text"></p>
+      <div class="agent-actions">
+        <button id="ag-approve" class="primary small-btn" data-i18n="agent.approve">允许这一次</button>
+        <button id="ag-approve-always" class="ghost small-btn" data-i18n="agent.approveAlways">本任务内同类都允许</button>
+        <button id="ag-reject" class="danger small-btn" data-i18n="agent.reject">拒绝</button>
+      </div>
     </div>
-    <div class="form-grid">
-      <label><span data-i18n="char.name">Name *</span><input id="f-name" data-i18n-ph="char.namePlaceholder" placeholder="Character name" /></label>
-      <label><span data-i18n="char.avatar">Avatar</span>
-        <div class="avatar-row">
-          <img id="f-avatar-preview" class="avatar-preview" alt="" />
-          <button id="f-avatar-btn" class="ghost" data-i18n="char.chooseImage">Choose image</button>
-        </div>
-      </label>
-      <label><span data-i18n="char.desc">One-line intro</span><input id="f-desc" data-i18n-ph="char.descPlaceholder" placeholder="e.g. A cheerful AI assistant" /></label>
-      <label><span data-i18n="char.model">Live2D model</span><select id="f-model"></select></label>
-      <label><span data-i18n="char.voice">Voice (system TTS)</span><select id="f-voice"></select></label>
-      <label class="full"><span data-i18n="char.personality">Personality / detailed profile</span><textarea id="f-personality" rows="4" data-i18n-ph="char.personalityPlaceholder"></textarea></label>
-      <label class="full"><span data-i18n="char.scenario">Scenario</span><textarea id="f-scenario" rows="2" data-i18n-ph="char.scenarioPlaceholder"></textarea></label>
-      <label class="full"><span data-i18n="char.firstMes">Greeting</span><textarea id="f-first" rows="3"></textarea></label>
-      <label class="full"><span data-i18n="char.example">Example dialogue</span><textarea id="f-example" rows="3" data-i18n-ph="char.examplePlaceholder"></textarea></label>
-      <label class="full"><span data-i18n="char.systemPrompt">System prompt</span><textarea id="f-system" rows="3"></textarea></label>
+
+    <div id="ag-batch" class="agent-approval hidden">
+      <div class="agent-approval-head">
+        <span id="ag-batch-risk" class="agent-risk">HIGH</span>
+        <span id="ag-batch-title" data-i18n="agent.batchTitle">待确认的操作</span>
+      </div>
+      <div id="ag-batch-list" class="batch-list"></div>
+      <div class="agent-actions">
+        <button id="ag-batch-approve" class="primary small-btn" data-i18n="agent.approveAll">全部允许</button>
+        <button id="ag-batch-reject" class="danger small-btn" data-i18n="agent.rejectAll">全部拒绝</button>
+      </div>
     </div>
-    <div class="modal-actions">
-      <button id="f-export" class="ghost" data-i18n="char.export">Export</button>
-      <button id="f-delete" class="danger hidden" data-i18n="char.delete">Delete</button>
-      <span class="spacer"></span>
-      <button id="f-cancel" data-i18n="char.cancel">Cancel</button>
-      <button id="f-save" class="primary" data-i18n="char.save">Save</button>
+
+    <div id="agent-dashboard" class="agent-dash">
+      <div class="agent-dash-sec">
+        <div class="agent-dash-label" data-i18n="dash.task">任务</div>
+        <div id="dash-task" class="agent-dash-task">—</div>
+      </div>
+      <div class="agent-dash-sec">
+        <div class="agent-dash-label" data-i18n="dash.now">当前操作</div>
+        <div id="dash-now" class="agent-dash-now">—</div>
+      </div>
+      <div class="agent-dash-sec">
+        <div class="agent-dash-label" data-i18n="dash.tools">工具调用</div>
+        <div id="dash-tools" class="agent-dash-tools">—</div>
+      </div>
+      <div class="agent-dash-sec">
+        <div class="agent-dash-label" data-i18n="dash.log">执行日志</div>
+        <div id="ag-log" class="agent-log"></div>
+      </div>
     </div>
   </div>
-</div>
+</aside>
 
-<!-- 人设生成室（设置 → 人设生成） -->
-<div id="modal-persona" class="modal hidden">
-  <div class="modal-box wide">
-    <h3 class="modal-title"><span class="modal-ico" data-icon="spark"></span><span data-i18n="studio.title">Persona Studio</span></h3>
-    <p class="hint" data-i18n="studio.intro"></p>
-    <div class="studio-mode">
-      <span class="arch-title" data-i18n="studio.mode">Mode</span>
-      <label class="studio-radio"><input type="radio" name="pa-mode" id="pa-mode-original" value="original" checked /><span data-i18n="studio.modeOriginal">Original character</span></label>
-      <label class="studio-radio"><input type="radio" name="pa-mode" id="pa-mode-known" value="known" /><span data-i18n="studio.modeKnown">Existing character (anime / game / novel)</span></label>
-    </div>
-    <div id="pa-known-block" class="hidden">
-      <div class="form-grid">
-        <label><span data-i18n="studio.charName">Character name</span><input id="pa-char" data-i18n-ph="studio.charNamePh" /></label>
-        <label><span data-i18n="studio.work">From which work</span><input id="pa-work" data-i18n-ph="studio.workPh" /></label>
-        <label><span data-i18n="studio.fidelity">Fidelity</span><select id="pa-fidelity">
-          <option value="strict" data-i18n="studio.fidelityStrict">Strictly faithful</option>
-          <option value="loose" data-i18n="studio.fidelityLoose">Room to improvise</option>
-        </select></label>
-      </div>
-    </div>
-    <div id="pa-original-block">
-      <label class="studio-seed"><span data-i18n="studio.seed">One line of inspiration</span>
-        <input id="pa-seed" data-i18n-ph="studio.seedPh" placeholder="e.g. a night-shift librarian who hates silence" /></label>
-      <div class="arch-group">
-        <div class="arch-head">
-          <span class="arch-title" data-i18n="studio.personality">Personality archetype</span>
-          <label class="arch-lock" data-i18n-title="studio.lockTip"><input type="checkbox" id="pa-lock-p" checked /><span data-i18n="studio.lock">Lock</span></label>
-        </div>
-        <div id="pa-personalities" class="arch-grid"></div>
-      </div>
-      <div class="arch-group">
-        <div class="arch-head">
-          <span class="arch-title" data-i18n="studio.role">Role archetype</span>
-          <label class="arch-lock" data-i18n-title="studio.lockTip"><input type="checkbox" id="pa-lock-r" checked /><span data-i18n="studio.lock">Lock</span></label>
-        </div>
-        <div id="pa-roles" class="arch-grid"></div>
-      </div>
-    </div>
-    <div class="arch-group">
-      <div class="arch-head"><span class="arch-title" data-i18n="studio.relHeader">You, to them</span></div>
-      <div class="form-grid">
-        <label><span data-i18n="studio.rel">Who are you to them</span><select id="pa-rel"></select></label>
-        <label><span data-i18n="studio.userName">What they should call you</span><input id="pa-user" data-i18n-ph="studio.userNamePh" /></label>
-      </div>
-    </div>
-    <details class="studio-opt">
-      <summary data-i18n="studio.optional">Optional</summary>
-      <div class="form-grid">
-        <label><span data-i18n="studio.name">Force the name</span><input id="pa-name" data-i18n-ph="studio.namePh" /></label>
-        <label><span data-i18n="studio.gender">Gender</span><select id="pa-gender"></select></label>
-        <label><span data-i18n="studio.age">Age</span><input id="pa-age" data-i18n-ph="studio.agePh" /></label>
-        <label><span data-i18n="studio.extra">Anything else</span><input id="pa-extra" data-i18n-ph="studio.extraPh" /></label>
-      </div>
-    </details>
-    <div class="modal-actions">
-      <span class="spacer"></span>
-      <button id="pa-cancel" data-i18n="char.cancel">Cancel</button>
-      <button id="pa-generate" class="primary"><span data-icon="spark"></span><span data-i18n="studio.generate">Generate</span></button>
-    </div>
-  </div>
-</div>
-
-<!-- LLM settings -->
-<div id="modal-llm" class="modal hidden">
-  <div class="modal-box wide">
-    <h3 class="modal-title"><span class="modal-ico" data-icon="chat"></span><span data-i18n="llm.title">Chat Settings (LLM)</span></h3>
-    <div class="form-col">
-      <label><span data-i18n="llm.provider">Provider</span><select id="s-llm-provider">
-        <option value="deepseek" data-i18n="provider.deepseek">DeepSeek</option>
-        <option value="openai" data-i18n="provider.openai">OpenAI</option>
-        <option value="moonshot" data-i18n="provider.moonshot">Moonshot Kimi</option>
-        <option value="siliconflow" data-i18n="provider.siliconflow">SiliconFlow</option>
-        <option value="groq" data-i18n="provider.groq">Groq</option>
-        <option value="zhipu" data-i18n="provider.zhipu">Zhipu GLM</option>
-        <option value="qwen" data-i18n="provider.qwen">Alibaba Bailian Qwen</option>
-        <option value="xiaomi" data-i18n="provider.xiaomi">Xiaomi MiMo</option>
-        <option value="openrouter" data-i18n="provider.openrouter">OpenRouter</option>
-        <option value="ollama" data-i18n="provider.ollama">Ollama (local)</option>
-        <option value="custom" data-i18n="provider.custom">Custom</option>
-      </select></label>
-      <label class="check"><input id="s-llm-custom-url" type="checkbox" /> <span data-i18n="llm.customUrl">Custom endpoint</span></label>
-      <label id="wrap-llm-base" class="hidden"><span data-i18n="llm.baseUrl">Base URL</span><input id="s-llm-base" placeholder="https://api.deepseek.com" /></label>
-      <label><span data-i18n="llm.apiKey">API Key</span><input id="s-llm-key" type="password" placeholder="sk-…" /></label>
-      <label><span data-i18n="llm.model">Model</span><input id="s-llm-model" list="dl-llm-models" data-i18n-ph="llm.modelPlaceholder" /><datalist id="dl-llm-models"></datalist>
-        <div class="row-btns">
-          <button id="btn-llm-fetch" class="ghost small-btn"><span data-icon="bolt"></span><span data-i18n="llm.fetch">Fetch models</span></button>
-          <button id="btn-llm-test" class="ghost small-btn"><span data-icon="plug"></span><span data-i18n="llm.test">Test connection</span></button>
-        </div></label>
-      <label><span data-i18n="llm.temperature">Temperature</span><input id="s-llm-temp" type="number" min="0" max="2" step="0.1" /></label>
-      <label><span data-i18n="llm.maxTokens">Max output tokens</span><input id="s-llm-max" type="number" min="1" max="8192" /></label>
-      <p class="hint" data-i18n-html="llm.hint"></p>
-    </div>
-    <div class="modal-actions">
-      <button id="s-llm-cancel" data-i18n="char.cancel">Cancel</button>
-      <button id="s-llm-save" class="primary" data-i18n="llm.save">Save</button>
-    </div>
-  </div>
-</div>
-
-<!-- TTS settings -->
-<div id="modal-tts" class="modal hidden">
-  <div class="modal-box wide">
-    <h3 class="modal-title"><span class="modal-ico" data-icon="speaker"></span><span data-i18n="tts.title">Text-to-Speech (TTS)</span></h3>
-    <div class="form-col">
-      <label><span data-i18n="tts.engine">Engine</span><select id="s-tts-provider">
-        <option value="web" data-i18n="tts.provider.web">System voice</option>
-        <option value="openai" data-i18n="tts.provider.openai">OpenAI-compatible TTS</option>
-        <option value="fish" data-i18n="tts.provider.fish">Fish Audio</option>
-        <option value="xiaomi" data-i18n="tts.provider.xiaomi">Xiaomi MiMo TTS</option>
-      </select></label>
-      <label><span data-i18n="tts.language">Language</span><select id="s-tts-language">
-        <option value="zh" data-i18n="lang.zh">Chinese</option>
-        <option value="en" data-i18n="lang.en">English</option>
-        <option value="ja" data-i18n="lang.ja">Japanese</option>
-        <option value="es" data-i18n="lang.es">Spanish</option>
-      </select></label>
-      <label class="check hidden" id="wrap-tts-custom"><input id="s-tts-custom-url" type="checkbox" /> <span data-i18n="llm.customUrl">Custom endpoint</span></label>
-      <label id="wrap-tts-base" class="hidden"><span data-i18n="tts.baseUrl">Base URL</span><input id="s-tts-base" placeholder="https://api.openai.com/v1" /></label>
-      <label><span data-i18n="llm.apiKey">API Key</span><input id="s-tts-key" type="password" placeholder="sk-…" /></label>
-      <label><span data-i18n="llm.model">Model</span><input id="s-tts-model" list="dl-tts-models" placeholder="tts-1" /><datalist id="dl-tts-models"></datalist></label>
-      <label><span data-i18n="tts.voice">Voice</span><input id="s-tts-voice" list="dl-tts-voices" data-i18n-ph="tts.voicePlaceholder" /><datalist id="dl-tts-voices"></datalist>
-        <button id="btn-tts-fetch" class="ghost small-btn"><span data-icon="music"></span><span data-i18n="tts.fetchVoices">Fetch voices</span></button></label>
-      <label><span data-i18n="tts.rate">Speed</span> <span id="s-tts-rate-val" class="hint">1.0×</span>
-        <input id="s-tts-rate" type="range" min="0.5" max="2" step="0.1" value="1" /></label>
-      <label class="check"><input id="s-tts-auto" type="checkbox" /> <span data-i18n="tts.auto">Auto-read replies</span></label>
-      <p class="hint" data-i18n="tts.hint"></p>
-    </div>
-    <div class="modal-actions">
-      <button id="s-tts-cancel" data-i18n="char.cancel">Cancel</button>
-      <button id="s-tts-save" class="primary" data-i18n="tts.save">Save</button>
-    </div>
-  </div>
-</div>
-
-<!-- 嵌入模型设置（长期记忆 / 知识库的语义检索） -->
-<div id="modal-embedding" class="modal hidden">
-  <div class="modal-box wide">
-    <h3 class="modal-title"><span class="modal-ico" data-icon="book"></span><span data-i18n="embed.title">Memory &amp; Knowledge (Embedding)</span></h3>
-    <div class="form-col">
-      <p class="hint" data-i18n-html="embed.hint"></p>
-      <label class="check"><input id="s-embed-enabled" type="checkbox" /> <span data-i18n="embed.enabled">Use an embedding model for semantic search</span></label>
-      <label><span data-i18n="embed.provider">Provider</span><select id="s-embed-provider">
-        <option value="openai">OpenAI</option>
-        <option value="siliconflow">硅基流动</option>
-        <option value="qwen">阿里云百炼</option>
-        <option value="zhipu">智谱 GLM</option>
-        <option value="ollama">Ollama (local)</option>
-        <option value="custom" data-i18n="provider.custom">Custom</option>
-      </select></label>
-      <label class="check"><input id="s-embed-custom-url" type="checkbox" /> <span data-i18n="llm.customUrl">Custom endpoint</span></label>
-      <label id="wrap-embed-base"><span data-i18n="embed.baseUrl">Base URL</span><input id="s-embed-base" placeholder="https://api.openai.com/v1" /></label>
-      <label><span data-i18n="embed.apiKey">API Key</span><input id="s-embed-key" type="password" placeholder="sk-…" /></label>
-      <label><span data-i18n="embed.model">Embedding model</span><input id="s-embed-model" list="dl-embed-models" placeholder="text-embedding-3-small" /><datalist id="dl-embed-models"></datalist>
-        <div class="row-btns">
-          <button id="btn-embed-fetch" class="ghost small-btn"><span data-icon="bolt"></span><span data-i18n="embed.fetch">Fetch models</span></button>
-          <button id="btn-embed-test" class="ghost small-btn"><span data-icon="plug"></span><span data-i18n="embed.test">Test</span></button>
-        </div></label>
-      <label><span data-i18n="embed.perCharacter">Memory is kept per character</span>
-        <select id="s-mem-perchar">
-          <option value="yes" data-i18n="embed.perCharYes">Yes — each character has their own memories</option>
-          <option value="no" data-i18n="embed.perCharNo">No — one shared memory</option>
-        </select></label>
-      <div class="form-grid">
-        <label><span data-i18n="embed.memoryTokens">Memory budget (tokens)</span><input id="s-mem-tokens" type="number" min="0" max="8000" step="100" /></label>
-        <label><span data-i18n="embed.knowledgeTokens">Knowledge budget (tokens)</span><input id="s-know-tokens" type="number" min="0" max="12000" step="100" /></label>
-      </div>
-      <p class="hint" data-i18n-html="embed.hint2"></p>
-    </div>
-    <div class="modal-actions">
-      <span class="spacer"></span>
-      <button id="s-embed-cancel" data-i18n="char.cancel">Cancel</button>
-      <button id="s-embed-save" class="primary" data-i18n="tts.save">Save</button>
-    </div>
-  </div>
-</div>
-
-<!-- STT settings -->
-<div id="modal-stt" class="modal hidden">
-  <div class="modal-box wide">
-    <h3 class="modal-title"><span class="modal-ico" data-icon="mic"></span><span data-i18n="stt.title">Speech Recognition (STT)</span></h3>
-    <div class="form-col">
-      <label><span data-i18n="stt.engine">Engine</span><select id="s-stt-provider">
-        <option value="openai" data-i18n="stt.provider.openai">Whisper</option>
-        <option value="xiaomi" data-i18n="stt.provider.xiaomi">Xiaomi MiMo ASR</option>
-        <option value="web" data-i18n="stt.provider.web">Browser speech recognition</option>
-      </select></label>
-      <label><span data-i18n="stt.language">Language</span><select id="s-stt-language">
-        <option value="zh" data-i18n="lang.zh">Chinese</option>
-        <option value="en" data-i18n="lang.en">English</option>
-        <option value="ja" data-i18n="lang.ja">Japanese</option>
-        <option value="es" data-i18n="lang.es">Spanish</option>
-        <option value="auto" data-i18n="lang.auto">Auto detect</option>
-      </select></label>
-      <label class="check hidden" id="wrap-stt-custom"><input id="s-stt-custom-url" type="checkbox" /> <span data-i18n="llm.customUrl">Custom endpoint</span></label>
-      <label id="wrap-stt-base" class="hidden"><span data-i18n="stt.baseUrl">Base URL</span><input id="s-stt-base" placeholder="https://api.openai.com/v1" /></label>
-      <label><span data-i18n="llm.apiKey">API Key</span><input id="s-stt-key" type="password" placeholder="sk-…" /></label>
-      <label><span data-i18n="stt.model">Model</span><input id="s-stt-model" list="dl-stt-models" placeholder="whisper-1" /><datalist id="dl-stt-models"></datalist>
-        <button id="btn-stt-fetch" class="ghost small-btn"><span data-icon="bolt"></span><span data-i18n="stt.fetchModels">Fetch models</span></button></label>
-      <p class="hint" data-i18n="stt.hint"></p>
-    </div>
-    <div class="modal-actions">
-      <button id="s-stt-cancel" data-i18n="char.cancel">Cancel</button>
-      <button id="s-stt-save" class="primary" data-i18n="stt.save">Save</button>
-    </div>
-  </div>
-</div>
-<!-- Character card menu -->
+<!-- 角色卡右键菜单 -->
 <div id="char-menu" class="pop-menu hidden">
-  <button data-act="edit"><span data-icon="pencil"></span><span data-i18n="charMenu.edit">Edit card</span></button>
-  <button data-act="quick"><span data-icon="layers"></span><span data-i18n="charMenu.quick">Change model / voice</span></button>
-  <button data-act="duplicate"><span data-icon="copy"></span><span data-i18n="charMenu.duplicate">Duplicate card</span></button>
-  <button data-act="export"><span data-icon="export"></span><span data-i18n="charMenu.export">Export</span></button>
-  <button data-act="delete"><span data-icon="trash"></span><span data-i18n="charMenu.delete">Delete</span></button>
+  <button data-act="edit"><span data-icon="pencil"></span><span data-i18n="charMenu.edit">编辑角色卡</span></button>
+  <button data-act="quick"><span data-icon="layers"></span><span data-i18n="charMenu.quick">更换模型 / 声音</span></button>
+  <button data-act="duplicate"><span data-icon="copy"></span><span data-i18n="charMenu.duplicate">复制一张</span></button>
+  <button data-act="export"><span data-icon="export"></span><span data-i18n="charMenu.export">导出</span></button>
+  <button data-act="delete"><span data-icon="trash"></span><span data-i18n="charMenu.delete">删除</span></button>
 </div>
 
-<!-- Quick model / voice -->
+<!-- 对话页「更多」菜单 -->
+<div id="chat-menu" class="pop-menu hidden">
+  <button id="btn-edit-card" data-act="edit-card"><span data-icon="pencil"></span><span data-i18n="menu.editCard">编辑角色卡</span></button>
+  <button id="btn-speak" data-act="speak"><span data-icon="speaker"></span><span data-i18n="chat.speakTitle">朗读最后一条</span></button>
+  <button id="btn-regen" data-act="regen"><span data-icon="regenerate"></span><span data-i18n="chat.regenerate">重新生成</span></button>
+  <button id="btn-copy-chat" data-act="copy"><span data-icon="copy"></span><span data-i18n="chat.copyConversation">复制整段对话</span></button>
+  <button id="btn-clear" data-act="clear"><span data-icon="trash"></span><span data-i18n="chat.clearTitle">清空当前对话</span></button>
+</div>
+
+<!-- 屏幕选择（文件级短任务，保留小弹窗） -->
+<div id="modal-screen" class="modal hidden">
+  <div class="modal-box">
+    <h3 class="modal-title"><span class="modal-ico" data-icon="camera"></span><span data-i18n="screen.title">选择要发给角色的屏幕</span></h3>
+    <div id="screen-grid" class="screen-grid"></div>
+    <div class="modal-actions">
+      <span class="spacer"></span>
+      <button id="screen-cancel" data-i18n="screen.cancel">取消</button>
+    </div>
+  </div>
+</div>
+
+<!-- 快捷更换模型 / 声音 -->
 <div id="modal-quick" class="modal hidden">
   <div class="modal-box">
-    <h3 id="quick-title" data-i18n="quick.title">Change model / voice</h3>
+    <h3 class="modal-title"><span class="modal-ico" data-icon="layers"></span><span id="quick-title" data-i18n="quick.title">更换模型 / 声音</span></h3>
     <div class="form-col">
-      <label><span data-i18n="char.model">Live2D model</span><select id="q-model"></select></label>
-      <label><span data-i18n="char.voice">Voice (system TTS)</span><select id="q-voice"></select></label>
+      <label><span data-i18n="char.model">Live2D 模型</span><select id="q-model"></select></label>
+      <label><span data-i18n="char.voice">声音</span><select id="q-voice"></select></label>
       <p class="hint" data-i18n="quick.hint"></p>
     </div>
     <div class="modal-actions">
-      <button id="q-cancel" data-i18n="char.cancel">Cancel</button>
-      <button id="q-save" class="primary" data-i18n="char.save">Save</button>
-    </div>
-  </div>
-</div>
-
-<!-- Settings center：一个入口 + 8 组。
-     每一行仍然打开**原来那个设置页**（没有删任何选项，也没有重写表单），
-     只是把入口收拢，按「角色 / 外观 / 模型 / 语音 / 记忆 / Agent / 设备 / 通用」分组。 -->
-<div id="modal-menu" class="modal hidden">
-  <div class="modal-box wide">
-    <h3 class="modal-title"><span class="modal-ico" data-icon="settings"></span><span data-i18n="center.title">Settings</span></h3>
-    <p class="hint" data-i18n="center.hint">Every page below is the same settings page as before — grouped, nothing removed.</p>
-    <div class="menu-list">
-      <div class="menu-group-title" data-i18n="center.g1">Character &amp; company</div>
-      <button data-action="edit-card" id="menu-char"><span class="menu-label"><span class="menu-ico" data-icon="person"></span><span data-i18n="center.character">Character card</span></span><span class="menu-sub" id="menu-sub-char"></span></button>
-      <button data-target="modal-persona"><span class="menu-label"><span class="menu-ico" data-icon="spark"></span><span data-i18n="studio.menu">Persona Studio</span></span><span class="menu-sub" id="menu-sub-persona"></span></button>
-      <button data-target="modal-perform"><span class="menu-label"><span class="menu-ico" data-icon="mask"></span><span data-i18n="menu.perform">Performance</span></span><span class="menu-sub" id="menu-sub-perform"></span></button>
-
-      <div class="menu-group-title" data-i18n="center.g2">Stage &amp; appearance</div>
-      <button data-target="modal-model"><span class="menu-label"><span class="menu-ico" data-icon="layers"></span><span data-i18n="menu.model">Live2D Model Settings</span></span><span class="menu-sub" id="menu-sub-model"></span></button>
-      <button data-target="modal-theme"><span class="menu-label"><span class="menu-ico" data-icon="palette"></span><span data-i18n="menu.theme">Appearance</span></span><span class="menu-sub" id="menu-sub-theme"></span></button>
-      <button data-action="overlay"><span class="menu-label"><span class="menu-ico" data-icon="frame"></span><span data-i18n="menu.overlay">Borderless Stage</span></span><span class="menu-sub" id="menu-sub-overlay"></span></button>
-
-      <div class="menu-group-title" data-i18n="center.g3">Models &amp; intelligence</div>
-      <button data-target="modal-llm"><span class="menu-label"><span class="menu-ico" data-icon="chat"></span><span data-i18n="menu.llm">Chat Settings (LLM)</span></span><span class="menu-sub" id="menu-sub-llm"></span></button>
-
-      <div class="menu-group-title" data-i18n="center.g4">Voice &amp; live conversation</div>
-      <button data-target="modal-tts"><span class="menu-label"><span class="menu-ico" data-icon="speaker"></span><span data-i18n="menu.tts">Text-to-Speech (TTS)</span></span><span class="menu-sub" id="menu-sub-tts"></span></button>
-      <button data-target="modal-stt"><span class="menu-label"><span class="menu-ico" data-icon="mic"></span><span data-i18n="menu.stt">Speech Recognition (STT)</span></span><span class="menu-sub" id="menu-sub-stt"></span></button>
-
-      <div class="menu-group-title" data-i18n="center.g5">Memory &amp; knowledge</div>
-      <button data-target="modal-embedding"><span class="menu-label"><span class="menu-ico" data-icon="book"></span><span data-i18n="menu.embedding">Memory &amp; Knowledge</span></span><span class="menu-sub" id="menu-sub-embedding"></span></button>
-
-      <div class="menu-group-title" data-i18n="center.g6">Agent &amp; permissions</div>
-      <button data-action="agent"><span class="menu-label"><span class="menu-ico" data-icon="agent"></span><span data-i18n="center.agent">Agent workspace &amp; approval</span></span><span class="menu-sub" id="menu-sub-agent"></span></button>
-      <button data-action="computer"><span class="menu-label"><span class="menu-ico" data-icon="desktop"></span><span data-i18n="menu.computerRow">Computer control</span></span><span class="menu-sub" id="menu-sub-computer"></span></button>
-
-      <div class="menu-group-title" data-i18n="center.g7">Devices &amp; extensions</div>
-      <button data-action="mc"><span class="menu-label"><span class="menu-ico" data-icon="gamepad"></span><span data-i18n="menu.mc">Minecraft Companion</span></span><span class="menu-sub" id="menu-sub-mc"></span></button>
-      <button data-action="chess"><span class="menu-label"><span class="menu-ico" data-icon="pawn"></span><span data-i18n="menu.chess">Chess</span></span><span class="menu-sub" id="menu-sub-chess"></span></button>
-
-      <div class="menu-group-title" data-i18n="center.g8">General</div>
-      <div class="menu-row">
-        <span class="menu-row-label"><span class="menu-ico" data-icon="globe"></span><span data-i18n="menu.language">Language</span></span>
-        <div id="lang-switch" class="lang-switch"></div>
-      </div>
-      <button data-action="datadir"><span class="menu-label"><span class="menu-ico" data-icon="folder"></span><span data-i18n="menu.datadir">Open Data Folder</span></span></button>
-      <button data-action="about"><span class="menu-label"><span class="menu-ico" data-icon="info"></span><span data-i18n="menu.about">About AILEEN</span></span></button>
-    </div>
-    <div class="modal-actions">
-      <button id="menu-cancel" data-i18n="menu.close">Close</button>
-    </div>
-  </div>
-</div>
-
-<!-- Performance -->
-<div id="modal-perform" class="modal hidden">
-  <div class="modal-box">
-    <h3 class="modal-title"><span class="modal-ico" data-icon="mask"></span><span data-i18n="perform.title">Performance</span></h3>
-    <div class="form-col">
-      <label><span data-i18n="perform.narration">Parenthetical actions &amp; inner thoughts</span>
-        <select id="p-narration">
-          <option value="off" data-i18n="perform.off">Never</option>
-          <option value="rare" data-i18n="perform.rare">Rarely</option>
-          <option value="natural" data-i18n="perform.natural">Naturally</option>
-          <option value="rich" data-i18n="perform.rich">Often</option>
-        </select>
-        <span class="hint" data-i18n="perform.narrationHint"></span>
-      </label>
-      <label><span data-i18n="perform.pacing">Reply rhythm</span>
-        <select id="p-pacing">
-          <option value="off" data-i18n="perform.off">Never</option>
-          <option value="rare" data-i18n="perform.rare">Rarely</option>
-          <option value="natural" data-i18n="perform.natural">Naturally</option>
-        </select>
-        <span class="hint" data-i18n="perform.pacingHint"></span>
-      </label>
-    </div>
-    <div class="modal-actions">
-      <button id="p-cancel" data-i18n="char.cancel">Cancel</button>
-      <button id="p-save" class="primary" data-i18n="perform.save">Save</button>
-    </div>
-  </div>
-</div>
-
-<!-- Live2D model settings -->
-<div id="modal-model" class="modal hidden">
-  <div class="modal-box wide">
-    <h3 class="modal-title"><span class="modal-ico" data-icon="layers"></span><span data-i18n="model.title">Live2D Model Settings</span></h3>
-    <div class="form-col">
-      <label><span data-i18n="model.current">Current model</span><select id="m-model"></select></label>
-      <div class="row-btns">
-        <button id="btn-add-model" class="ghost"><span data-icon="folder"></span><span data-i18n="model.fromFolder">Import from folder</span></button>
-        <button id="btn-add-url-model" class="ghost"><span data-icon="link"></span><span data-i18n="model.fromUrl">Load from URL</span></button>
-        <button id="btn-refresh-models" class="ghost"><span data-icon="regenerate"></span><span data-i18n="model.refresh">Refresh list</span></button>
-      </div>
-      <div id="m-url-form" class="add-url-form hidden">
-        <input id="m-url-input" data-i18n-ph="model.urlPlaceholder" />
-        <input id="m-url-name" data-i18n-ph="model.namePlaceholder" />
-        <button id="m-url-ok" class="primary" data-i18n="model.add">Add</button>
-        <button id="m-url-cancel" class="ghost" data-i18n="model.cancel">Cancel</button>
-      </div>
-      <label><span data-i18n="model.localList">Models on disk</span><div id="m-local-list" class="url-list"></div></label>
-      <label><span data-i18n="model.urlList">Loaded URL models</span><div id="m-url-list" class="url-list"></div></label>
-      <p class="hint" data-i18n="model.hint"></p>
-    </div>
-    <div class="modal-actions">
-      <button id="m-cancel" data-i18n="model.close">Close</button>
-    </div>
-  </div>
-</div>
-
-<!-- Appearance -->
-<div id="modal-theme" class="modal hidden">
-  <div class="modal-box">
-    <h3 class="modal-title"><span class="modal-ico" data-icon="palette"></span><span data-i18n="theme.title">Appearance</span></h3>
-    <div class="form-col">
-      <label><span data-i18n="theme.presets">Theme presets</span>
-        <div id="theme-presets" class="theme-presets"></div>
-      </label>
-      <label><span data-i18n="theme.primary">Primary colour</span><input id="t-primary" type="color" /></label>
-      <label><span data-i18n="theme.secondary">Secondary colour</span><input id="t-secondary" type="color" /></label>
-      <p class="hint" data-i18n="theme.hint"></p>
-    </div>
-    <div class="modal-actions">
-      <button id="t-reset" class="ghost" data-i18n="theme.reset">Reset to default</button>
       <span class="spacer"></span>
-      <button id="t-cancel" data-i18n="theme.cancel">Cancel</button>
-      <button id="t-save" class="primary" data-i18n="theme.save">Save</button>
+      <button id="q-cancel" data-i18n="char.cancel">取消</button>
+      <button id="q-save" class="primary" data-i18n="char.save">保存</button>
     </div>
   </div>
 </div>
 
-<!-- Screen picker -->
-<div id="modal-screen" class="modal hidden">
-  <div class="modal-box">
-    <h3 class="modal-title"><span class="modal-ico" data-icon="camera"></span><span data-i18n="screen.title">Choose a screen to send to the character</span></h3>
-    <div id="screen-grid" class="screen-grid"></div>
-    <div class="modal-actions">
-      <button id="screen-cancel" data-i18n="screen.cancel">Cancel</button>
-    </div>
-  </div>
-</div>
-
-<!-- About -->
+<!-- 关于 / 诊断 -->
 <div id="modal-about" class="modal hidden">
   <div class="modal-box">
-    <h3 class="modal-title"><span class="modal-ico" data-icon="info"></span><span data-i18n="about.title">About AILEEN</span></h3>
+    <h3 class="modal-title"><span class="modal-ico" data-icon="info"></span><span data-i18n="about.title">关于 AILEEN</span></h3>
     <div id="about-body" class="about-body"></div>
     <p class="hint" data-i18n="about.hint"></p>
     <div class="modal-actions">
-      <button id="about-cancel" data-i18n="about.close">Close</button>
+      <span class="spacer"></span>
+      <button id="about-cancel" data-i18n="about.close">关闭</button>
     </div>
   </div>
 </div>
-<!-- Minecraft companion -->
-<div id="modal-mc" class="modal hidden">
-  <div class="modal-box wide">
-    <h3 class="modal-title"><span class="modal-ico" data-icon="gamepad"></span><span data-i18n="mc.title">Minecraft AI Companion</span></h3>
-    <div class="form-col">
-      <div class="mc-row">
-        <label><span data-i18n="mc.host">Server address</span><input id="mc-host" placeholder="127.0.0.1" /></label>
-        <label class="mc-narrow"><span data-i18n="mc.port">Port</span><input id="mc-port" type="number" placeholder="25565" /></label>
-        <label><span data-i18n="mc.username">Bot name</span><input id="mc-username" placeholder="AILEEN" /></label>
-      </div>
-      <div id="mc-persona" class="mc-persona">—</div>
-      <label class="check"><input id="mc-autoreply" type="checkbox" /> <span data-i18n="mc.autoReply">Let the AI reply to in-game chat</span></label>
-      <div class="row-btns">
-        <button id="mc-connect" class="primary"><span data-icon="plug"></span><span id="mc-connect-label" data-i18n="mc.connect">Connect</span></button>
-        <button id="mc-disconnect" class="ghost" data-i18n="mc.disconnect">Disconnect</button>
-        <button id="mc-follow" class="ghost"><span data-icon="play"></span><span data-i18n="mc.follow">Follow me</span></button>
-        <button id="mc-stopfollow" class="ghost" data-i18n="mc.stopFollow">Stop</button>
-      </div>
-      <div id="mc-status" class="mc-status" data-i18n="mc.statusIdle">Not connected</div>
-      <div class="mc-pad">
-        <button data-mc-dir="forward" data-i18n-title="mc.forward">↑</button>
-        <div class="mc-pad-mid">
-          <button data-mc-dir="left" data-i18n-title="mc.left">←</button>
-          <button data-mc-jump="1" data-i18n-title="mc.jump">⤒</button>
-          <button data-mc-dir="right" data-i18n-title="mc.right">→</button>
-        </div>
-        <button data-mc-dir="back" data-i18n-title="mc.back">↓</button>
-      </div>
-      <label><span data-i18n="chat.send">Say</span><input id="mc-say-input" data-i18n-ph="mc.sayPlaceholder" /></label>
-      <div id="mc-log" class="mc-log"></div>
-      <p class="hint" data-i18n-html="mc.hint"></p>
-    </div>
-    <div class="modal-actions">
-      <button id="mc-close" data-i18n="mc.close">Close</button>
-    </div>
-  </div>
-</div>
-
-<!-- Chess -->
-<div id="modal-chess" class="modal hidden">
-  <div class="modal-box wide">
-    <h3 class="modal-title"><span class="modal-ico" data-icon="pawn"></span><span data-i18n="chess.title">Chess</span></h3>
-    <div class="chess-layout">
-      <div class="chess-left">
-        <div id="chess-board" class="chess-board"></div>
-        <div id="chess-captured" class="chess-captured"></div>
-        <div id="chess-status" class="chess-status">—</div>
-      </div>
-      <div class="chess-right">
-        <label><span data-i18n="chess.level">AI level</span><select id="chess-level">
-          <option value="1">1</option><option value="2">2</option><option value="3">3</option>
-          <option value="4">4</option><option value="5">5</option>
-        </select></label>
-        <div class="chess-field">
-          <span data-i18n="chess.side">I play</span>
-          <div id="chess-side-switch" class="seg">
-            <button data-side="white" data-i18n="chess.white">White</button>
-            <button data-side="black" data-i18n="chess.black">Black</button>
-          </div>
-        </div>
-        <label class="check"><input id="chess-banter" type="checkbox" /> <span data-i18n="chess.banter">Let the character comment</span></label>
-        <div class="row-btns">
-          <button id="chess-new" class="ghost" data-i18n="chess.new">New game</button>
-          <button id="chess-undo" class="ghost" data-i18n="chess.undo">Undo</button>
-          <button id="chess-resign" class="ghost" data-i18n="chess.resign">Resign</button>
-          <button id="chess-flip" class="ghost" data-i18n="chess.flip">Flip board</button>
-        </div>
-        <div id="chess-comment" class="chess-comment hidden"></div>
-        <div class="chess-moves-title" data-i18n="chess.moves">Moves</div>
-        <div id="chess-moves" class="chess-moves"></div>
-      </div>
-    </div>
-    <p class="hint" data-i18n-html="chess.hint"></p>
-    <div class="modal-actions">
-      <button id="chess-close" data-i18n="chess.close">Close</button>
-    </div>
-  </div>
-</div>
-
 
 <div id="toast" class="toast hidden"></div>
 <script type="module" src="./main.js"></script>

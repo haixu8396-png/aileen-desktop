@@ -13,8 +13,9 @@ import { PERSONALITIES, ROLES, GENDERS, RELATIONSHIPS, labelOf } from './archety
 import { generatePersonaCard } from './persona.js';
 import { getSettings, hasApiKey } from './settings.js';
 import { $, toast } from './dom.js';
-import { hooks } from './state.js';
+import { hooks, state } from './state.js';
 import { openCharModal, applyPersonaToEditor } from './characters-ui.js';
+import { iconSvg } from './icons.js';
 
 const sel = { mode: 'original', personalityId: '', roleId: '', genderId: 'any', relationId: 'any' };
 
@@ -106,14 +107,26 @@ function renderAll() {
 }
 
 export function openPersonaStudio() {
+  // 人设生成室现在住在「角色编辑页」里：先确保编辑页是打开的
+  const page = $('page-char-edit');
+  if (!page || !page.classList.contains('on')) {
+    const cur = state.current;
+    openCharModal(cur ? cur.data : null, cur ? cur.file : null);
+  }
+  const wrap = $('persona-wrap');
+  if (wrap) wrap.open = true;
   renderAll();
   const m = $('modal-persona');
   if (m) m.classList.remove('hidden');
+  const mEl = $('modal-persona');
+  if (mEl && typeof mEl.scrollIntoView === 'function') mEl.scrollIntoView({ block: 'nearest' });
 }
 
 export function closePersonaStudio() {
   const m = $('modal-persona');
   if (m) m.classList.add('hidden');
+  const wrap = $('persona-wrap');
+  if (wrap) wrap.open = false;
 }
 
 /** 表单 → 生成选项。导出是为了让自检能验证「界面上选的东西真的进了提示词」。 */
@@ -146,7 +159,11 @@ export async function generateFromStudio() {
   }
   const btn = $('pa-generate');
   const label = btn ? btn.textContent : '';
-  if (btn) { btn.disabled = true; btn.textContent = t('studio.busy'); }
+  const setLabel = (text) => {
+    if (!btn) return;
+    btn.innerHTML = iconSvg('spark', 16) + '<span>' + String(text).replace(/[<>&]/g, '') + '</span>';
+  };
+  if (btn) { btn.disabled = true; setLabel(t('studio.busy')); }
   try {
     // 额度和重试策略都在 generatePersonaCard 里（和编辑器那颗生成按钮完全同一套）
     const p = await generatePersonaCard(s, studioFormOptions());
@@ -158,7 +175,7 @@ export async function generateFromStudio() {
   } catch (err) {
     toast(String((err && err.message) || err), true);
   } finally {
-    if (btn) { btn.disabled = false; btn.textContent = label || t('studio.generate'); }
+    if (btn) { btn.disabled = false; setLabel(label || t('studio.generate')); }
   }
 }
 

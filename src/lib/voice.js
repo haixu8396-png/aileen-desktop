@@ -21,12 +21,27 @@ const gen = createGeneration();
 
 export function setVoiceLoopUI() {
   const btn = $('btn-realtime');
-  if (btn) btn.classList.toggle('active', state.voiceLoop);
+  if (btn) {
+    btn.classList.toggle('on', state.voiceLoop);
+    btn.setAttribute('aria-pressed', state.voiceLoop ? 'true' : 'false');
+  }
+  // 实时语音激活时，输入区换成「正在聆听 + 结束通话」的条
+  const bar = $('realtime-bar');
+  const box = $('composer-box');
+  if (bar) bar.classList.toggle('on', !!state.voiceLoop);
+  if (box) box.classList.toggle('hidden', !!state.voiceLoop);
+  const label = $('realtime-label');
+  if (label && state.voiceLoop) label.textContent = t('voice.listening');
   const typing = $('typing');
-  if (state.voiceLoop) {
+  if (typing && state.voiceLoop) {
     typing.className = 'typing';
     typing.textContent = t('voice.talking');
   }
+}
+
+/** 供外壳调用：按当前 state 重画实时语音的界面状态 */
+export function syncRealtimeUI() {
+  setVoiceLoopUI();
 }
 
 export function startVoiceLoop() {
@@ -55,7 +70,8 @@ export function stopVoiceLoop() {
     try { state.abortCtrl.abort(); } catch { /* 已结束 */ }
   }
   setVoiceLoopUI();
-  $('typing').className = 'typing hidden';
+  const typing = $('typing');
+  if (typing) typing.className = 'typing hidden';
 }
 
 export async function voiceListen() {

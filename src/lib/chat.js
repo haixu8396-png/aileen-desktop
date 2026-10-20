@@ -11,7 +11,8 @@ import { createMarkerParser } from './marker-parser.js';
 import { createReplyPacer } from './reply-pacer.js';
 import { buildStyleInstruction } from './style.js';
 import { splitForCompaction, buildContextMessages, buildSummaryRequest, summaryKey, summarizable, DEFAULT_KEEP_TURNS } from './history.js';
-import { getLive2dModel } from './stage.js';
+import { getLive2dModel, stageMotion, stageExpression } from './stage.js';
+import { fillAvatar } from './shell.js';
 import { state, hooks, tts } from './state.js';
 import { $, toast, scrollBottom, autoGrowInput } from './dom.js';
 import { startRun } from '../agent/run.js';
@@ -104,7 +105,10 @@ export function renderMessages() {
     if (state.messages[i].role === 'assistant') { lastAssistant = i; break; }
   }
   state.messages.forEach((m, i) => {
-    box.appendChild(makeMsgEl(m.role, m.content, i, i === lastAssistant));
+    // 连续多条助手回复只在第一条显示头像，避免整屏重复头像与边距
+    const prev = state.messages[i - 1];
+    const showAvatar = !(m.role === 'assistant' && prev && prev.role === 'assistant');
+    box.appendChild(makeMsgEl(m.role, m.content, i, i === lastAssistant, showAvatar));
   });
   scrollBottom();
   // 双窗口：主窗口是会话所有者，消息一变就把快照推给展台（只读展示）
@@ -121,11 +125,23 @@ export function speakText(text) {
   if (text) tts.enqueue(String(text), ttsSettingsForCharacter());
 }
 
-export function makeMsgEl(role, content, index, isLastAssistant) {
+export function makeMsgEl(role, content, index, isLastAssistant, showAvatar) {
   const div = document.createElement('div');
   div.className = 'msg ' + role;
-  if (role === 'assistant') div.innerHTML = renderMarkdown(content);
-  else div.textContent = content;
+  // 助手消息 = 正文排版（不是气泡）；用户消息才是浅玫瑰底色的一块
+  if (role === 'assistant' && showAvatar !== false) {
+    const av = document.createElement('span');
+    av.className = 'msg-avatar';
+    av.alt = '';
+    const cur = state.current;
+    fillAvatar(av, (cur && cur.data && cur.data.name) || 'AILEEN', (cur && cur.data && cur.data.avatar) || '');
+    div.appendChild(av);
+  }
+  const body = document.createElement('div');
+  body.className = 'msg-body';
+  if (role === 'assistant') body.innerHTML = renderMarkdown(content);
+  else body.textContent = content;
+  div.appendChild(body);
   const acts = document.createElement('div');
   acts.className = 'msg-actions';
   if (role === 'assistant') {
@@ -156,6 +172,13 @@ export function makeMsgEl(role, content, index, isLastAssistant) {
   }
   div.appendChild(acts);
   return div;
+}
+
+/** 朗读最后一条助手消息（顶部「更多」菜单用） */
+export function speakLast() {
+  const text = state.lastAssistantText || String((state.messages || []).filter((m) => m.role === 'assistant').slice(-1)[0] || {}).content || '';
+  if (!text) { toast(t('chat.nothingToRead')); return; }
+  speakText(text);
 }
 
 /** 删掉单条消息 */
@@ -189,7 +212,9 @@ export function pushMsg(role, content) {
   // 记时间戳：拼上下文时给用户消息加时间锚点（不给 assistant 加，否则模型会照着学）
   state.messages.push({ role, content, at: Date.now() });
   const box = $('messages');
-  const el = makeMsgEl(role, content, state.messages.length - 1, false);
+  const prev = state.messages[state.messages.length - 2];
+  const showAvatar = !(role === 'assistant' && prev && prev.role === 'assistant');
+  const el = makeMsgEl(role, content, state.messages.length - 1, false, showAvatar);
   box.appendChild(el);
   scrollBottom();
   return el;
@@ -211,8 +236,15 @@ export function setBusy(b) {
   const send = $('btn-send');
   const stop = $('btn-stop');
   const typing = $('typing');
-  if (send) send.disabled = b;
-  if (stop) stop.disabled = !b;
+  const input = $('input');
+  if (send) {
+    send.disabled = b || !String((input && input.value) || '').trim();
+    send.classList.toggle('hidden', !!b);
+  }
+  if (stop) {
+    stop.disabled = !b;
+    stop.classList.toggle('hidden', !b);
+  }
   if (typing) typing.className = 'typing' + (b ? '' : ' hidden');
 }
 
@@ -296,12 +328,10 @@ function styleInstruction() {
 /** 模型写错标记不该打断说话，全部吞掉 */
 function applyStageMarker(m) {
   if (!m || !m.value) return;
-  const model = getLive2dModel();
-  if (!model) return;
   try {
-    if (m.kind === 'motion') model.motion(m.value);
-    else if (m.kind === 'expr' || m.kind === 'expression' || m.kind === 'emote') model.expression(m.value);
-  } catch (err) { /* ignore */ }
+    if (m.kind === 'motion') stageMotion(m.value);
+    else if (m.kind === 'expr' || m.kind === 'expression' || m.kind === 'emote') stageExpression(m.value);
+  } catch (err) { /* 展台没开就忽略 */ }
 }
 
 // ---------------- 对话 ----------------
@@ -318,6 +348,7 @@ export async function revealReply(text) {
   if (!boxEl) return '';
   const segments = [];
   let preview = null;
+  let bodyEl = null;
   let curText = '';
 
   function setTyping(on) {
@@ -326,9 +357,20 @@ export async function revealReply(text) {
   }
   function startBubble() {
     curText = '';
-    preview = document.createElement('div');
-    preview.className = 'msg assistant';
-    boxEl.appendChild(preview);
+    const el = document.createElement('div');
+    el.className = 'msg assistant';
+    const av = document.createElement('span');
+    av.className = 'msg-avatar';
+    av.alt = '';
+    const cur = state.current;
+    fillAvatar(av, (cur && cur.data && cur.data.name) || 'AILEEN', (cur && cur.data && cur.data.avatar) || '');
+    const body = document.createElement('div');
+    body.className = 'msg-body';
+    el.appendChild(av);
+    el.appendChild(body);
+    boxEl.appendChild(el);
+    preview = el;
+    bodyEl = body;
   }
   function seal(keepPreview) {
     const t2 = curText.trim();
@@ -350,7 +392,7 @@ export async function revealReply(text) {
       if (!preview) startBubble();
       curText += chunk;
       setTyping(false);
-      preview.innerHTML = renderMarkdown(curText) + '<span class="caret"></span>';
+      if (bodyEl) bodyEl.innerHTML = renderMarkdown(curText) + '<span class="caret"></span>';
       scrollBottom();
     },
     onStage: (m) => applyStageMarker(m),
@@ -415,6 +457,7 @@ export async function runAssistantReply(userContent, forceSpeak, image) {
   const boxEl = $('messages');
   const segments = [];
   let preview = null;
+  let bodyEl = null;
   let curText = '';
 
   function setTyping(on) {
@@ -424,9 +467,20 @@ export async function runAssistantReply(userContent, forceSpeak, image) {
 
   function startBubble() {
     curText = '';
-    preview = document.createElement('div');
-    preview.className = 'msg assistant';
-    boxEl.appendChild(preview);
+    const el = document.createElement('div');
+    el.className = 'msg assistant';
+    const av = document.createElement('span');
+    av.className = 'msg-avatar';
+    av.alt = '';
+    const cur = state.current;
+    fillAvatar(av, (cur && cur.data && cur.data.name) || 'AILEEN', (cur && cur.data && cur.data.avatar) || '');
+    const body = document.createElement('div');
+    body.className = 'msg-body';
+    el.appendChild(av);
+    el.appendChild(body);
+    boxEl.appendChild(el);
+    preview = el;
+    bodyEl = body;
   }
 
   function seal(keepPreview) {
@@ -450,7 +504,7 @@ export async function runAssistantReply(userContent, forceSpeak, image) {
       if (!preview) startBubble();
       curText += chunk;
       setTyping(false);
-      preview.innerHTML = renderMarkdown(curText) + '<span class="caret"></span>';
+      if (bodyEl) bodyEl.innerHTML = renderMarkdown(curText) + '<span class="caret"></span>';
       scrollBottom();
     },
     onStage: (m) => applyStageMarker(m),
@@ -477,8 +531,8 @@ export async function runAssistantReply(userContent, forceSpeak, image) {
   setTyping(false);
   seal(true);
 
-  if (streamErr && !(streamErr.name === 'AbortError') && preview) {
-    preview.innerHTML = '<span style="color:#ff9aa8">' + iconSvg('info', 14) + ' ' + escapeHtml(String(streamErr.message || streamErr)) + '</span>';
+  if (streamErr && !(streamErr.name === 'AbortError') && bodyEl) {
+    bodyEl.innerHTML = '<span style="color:var(--danger)">' + iconSvg('info', 14) + ' ' + escapeHtml(String(streamErr.message || streamErr)) + '</span>';
   }
   setBusy(false);
   renderMessages();   // 统一重画：拿到正确的下标与各种消息操作

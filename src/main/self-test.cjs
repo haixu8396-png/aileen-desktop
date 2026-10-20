@@ -125,69 +125,87 @@ win.webContents.on('did-finish-load', () => {
       const diag = await win.webContents.executeJavaScript(`(async () => {
         await new Promise((r) => setTimeout(r, 400));
         const q = (s) => document.querySelectorAll(s);
-        const stage = document.getElementById('stage-container');
-        const canvas = stage ? stage.querySelector('canvas') : null;
-        // 点击测试：新建角色按钮 → 角色弹窗应打开
+        const pageOn = (name) => {
+          const el = document.getElementById('page-' + name);
+          return !!el && el.classList.contains('on');
+        };
+        const secOn = (name) => {
+          const el = document.getElementById('set-' + name);
+          return !!el && el.classList.contains('on');
+        };
+        // 点击测试：新建角色 → 进入**角色编辑页**（不再是弹窗）
         let modalOpensOnNewCard = false;
         const newCardBtn = document.getElementById('btn-new-card');
         if (newCardBtn) {
           newCardBtn.click();
-          modalOpensOnNewCard = !document.getElementById('modal-char').classList.contains('hidden');
+          modalOpensOnNewCard = pageOn('char-edit') && !!document.getElementById('f-name');
           const cancel = document.getElementById('f-cancel');
           if (cancel) cancel.click();
         }
-        // 点击测试：设置菜单 → 各设置弹窗
+        // 点击测试：设置入口 → 设置页；分类切换 → 对应的设置区块
         const modalOpens = { menu: false, llm: false, tts: false, stt: false, model: false, theme: false, perform: false };
         const menuBtn = document.getElementById('btn-settings-menu');
         if (menuBtn) {
           menuBtn.click();
-          modalOpens.menu = !document.getElementById('modal-menu').classList.contains('hidden');
+          modalOpens.menu = pageOn('settings');
         }
-        document.querySelectorAll('#modal-menu .menu-list button[data-target]').forEach((btn) => {
-          const target = btn.dataset.target;
-          btn.click();
-          if (target) modalOpens[target.replace('modal-', '')] = !document.getElementById(target).classList.contains('hidden');
-        });
-        // 收尾：强制关掉被点开的弹窗，回到干净状态再做行为断言
-        ['modal-about', 'modal-llm', 'modal-tts', 'modal-stt', 'modal-model', 'modal-theme', 'modal-perform', 'modal-persona', 'modal-menu'].forEach((id) => {
-          const el = document.getElementById(id);
-          if (el) el.classList.add('hidden');
-        });
-        // 行为断言①：从设置菜单进子页面，关闭后应退回菜单（旧版会直接甩回聊天界面）
+        const pickSec = (sec) => {
+          const b = document.querySelector('#settings-nav button[data-sec="' + sec + '"]');
+          if (b) b.click();
+          return secOn(sec);
+        };
+        modalOpens.llm = pickSec('models');
+        modalOpens.theme = pickSec('appearance');
+        modalOpens.perform = pickSec('companion');
+        modalOpens.tts = pickSec('voice');
+        modalOpens.stt = secOn('voice') && !!document.getElementById('s-stt-provider');
+        modalOpens.model = pickSec('stage') && !!document.getElementById('m-model');
+        // 行为断言①：设置页里切换分类，仍然停在设置页（不会甩回聊天）
         let subModalReturnsToMenu = false;
-        const llmEntry = document.querySelector('#modal-menu .menu-list button[data-target="modal-llm"]');
-        if (llmEntry) {
-          llmEntry.click();
-          const llmWasOpen = !document.getElementById('modal-llm').classList.contains('hidden');
-          document.getElementById('s-llm-cancel').click();
-          subModalReturnsToMenu = llmWasOpen && !document.getElementById('modal-menu').classList.contains('hidden');
-        }
-        // 行为断言②：外观调色是即时预览，「取消」必须把颜色还原（旧版取消后颜色不回滚）
+        try {
+          pickSec('models');
+          const wasSec = secOn('models');
+          pickSec('appearance');
+          subModalReturnsToMenu = wasSec && pageOn('settings') && secOn('appearance');
+        } catch (err) { window.__AILEEN_ERRORS.push('settingsNav: ' + String((err && err.message) || err)); }
+        // 行为断言②：主题是即时预览，「取消」必须把颜色还原
         let themeCancelRestores = false;
-        const themeEntry = document.querySelector('#modal-menu .menu-list button[data-target="modal-theme"]');
-        if (themeEntry) {
-          const accentBefore = getComputedStyle(document.documentElement).getPropertyValue('--accent').trim();
-          themeEntry.click();
+        let themeModeOk = false;
+        let themeDetail = null;
+        try {
+          pickSec('appearance');
+          const root = document.documentElement;
+          const accentBefore = getComputedStyle(root).getPropertyValue('--accent').trim();
           const pIn = document.getElementById('t-primary');
           pIn.value = '#00ff00';
           pIn.dispatchEvent(new Event('input', { bubbles: true }));
-          const preview = getComputedStyle(document.documentElement).getPropertyValue('--accent').trim();
+          const preview = getComputedStyle(root).getPropertyValue('--accent').trim();
           document.getElementById('t-cancel').click();
-          const accentAfter = getComputedStyle(document.documentElement).getPropertyValue('--accent').trim();
+          const accentAfter = getComputedStyle(root).getPropertyValue('--accent').trim();
+          themeDetail = { accentBefore, preview, accentAfter, inline: root.style.getPropertyValue('--accent'), accentAttr: root.getAttribute('data-accent') };
           themeCancelRestores = preview !== accentBefore && accentAfter === accentBefore;
-        }
-        // 行为断言③：Minecraft 伙伴弹窗能打开，主进程 IPC 可用
+          // 主题模式：点「暖暗色」→ data-theme=dark；点回原来的模式（别改用户的偏好）
+          const origMode = (((await window.api.getSettings()) || {}).appearance || {}).mode || 'light';
+          const darkBtn = document.querySelector('#theme-mode-switch button[data-mode="dark"]');
+          const lightBtn = document.querySelector('#theme-mode-switch button[data-mode="light"]');
+          const restoreBtn = document.querySelector('#theme-mode-switch button[data-mode="' + origMode + '"]');
+          if (darkBtn && lightBtn) {
+            darkBtn.click();
+            await new Promise((r) => setTimeout(r, 120));
+            const darkOk = root.getAttribute('data-theme') === 'dark';
+            (restoreBtn || lightBtn).click();
+            await new Promise((r) => setTimeout(r, 120));
+            themeModeOk = darkOk && root.getAttribute('data-theme') === (origMode === 'dark' ? 'dark' : 'light');
+          }
+        } catch (err) { window.__AILEEN_ERRORS.push('themeTest: ' + String((err && err.message) || err)); }
+        // 行为断言③：Minecraft / 国际象棋都在「设备与扩展」页里，IPC 可用
         let mcStatusOk = false;
         let mcModalOk = false;
         try {
           const mst = await window.api.mcStatus();
           mcStatusOk = !!mst && typeof mst.connected === 'boolean';
-          const mcEntry = document.querySelector('#modal-menu .menu-list button[data-action="mc"]');
-          if (mcEntry) {
-            mcEntry.click();
-            mcModalOk = !document.getElementById('modal-mc').classList.contains('hidden');
-            document.getElementById('mc-close').click();
-          }
+          document.querySelector('#side-nav .nav-item[data-page="devices"]').click();
+          mcModalOk = pageOn('devices') && !!document.getElementById('mc-host') && !!document.getElementById('mc-connect');
         } catch (err) { window.__AILEEN_ERRORS.push('mcTest: ' + String((err && err.message) || err)); }
         // 行为断言④：i18n 与象棋 —— 默认英文、语言切换器在、没有漏翻的 key、棋盘 64 格
         // 行为断言⑥：加载完 #typing（正在思考…）必须是隐藏的
@@ -205,13 +223,9 @@ win.webContents.on('did-finish-load', () => {
           document.querySelectorAll('[data-i18n]').forEach((el) => {
             if (el.textContent.trim() === el.getAttribute('data-i18n')) i18nMissing += 1;
           });
-          const chessEntry = document.querySelector('#modal-menu .menu-list button[data-action="chess"]');
-          if (chessEntry) {
-            chessEntry.click();
-            chessSquares = document.querySelectorAll('#chess-board .csq').length;
-            chessModalOk = !document.getElementById('modal-chess').classList.contains('hidden') && chessSquares === 64;
-            document.getElementById('chess-close').click();
-          }
+          const chessBoard = document.getElementById('chess-board');
+          chessSquares = chessBoard ? chessBoard.querySelectorAll('.csq').length : 0;
+          chessModalOk = pageOn('devices') && chessSquares === 64;
           const curLang = ((await window.api.getSettings()) || {}).language || 'en';
           const wantLang = curLang === 'zh' ? 'zh-CN' : curLang;
           repLangAttr = document.documentElement.lang;
@@ -225,7 +239,10 @@ win.webContents.on('did-finish-load', () => {
         let jaMissingKeys = -1;
         try {
           const pickBtn = (i) => document.querySelectorAll('#lang-switch button')[i];
-          const probe = () => document.querySelector('[data-i18n="menu.mc"]');
+          const probe = () => document.querySelector('[data-i18n="nav.chat"]');
+          const origLang = (((await window.api.getSettings()) || {}).language) || 'en';
+          const order = ['en', 'ja', 'zh'];
+          const restoreIndex = Math.max(0, order.indexOf(origLang));
           if (pickBtn(0) && pickBtn(1) && pickBtn(2)) {
             pickBtn(1).click();
             await new Promise((r) => setTimeout(r, 500));
@@ -234,7 +251,8 @@ win.webContents.on('did-finish-load', () => {
             pickBtn(2).click();
             await new Promise((r) => setTimeout(r, 500));
             zhText = probe() ? probe().textContent : '';
-            pickBtn(0).click();
+            // 切回**用户原来的语言**（别把语言测试结果当成用户偏好存下去）
+            pickBtn(restoreIndex).click();
             await new Promise((r) => setTimeout(r, 500));
             langSwitchWorks = !!jaText && !!zhText && jaText !== zhText && jaMissingKeys === 0;
           }
@@ -259,9 +277,9 @@ win.webContents.on('did-finish-load', () => {
         let noModelDetail = null;
         try {
           noModelDetail = typeof window.__AILEEN_PROBE_NOMODEL === 'function' ? await window.__AILEEN_PROBE_NOMODEL() : null;
-          noModelOk = !!noModelDetail && noModelDetail.hasOption === true && noModelDetail.stageHasOption === true
+          noModelOk = !!noModelDetail && noModelDetail.hasOption === true
             && noModelDetail.modelIsNull === true && noModelDetail.disabledFlag === true
-            && noModelDetail.stageCleared === true && noModelDetail.placeholder === true;
+            && noModelDetail.overlayModelIsNull === true && noModelDetail.restored === true;
         } catch (err) { window.__AILEEN_ERRORS.push('noModelTest: ' + String((err && err.message) || err)); }
         // 行为断言⑮：点亮「电脑控制」开关要立刻转蓝 + 立刻换成 Dashboard
         let toggleOk = false;
@@ -271,19 +289,14 @@ win.webContents.on('did-finish-load', () => {
             ? await window.__AILEEN_PROBE_COMPUTER_TOGGLE() : null;
           toggleOk = !!toggleDetail && toggleDetail.error === undefined
             && toggleDetail.baselineDashboardHidden === true
-            && toggleDetail.baselineStageVisible === true
             && toggleDetail.settingOn === true
             && toggleDetail.btnHighlighted === true
-            && toggleDetail.modeClassOn === true
-            && toggleDetail.accentBlue === true
-            && toggleDetail.startBtnBlue === true
             && toggleDetail.dashboardShown === true
-            && toggleDetail.stageVisible === true
+            && toggleDetail.mainWindowHasNoStage === true
             && !!toggleDetail.afterOff
             && toggleDetail.afterOff.settingOff === true
-            && toggleDetail.afterOff.modeClassOff === true
             && toggleDetail.afterOff.dashboardHidden === true
-            && toggleDetail.afterOff.stageBack === true;
+            && toggleDetail.afterOff.stageAlwaysSeparate === true;
         } catch (err) { window.__AILEEN_ERRORS.push('toggleTest: ' + String((err && err.message) || err)); }
 
         // 行为断言⑭：Agent Control Dashboard + 角色人格保留
@@ -291,7 +304,7 @@ win.webContents.on('did-finish-load', () => {
         let dashDetail = null;
         try {
           dashDetail = typeof window.__AILEEN_PROBE_DASHBOARD === 'function'
-            ? window.__AILEEN_PROBE_DASHBOARD() : null;
+            ? await window.__AILEEN_PROBE_DASHBOARD() : null;
           dashOk = !!dashDetail && dashDetail.error === undefined
             && dashDetail.personaFound === true
             && dashDetail.personaFirst === true
@@ -300,7 +313,7 @@ win.webContents.on('did-finish-load', () => {
             && dashDetail.toolCount >= 17
             && dashDetail.hiddenBeforeRun === true
             && dashDetail.visibleDuringRun === true
-            && dashDetail.stageVisibleDuringRun === true
+            && dashDetail.stageIsSeparateWindow === true
             && dashDetail.approvalShown === true
             && dashDetail.logLines >= 3
             && dashDetail.approvalHiddenAfterFinish === true;
@@ -313,7 +326,7 @@ win.webContents.on('did-finish-load', () => {
           agentDetail = typeof window.__AILEEN_PROBE_AGENT === 'function' ? await window.__AILEEN_PROBE_AGENT() : null;
           // 截图已经拍完（审批卡片在里面），现在收尾：点拒绝，卡片必须消失
           const after = typeof window.__AILEEN_PROBE_AGENT_AFTER === 'function'
-            ? window.__AILEEN_PROBE_AGENT_AFTER() : null;
+            ? await window.__AILEEN_PROBE_AGENT_AFTER() : null;
           if (agentDetail) agentDetail.after = after;
           agentOk = !!agentDetail && agentDetail.panelOpen === true
             && agentDetail['ag-task'] === true && agentDetail['ag-start'] === true
@@ -324,12 +337,11 @@ win.webContents.on('did-finish-load', () => {
             && agentDetail.approvalRisk === 'HIGH'
             && typeof agentDetail.approvalText === 'string' && agentDetail.approvalText.length > 0
             && agentDetail.logLines >= 1
-            && agentDetail.agentModeClass === true
-            && agentDetail.accentIsBlue === true
-            && agentDetail.startBtnIsBlue === true
+            && agentDetail.drawerOpenClass === true
+            && agentDetail.accentResolved === true
             && !!after && after.visibleBeforeReject === true && after.hasReject === true
             && after.hiddenAfterReject === true
-            && after.panelHiddenAfterClose === true && after.accentRestored === true;
+            && after.panelHiddenAfterClose === true && after.drawerClosedClass === true;
         } catch (err) { window.__AILEEN_ERRORS.push('agentTest: ' + String((err && err.message) || err)); }
         // 行为断言⑫：人设生成室 —— 设置入口 / 原型选择 / 锁定真的改变提示词
         let studioOk = false;
@@ -358,7 +370,7 @@ win.webContents.on('did-finish-load', () => {
           let filled = '';
           if (typeof window.__AILEEN_PROBE_PERSONA_APPLY === 'function') {
             document.getElementById('btn-new-card').click();
-            pcOpened = !document.getElementById('modal-char').classList.contains('hidden');
+            pcOpened = pageOn('char-edit') && !!document.getElementById('f-name');
             window.__AILEEN_PROBE_PERSONA_APPLY({ name: 'PROBE', description: 'D', personality: 'P', scenario: 'S', first_mes: 'F', mes_example: 'M' });
             filled = ['f-name', 'f-desc', 'f-personality', 'f-scenario', 'f-first', 'f-example'].map((id) => document.getElementById(id).value).join('|');
             document.getElementById('f-cancel').click();
@@ -372,10 +384,29 @@ win.webContents.on('did-finish-load', () => {
             && pcOpened && filled === 'PROBE|D|P|S|F|M' && personaDetail.hasSeed && personaDetail.hasBtn;
         } catch (err) { window.__AILEEN_ERRORS.push('personaTest: ' + String((err && err.message) || err)); }
         let uiBlockedBy = [];
+        // 主导航：五个页面 + 设置都能进得去，并且一次只显示一页
+        let pageNavOk = false;
         try {
-          // 先回到「静止状态」：把所有弹窗关掉，再测有没有东西挡住界面
+          const pages = ['characters', 'memory', 'tasks', 'devices'];
+          let all = true;
+          for (const p of pages) {
+            const nav = document.querySelector('#side-nav .nav-item[data-page="' + p + '"]');
+            if (!nav) { all = false; break; }
+            nav.click();
+            all = all && pageOn(p);
+          }
+          const setBtn = document.getElementById('btn-settings-menu');
+          if (setBtn) { setBtn.click(); all = all && pageOn('settings'); }
+          const chatNav = document.querySelector('#side-nav .nav-item[data-page="chat"]');
+          if (chatNav) { chatNav.click(); all = all && pageOn('chat'); }
+          pageNavOk = all && document.querySelectorAll('#content .page.on').length === 1;
+        } catch (err) { window.__AILEEN_ERRORS.push('pageNav: ' + String((err && err.message) || err)); }
+        try {
+          // 先回到「静止状态」：关掉可能开着的弹层，再测有没有东西挡住界面
           document.querySelectorAll('.modal').forEach((m) => m.classList.add('hidden'));
-          const pts = [[160, 60], [200, 300], [420, 120], [420, 500], [900, 80], [900, 400], [1150, 300]];
+          document.querySelectorAll('.pop-menu').forEach((m) => m.classList.add('hidden'));
+          document.querySelector('#side-nav .nav-item[data-page="chat"]').click();
+          const pts = [[120, 60], [120, 420], [700, 90], [700, 500], [980, 400], [1050, 620]];
           for (const p of pts) {
             const el = document.elementFromPoint(p[0], p[1]);
             if (!el) continue;
@@ -388,10 +419,10 @@ win.webContents.on('did-finish-load', () => {
         let performOk = false;
         let performDetail = null;
         try {
-          const entry = document.querySelector('#modal-menu .menu-list button[data-target="modal-perform"]');
+          const entry = document.querySelector('#settings-nav button[data-sec="companion"]');
           if (entry) {
             entry.click();
-            const opened = !document.getElementById('modal-perform').classList.contains('hidden');
+            const opened = secOn('companion');
             const narrOpts = document.querySelectorAll('#p-narration option').length;
             const paceOpts = document.querySelectorAll('#p-pacing option').length;
             const before = (((await window.api.getSettings()) || {}).behavior) || {};
@@ -431,33 +462,34 @@ win.webContents.on('did-finish-load', () => {
         let sideCollapseOk = false;
         let searchFilterOk = false;
         try {
-          uiElementsOk = ['btn-regen', 'stage-model', 'stage-scale', 'chat-status', 'char-search', 'drop-hint', 'btn-expand-sidebar', 'btn-expand-stage']
+          uiElementsOk = ['btn-send', 'btn-stop', 'btn-float-stage', 'btn-char-actions', 'btn-realtime', 'btn-screenshot', 'btn-mic',
+            'char-search', 'drop-hint', 'input', 'composer-box', 'btn-settings-menu', 'btn-collapse-sidebar',
+            'agent-drawer', 'chat-taskbar', 'theme-mode-switch', 'settings-nav']
             .every((id) => !!document.getElementById(id));
           const app = document.getElementById('app');
           const cs = document.getElementById('btn-collapse-sidebar');
           cs.click();
           const collapsed = app.classList.contains('side-collapsed');
-          const handleShown = !document.getElementById('btn-expand-sidebar').classList.contains('hidden');
           cs.click();
-          sideCollapseOk = collapsed && handleShown && !app.classList.contains('side-collapsed');
-          // CI 用的是全新数据目录，可能一张角色卡都没有 ——
-          // 那就先自己造一张，否则这个断言在空列表下是空转，还会误报失败。
-          let before = document.querySelectorAll('#char-list .char-item').length;
+          sideCollapseOk = collapsed && !app.classList.contains('side-collapsed');
+          // 搜索过滤在「角色」页的网格上验证（侧栏只放最近 6 个）
+          document.querySelector('#side-nav .nav-item[data-page="characters"]').click();
+          let before = document.querySelectorAll('#character-grid .char-card').length;
           let tempFile = null;
           if (before === 0) {
             const wr = await window.api.writeCharacter('_uifilter', { name: 'UI filter probe', description: '', personality: '', scenario: '', first_mes: '', mes_example: '', system_prompt: '', model: '', voice: '', createdAt: Date.now(), updatedAt: Date.now() }, 'create');
             tempFile = (wr && wr.file) || '_uifilter.json';
             if (typeof window.__AILEEN_REFRESH === 'function') await window.__AILEEN_REFRESH();
             await new Promise((r) => setTimeout(r, 250));
-            before = document.querySelectorAll('#char-list .char-item').length;
+            before = document.querySelectorAll('#character-grid .char-card').length;
           }
           const searchEl = document.getElementById('char-search');
           searchEl.value = 'zzz-no-such-character';
           searchEl.dispatchEvent(new Event('input', { bubbles: true }));
-          const none = document.querySelectorAll('#char-list .char-item').length;
+          const none = document.querySelectorAll('#character-grid .char-card').length;
           searchEl.value = '';
           searchEl.dispatchEvent(new Event('input', { bubbles: true }));
-          const all = document.querySelectorAll('#char-list .char-item').length;
+          const all = document.querySelectorAll('#character-grid .char-card').length;
           searchFilterOk = before > 0 && none === 0 && all === before;
           if (tempFile) {
             await window.api.deleteCharacter(tempFile);
@@ -490,8 +522,8 @@ win.webContents.on('did-finish-load', () => {
           }
           await window.api.deleteCharacter(testFileName);
           if (typeof window.__AILEEN_REFRESH === 'function') await window.__AILEEN_REFRESH();
-          const subLlm = document.getElementById('menu-sub-llm');
-          if (subLlm) menuSubText = subLlm.textContent.trim();
+          const subLlm = document.getElementById('s-llm-model');
+          if (subLlm) menuSubText = String(subLlm.value || '').trim();
         } catch (err) { window.__AILEEN_ERRORS.push('charMenuTest: ' + String(err && err.message || err)); }
         // API Key 脱敏测试：渲染层必须**永远**拿不到明文。
         // 加密落盘、回读一致、以及「留空=保持 / 哨兵=清除」的语义在主进程侧验证
@@ -519,15 +551,9 @@ win.webContents.on('did-finish-load', () => {
         let llmBaseHidden = 'n/a';
         const wLlm = document.getElementById('wrap-llm-base');
         if (wLlm) {
-          const menuBtn2 = document.getElementById('btn-settings-menu');
-          if (menuBtn2) menuBtn2.click();
-          const target = document.querySelector('#modal-menu .menu-list button[data-target="modal-llm"]');
-          if (target) target.click();
+          document.querySelector('#settings-nav button[data-sec="models"]').click();
           llmBaseHidden = wLlm.classList.contains('hidden');
-          const llmCancel = document.getElementById('s-llm-cancel');
-          if (llmCancel) llmCancel.click();
         }
-        const stageRect = stage ? { w: stage.clientWidth, h: stage.clientHeight } : null;
         const providerOptions = q('#s-llm-provider option').length;
         const ttsLangOptions = q('#s-tts-language option').length;
         const sttLangOptions = q('#s-stt-language option').length;
@@ -535,7 +561,7 @@ win.webContents.on('did-finish-load', () => {
         const screenshotBtn = !!document.getElementById('btn-screenshot');
         const addModelBtn = !!document.getElementById('btn-add-model');
         const modalsExist =
-          !!document.getElementById('modal-llm') && !!document.getElementById('modal-tts') && !!document.getElementById('modal-stt');
+          !!document.getElementById('set-models') && !!document.getElementById('set-voice') && !!document.getElementById('set-appearance');
         const datalistLlm = q('#dl-llm-models option').length;
         let screenSources = 'n/a';
         try {
@@ -563,28 +589,44 @@ win.webContents.on('did-finish-load', () => {
           checkpointProbe = { ok: false, error: String((err && err.message) || err) };
         }
         const checkpointOk = !!(checkpointProbe && checkpointProbe.ok === true);
+        let devDetail = null;
+        try {
+          devDetail = typeof window.__AILEEN_PROBE_DEVICES === 'function' ? window.__AILEEN_PROBE_DEVICES() : null;
+        } catch (err) { window.__AILEEN_ERRORS.push('devProbe: ' + String((err && err.message) || err)); }
         return {
           title: document.title,
+          page: (document.querySelector('#content .page.on') || {}).id || '',
+          mainWindowHasNoStage: !document.getElementById('stage-container'),
           chatName: (document.getElementById('chat-name') || {}).textContent || '',
           charCount: q('#char-list .char-item').length,
           charNames: Array.from(q('#char-list .ci-name')).map((e) => e.textContent),
+          gridCards: q('#character-grid .char-card').length,
           modelOptions: q('#m-model option').length,
           modelSelectValue: (document.getElementById('m-model') || {}).value,
-          motionChips: q('#motion-chips .chip').length,
-          motionGroups: Array.from(q('#motion-chips .chip')).map((e) => e.dataset.motion),
-          exprChips: q('#expr-chips .chip').length,
-          stageChildren: stage ? stage.children.length : 0,
-          canvasCount: q('canvas').length,
-          canvasSize: canvas ? canvas.width + 'x' + canvas.height : 'none',
-          stageRect,
-          canvasPosition: canvas ? (canvas.getBoundingClientRect().width + 'x' + canvas.getBoundingClientRect().height) : 'none',
+          motionChips: 0,
+          exprChips: 0,
+          stageChildren: 0,
+          stageRect: null,
+          canvasCount: q('#ov-stage canvas').length,
+          canvasSize: 'none',
+          canvasPosition: 'none',
           messages: q('#messages .msg').length,
+          computerBtn: (() => {
+            const b = document.getElementById('btn-computer');
+            if (!b) return 'missing';
+            const r = b.getBoundingClientRect();
+            const cs = getComputedStyle(b);
+            return { w: Math.round(r.width), h: Math.round(r.height), x: Math.round(r.left), y: Math.round(r.top), display: cs.display, color: cs.color, text: (b.textContent || '').trim() };
+          })(),
           firstMessage: (q('#messages .msg')[0] || {}).textContent || '',
           emptyHint: (q('#messages .msg')[0] || {}).textContent || '',
           modalOpensOnNewCard,
           modalOpens,
           subModalReturnsToMenu,
           themeCancelRestores,
+          themeModeOk,
+          themeDetail,
+          pageNavOk,
           mcStatusOk,
           mcModalOk,
           typingHidden,
@@ -643,6 +685,7 @@ win.webContents.on('did-finish-load', () => {
           memoryProbe,
           checkpointOk,
           checkpointProbe,
+          devDetail,
           errors: (window.__AILEEN_ERRORS || []).slice(0, 10),
           modelReady: typeof window.__AILEEN_MODEL_READY === 'function' ? !!window.__AILEEN_MODEL_READY() : 'n/a',
         };

@@ -1,236 +1,123 @@
 // ============================================================
-// Live2D 舞台控制器：模型加载/切换、动作表情、模型管理（导入/网址/移除）
+// Live2D 控制（0.8 重构后）
+//
+// 重要变化：**主窗口不再渲染 Live2D**。
+//   角色只显示在独立的透明展台窗口（src/overlay.js）里，
+//   这里保留的是「模型数据 + 选择 + 模型管理 + 给展台下命令」。
+//
+// 为什么拆开：旧版主窗口右侧常驻 400px 的展台，聊天被挤成窄条，
+// Agent 面板又要和它抢位置。现在主窗口专心做对话与任务，
+// 角色安静地待在桌面上 —— 两者的生命周期互不干扰。
 // ============================================================
-import { loadOml2d } from 'oh-my-live2d';
-import { state, hooks, tts } from './state.js';
+import { state, hooks } from './state.js';
 import { $, toast } from './dom.js';
-import { getSettings } from './settings.js';
+import { getSettings, saveSettings } from './settings.js';
 import { escapeHtml } from './markdown.js';
 import { iconSvg } from './icons.js';
 import { t } from './i18n.js';
+import { gotoSettings } from './shell.js';
 
-function stageScale() {
+/** 模型下拉框（设置页与快捷弹窗各一个） */
+const MODEL_SELECTS = ['m-model', 'q-model'];
+
+export function stageScale() {
   const s = getSettings();
   const v = s && s.stage && s.stage.scale;
-  return Number.isFinite(Number(v)) ? Number(v) : 0.3;
+  return Number.isFinite(Number(v)) ? Number(v) : 0.45;
 }
 
-// 舞台钉在右侧面板容器内（库默认是 position:fixed，会盖住整个界面）
-const STAGE_STYLE = {
-  position: 'absolute',
-  left: 0,
-  top: 0,
-  width: '100%',
-  height: '100%',
-  transform: 'none',
-  zIndex: 1,
-};
-
+/** 启动：把设置页的模型控件填好，并把模型推给展台 */
 export function initLive2D() {
-  const container = $('stage-container');
-  if (!container) return;
-  if (!state.models.length || stageModelDisabled()) {
-    const body = state.models.length ? t('stage.noModelOption') : t('stage.noModelsHint');
-    container.innerHTML = '<div class="stage-placeholder">' + body
-      + '<br><button id="btn-goto-models" class="ghost">' + t('stage.gotoModels') + '</button></div>';
-    const go = container.querySelector('#btn-goto-models');
-    if (go) go.onclick = () => openModelModal();
-    return;
-  }
-  const W = container.clientWidth || 400;
-  const H = container.clientHeight || 600;
-  // 关键：默认舞台是 position:fixed 且铺满视口，会盖住整个界面导致所有按钮无法点击。
-  // 这里在模型级 stageStyle 强制 position:absolute，把舞台约束在右侧面板容器内。
-  state.oml2d = loadOml2d({
-    parentElement: container,
-    primaryColor: '#ff7eb3',
-    // 见 overlay.js 的注释：库用「窗口宽度 ≤768px」判断手机，主窗口被拖窄时
-    // 同样会走进手机分支（默认不加载模型）。这里统一按桌面处理。
-    mobileDisplay: true,
-    dockedPosition: 'right',
-    transitionTime: 300,
-    sayHello: false,
-    menus: { disable: true },
-    statusBar: { disable: true },
-    tips: {
-      idleTips: {
-        // 闲置气泡：三语各一句，别在这里写死中文
-        message: [t('stage.tip1'), t('stage.tip2'), t('stage.tip3')],
-        interval: 30000,
-        duration: 4000,
-      },
-      welcomeTips: { duration: 5000 },
-    },
-    models: state.models.map((m) => ({
-      name: m.name,
-      path: m.url,
-      scale: stageScale(),
-      anchor: [0.5, 0.5],
-      position: [W / 2, H * 0.55],
-      motionPreloadStrategy: 'IDLE',
-      stageStyle: STAGE_STYLE,
-      mobileStageStyle: STAGE_STYLE,
-    })),
-    stageStyle: STAGE_STYLE,
-  });
-  state.oml2d.onLoad((status) => {
-    if (status === 'success') { refreshStageControls(); syncOverlayModel(); }
-  });
-  if (state.oml2d && typeof state.oml2d.then === 'function') {
-    state.oml2d.catch((err) => {
-      console.error('[live2d] load failed:', err);
-      const box = $('stage-container');
-      if (box && !box.querySelector('canvas')) {
-        box.innerHTML = '<div class="stage-placeholder">' + escapeHtml(t('stage.loadFailed', { msg: String(err && err.message || err) })) + '</div>';
-      }
-    });
-  }
+  populateStageModelSelect();
+  renderLocalList();
+  renderUrlList();
+  bindStageScale();
+  updateStageModelName();
+  syncOverlayModel();
 }
 
+/** 主窗口里没有模型实例了 —— 保留接口给旧调用点，明确返回 null */
 export function getLive2dModel() {
-  try {
-    return (state.oml2d && state.oml2d.models && state.oml2d.models.model) || null;
-  } catch { return null; }
+  return null;
 }
 
+export function talkMotionName() { return null; }
+export function idleMotionName() { return null; }
+
+/** 模型换了：推给展台（展台自己重建） */
 export function rebuildLive2D() {
-  const container = $('stage-container');
-  if (state.oml2d) {
-    try { if (state.oml2d.pixiApp) state.oml2d.pixiApp.destroy(true); } catch { /* ignore */ }
-    state.oml2d = null;
-  }
-  if (container) container.innerHTML = '';
-  initLive2D();
+  syncOverlayModel();
 }
 
-export function refreshStageControls() {
-  const model = getLive2dModel();
-  const mc = $('motion-chips');
-  const ec = $('expr-chips');
-  if (!mc || !ec) return;
-  mc.innerHTML = '';
-  ec.innerHTML = '';
-  if (!model) return;
-  try {
-    const mm = model.internalModel.motionManager;
-    const groups = Object.keys(mm.motionGroups || {});
-    mc.innerHTML = groups.length
-      ? groups.map((g) => '<button class="chip" data-motion="' + escapeHtml(g) + '">' + escapeHtml(g) + '</button>').join('')
-      : '<span style="color:var(--muted);font-size:12px">' + t('stage.none') + '</span>';
-    const defs = (mm.expressionManager && mm.expressionManager.definitions) || [];
-    ec.innerHTML = defs.length
-      ? defs.map((d) => '<button class="chip" data-expr="' + escapeHtml(d.name) + '">' + escapeHtml(d.name) + '</button>').join('')
-      : '<span style="color:var(--muted);font-size:12px">' + t('stage.none') + '</span>';
-    mc.querySelectorAll('.chip').forEach((btn) => {
-      btn.onclick = () => { try { model.motion(btn.dataset.motion); } catch (e) { toast(t('stage.none') + ': ' + e.message, true); } };
-    });
-    ec.querySelectorAll('.chip').forEach((btn) => {
-      btn.onclick = () => { try { model.expression(btn.dataset.expr); } catch (e) { toast('表情失败: ' + e.message, true); } };
-    });
-  } catch (e) {
-    console.warn('refreshStageControls', e);
-  }
-}
+export function refreshStageControls() { /* 动作/表情列表在展台的「⋯」面板里，主窗口不再画 */ }
 
-export function talkMotionName() {
-  const model = getLive2dModel();
-  if (!model) return null;
-  try {
-    const groups = Object.keys(model.internalModel.motionManager.motionGroups || {});
-    if (!groups.length) return null;
-    const prefer = groups.find((g) => /tap|talk|speak|wave|greet/i.test(g));
-    return prefer || groups.find((g) => !/idle/i.test(g)) || groups[0];
-  } catch { return null; }
-}
+export function bindTtsMotion() { /* 口型跟随由展台自己处理 */ }
 
-export function idleMotionName() {
-  const model = getLive2dModel();
-  if (!model) return null;
-  try {
-    const groups = Object.keys(model.internalModel.motionManager.motionGroups || {});
-    return groups.find((g) => /idle/i.test(g)) || groups[0] || null;
-  } catch { return null; }
-}
-
-/** TTS 朗读期间驱动角色动作（由 main.js 在启动时调用一次） */
-export function bindTtsMotion() {
-  tts.onStart = () => {
-    const g = talkMotionName();
-    const model = getLive2dModel();
-    if (g && model) { try { model.motion(g); } catch { /* ignore */ } }
-  };
-  tts.onEnd = () => {
-    const g = idleMotionName();
-    const model = getLive2dModel();
-    if (g && model) { try { model.motion(g); } catch { /* ignore */ } }
-  };
-  tts.onError = (err) => toast('朗读失败: ' + (err && err.message ? err.message : err), true);
-}
-
-const STAGE_MODEL_SELECTS = ['m-model', 'stage-model'];
-
-// 「不使用模型」是明确的一档，不是「还没选」：选它就真的不加载模型（桌面展台也一起空掉）
-function modelOptionsHtml() {
-  return '<option value="-1">' + t('stage.noModelOption') + '</option>'
-    + state.models.map((m, i) => '<option value="' + i + '">' + escapeHtml(m.name) + '</option>').join('');
-}
-
-/** 用户是不是明确选了「不使用模型」 */
 export function stageModelDisabled() {
   const sel = $('m-model');
   return !!(sel && sel.value === '-1');
 }
 
-/** 两个下拉框（设置弹窗里的 + 舞台上的）始终同步 */
+/** 模型下拉框 / 输入区标签 同步 */
 export function updateStageModelName() {
   const main = $('m-model');
   if (!main) return;
-  const value = main.value;
   const opt = main.options[main.selectedIndex];
   const label = opt && opt.value !== '-1' ? opt.textContent : t('stage.noModel');
-  for (const id of STAGE_MODEL_SELECTS) {
+  for (const id of MODEL_SELECTS) {
     const el = $(id);
     if (!el || el === main) continue;
-    el.value = value;
-    el.title = label;
+    if (el.querySelector('option[value="' + main.value + '"]')) el.value = main.value;
   }
+  const tip = $('composer-model');
+  if (tip) tip.textContent = main.value === '-1' ? '' : String(label || '');
+}
+
+function modelOptionsHtml() {
+  const cur = $('m-model');
+  const prev = cur ? cur.value : '';
+  const parts = ['<option value="-1">' + escapeHtml(t('stage.noModelOption')) + '</option>'];
+  state.models.forEach((m, i) => {
+    parts.push('<option value="' + i + '">' + escapeHtml(String(m.name || '模型 ' + (i + 1))) + '</option>');
+  });
+  return { html: parts.join(''), prev };
 }
 
 export function populateStageModelSelect() {
-  const html = modelOptionsHtml();
-  for (const id of STAGE_MODEL_SELECTS) {
+  const { html, prev } = modelOptionsHtml();
+  for (const id of MODEL_SELECTS) {
     const el = $(id);
     if (!el) continue;
-    const prev = el.value;
     el.innerHTML = html;
-    // 记住用户的选择（包括「不使用模型」）；第一次进来默认用第一个模型，而不是空舞台
-    if (prev && el.querySelector('option[value="' + prev + '"]')) el.value = prev;
+    const wanted = prev || el.value;
+    if (wanted && el.querySelector('option[value="' + wanted + '"]')) el.value = wanted;
     else el.value = state.models.length ? '0' : '-1';
+  }
+  const main = $('m-model');
+  if (main) {
+    main.onchange = () => {
+      updateStageModelName();
+      syncOverlayModel();
+    };
   }
   updateStageModelName();
 }
 
 export function setStageModelIndex(idx) {
-  for (const id of STAGE_MODEL_SELECTS) {
+  for (const id of MODEL_SELECTS) {
     const sel = $(id);
     if (sel && !isNaN(idx) && idx >= 0) sel.value = String(idx);
   }
+  updateStageModelName();
   syncOverlayModel();
 }
 
-/** 缩放滑杆：直接改活模型的 scale */
-export function applyStageScale(scale) {
-  const m = getLive2dModel();
-  if (!m || !m.scale || typeof m.scale.set !== 'function') return false;
-  try { m.scale.set(Number(scale) || 0.3); return true; } catch (err) { return false; }
-}
-
-/** 当前舞台应显示的模型（跟随舞台下拉框，退化到角色卡绑定，再退化到第一个） */
+/** 当前应显示的模型：下拉框 → 角色卡绑定 → 第一个 */
 export function currentStageModel() {
   const sel = $('m-model');
   const raw = sel ? sel.value : '';
   const idx = parseInt(raw, 10);
-  if (raw === '-1') return null;   // 明确选了「不使用模型」：连展台也一起空着
+  if (raw === '-1') return null;
   if (!isNaN(idx) && idx >= 0 && state.models[idx]) return state.models[idx];
   const cur = state.current;
   if (cur && cur.data && cur.data.model) {
@@ -240,30 +127,98 @@ export function currentStageModel() {
   return state.models[0] || null;
 }
 
-/** 把当前模型同步给无边框悬浮展台（没开悬浮窗时是空操作） */
+/** 把当前模型推给展台；顺带把缩放也推过去 */
 export function syncOverlayModel() {
   try {
     const m = currentStageModel();
     window.api.overlaySetModel(m ? { url: m.url, name: m.name } : null);
-  } catch (err) { /* 悬浮窗不可用不影响主流程 */ }
+    pushStageScale(stageScale());
+  } catch (err) { /* 展台不可用不影响主流程 */ }
 }
 
-// ---------------- 模型管理（设置 → 模型设置） ----------------
+/** 主窗口 → 展台：动作 / 表情 / 缩放（走受控 IPC 广播） */
+export function stageMotion(name) {
+  const v = String(name || '').trim();
+  if (!v) return false;
+  try { window.api.overlaySendSession({ type: 'motion', name: v }); return true; } catch (err) { return false; }
+}
+
+export function stageExpression(name) {
+  const v = String(name || '').trim();
+  if (!v) return false;
+  try { window.api.overlaySendSession({ type: 'expression', name: v }); return true; } catch (err) { return false; }
+}
+
+export function pushStageScale(scale) {
+  const v = Number(scale);
+  if (!Number.isFinite(v)) return false;
+  try { window.api.overlaySendSession({ type: 'scale', value: v }); return true; } catch (err) { return false; }
+}
+
+/** 设置页的缩放滑杆：实时推给展台，松手后落盘 */
+export function applyStageScale(scale) {
+  pushStageScale(scale);
+  return true;
+}
+
+function bindStageScale() {
+  const el = $('stage-scale');
+  if (!el) return;
+  el.value = String(stageScale());
+  let timer = null;
+  el.addEventListener('input', (e) => {
+    const v = parseFloat(e.target.value) || stageScale();
+    pushStageScale(v);
+    clearTimeout(timer);
+    timer = setTimeout(() => {
+      const s = getSettings();
+      saveSettings(Object.assign({}, s, { stage: Object.assign({}, s.stage, { scale: v }) })).catch(() => {});
+    }, 400);
+  });
+}
+
+// ---------------- 展台窗口 ----------------
+export async function stageStatus() {
+  try { return await window.api.overlayStatus(); } catch (err) { return null; }
+}
+
+export async function toggleStage() {
+  try {
+    const on = await window.api.overlayToggle();
+    toast(on ? t('stage.shown') : t('stage.hidden'));
+    return on;
+  } catch (err) {
+    toast(String((err && err.message) || err), true);
+    return null;
+  }
+}
+
+export async function resetStagePosition() {
+  try {
+    await window.api.overlayReset();
+    toast(t('stage.resetDone'));
+    return true;
+  } catch (err) {
+    toast(String((err && err.message) || err), true);
+    return false;
+  }
+}
+
+// ---------------- 模型管理（设置 → Live2D 与展台） ----------------
 export function openModelModal() {
   populateStageModelSelect();
   renderLocalList();
   renderUrlList();
-  $('modal-model').classList.remove('hidden');
+  gotoSettings('stage');
 }
 
-/** 磁盘上的本地模型（可整个删掉） */
 export function renderLocalList() {
   const box = $('m-local-list');
   if (!box) return;
-  const locals = state.models.filter((m) => m.source !== 'url');
+  const locals = (state.models || []).filter((m) => m.source !== 'url');
   box.innerHTML = '';
   if (!locals.length) {
-    box.innerHTML = '<div class="empty">' + t('model.noLocal') + '</div>';
+    box.innerHTML = '<div class="mem-empty">' + escapeHtml(t('model.noLocal')) + '</div>';
     return;
   }
   for (const m of locals) {
@@ -272,22 +227,21 @@ export function renderLocalList() {
     const nm = document.createElement('span');
     nm.className = 'ui-name';
     nm.textContent = m.name;
-    const dir = document.createElement('span');
-    dir.className = 'ui-url';
-    dir.textContent = m.file;
+    const file = document.createElement('span');
+    file.className = 'ui-url';
+    file.textContent = m.file;
     const rm = document.createElement('button');
     rm.innerHTML = iconSvg('trash', 13);
     rm.title = t('model.delete');
     rm.dataset.delModel = m.file;
     rm.onclick = () => deleteLocalModel(m);
     item.appendChild(nm);
-    item.appendChild(dir);
+    item.appendChild(file);
     item.appendChild(rm);
     box.appendChild(item);
   }
 }
 
-/** 删除磁盘上的模型。这是唯一会真删用户文件的操作，所以在界面上必须再确认一次。 */
 export async function deleteLocalModel(m) {
   const used = (state.characters || []).filter((c) => c.data && c.data.model === m.file).length;
   let msg = t('model.deleteConfirm', { name: m.name });
@@ -295,12 +249,12 @@ export async function deleteLocalModel(m) {
   // eslint-disable-next-line no-alert
   if (!confirm(msg)) return;
   try {
-    state.models = await window.api.deleteModel({ dir: m.file });
+    state.models = await window.api.deleteModel({ dir: m.dir || m.file, name: m.name });
     hooks.populateModelSelect();
     populateStageModelSelect();
     rebuildLive2D();
     renderLocalList();
-    syncOverlayModel();
+    renderUrlList();
     toast(t('model.deleted', { name: m.name }));
   } catch (err) {
     toast(t('model.deleteFailed', { msg: String((err && err.message) || err) }), true);
@@ -308,43 +262,42 @@ export async function deleteLocalModel(m) {
 }
 
 export async function addModelFromFolder() {
-  const list = await window.api.addModelFolder();
-  if (list) {
+  try {
+    const list = await window.api.addModelFolder();
     await refreshModelsAfterAdd();
-    toast(t('model.imported'));
+    if (list) toast(t('model.imported', { n: Array.isArray(list) ? list.length : 0 }));
+  } catch (err) {
+    toast(t('model.deleteFailed', { msg: String((err && err.message) || err) }), true);
   }
 }
 
 export function showUrlForm() {
-  $('m-url-form').classList.remove('hidden');
-  $('m-url-input').focus();
+  const form = $('m-url-form');
+  if (form) form.classList.remove('hidden');
 }
 
 export async function submitUrlForm() {
   const url = $('m-url-input').value.trim();
-  const name = $('m-url-name').value.trim() || 'URL 模型';
-  if (!url) { toast(t('model.needUrl'), true); return; }
+  const name = $('m-url-name').value.trim();
+  if (!url) return;
   try {
-    const list = await window.api.addModelUrl({ name, url });
-    if (list) {
-      await refreshModelsAfterAdd();
-      $('m-url-form').classList.add('hidden');
-      $('m-url-input').value = '';
-      $('m-url-name').value = '';
-      toast(t('model.urlAdded'));
-    }
+    state.models = await window.api.addModelUrl({ url, name: name || undefined });
+    const form = $('m-url-form');
+    if (form) form.classList.add('hidden');
+    await refreshModelsAfterAdd();
+    toast(t('model.urlAdded', { name: name || url }));
   } catch (err) {
-    toast(t('model.addFailed', { msg: String(err && err.message || err) }), true);
+    toast(String((err && err.message) || err), true);
   }
 }
 
 export function renderUrlList() {
   const box = $('m-url-list');
   if (!box) return;
-  const urls = state.models.filter((m) => m.source === 'url');
+  const urls = (state.models || []).filter((m) => m.source === 'url');
   box.innerHTML = '';
   if (!urls.length) {
-    box.innerHTML = '<div class="empty">' + t('model.noUrl') + '</div>';
+    box.innerHTML = '<div class="mem-empty">' + escapeHtml(t('model.noUrl')) + '</div>';
     return;
   }
   for (const m of urls) {
@@ -365,6 +318,7 @@ export function renderUrlList() {
       populateStageModelSelect();
       rebuildLive2D();
       renderUrlList();
+      renderLocalList();
       toast(t('model.urlRemoved', { name: m.name }));
     };
     item.appendChild(nm);
@@ -380,9 +334,9 @@ export async function refreshModelsAfterAdd() {
   populateStageModelSelect();
   rebuildLive2D();
   renderLocalList();
-  syncOverlayModel();
+  renderUrlList();
   const current = state.current;
-  if (current && current.data.model) {
+  if (current && current.data && current.data.model) {
     const idx = state.models.findIndex((m) => m.file === current.data.model);
     if (idx >= 0) setStageModelIndex(idx);
   }

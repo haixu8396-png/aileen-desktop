@@ -598,7 +598,9 @@ function registerOverlayIpc() {
     model: overlayModel,
     overlay: overlaySettings(),
     theme: readSettings().theme || {},
-    language: readSettings().language || 'en',
+    // 展台与主窗口共享同一套外观：主题模式 + 强调色 + 减少动效
+    appearance: readSettings().appearance || { mode: 'light', accent: 'rose' },
+    language: readSettings().language || 'zh',
   }));
   // ---- 双窗口会话同步（0.8）----
   // 主窗口是会话的唯一所有者：它把消息/状态广播出去，展台只读地显示。

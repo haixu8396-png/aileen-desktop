@@ -8,6 +8,7 @@ import { getSettings, saveSettings, hasApiKey } from './settings.js';
 import { state } from './state.js';
 import { t } from './i18n.js';
 import { $, toast } from './dom.js';
+import { gotoPage } from './shell.js';
 import { streamChat } from './llm.js';
 import { buildSystemPrompt } from './characters.js';
 
@@ -268,13 +269,15 @@ export function openChessModal() {
   selected = null; lastMove = null; finished = false; busy = false;
   refreshLegal();
   renderAll();
-  el('modal-chess').classList.remove('hidden');
+  // 棋局就在设备页里（不再弹窗）
+  gotoPage('devices');
 }
 
 export function bindChess() {
   if (bound) return;
   bound = true;
-  el('chess-close').onclick = () => el('modal-chess').classList.add('hidden');
+  const closeBtn = el('chess-close');
+  if (closeBtn) closeBtn.onclick = () => { const m = el('modal-chess'); if (m) m.classList.add('hidden'); };
   el('chess-new').onclick = newGame;
   el('chess-undo').onclick = undo;
   el('chess-resign').onclick = () => { finished = true; renderStatus(); };
@@ -288,4 +291,19 @@ export function bindChess() {
       newGame();
     };
   });
+  // 设备页是常驻页面：初始化时就把棋盘画出来（旧版是弹窗打开时才画，
+  // 于是设备页里会是一个空白棋盘）
+  const c = getSettings().chess || {};
+  level = c.level || 3;
+  playerColor = c.playerColor === 'black' ? 'black' : 'white';
+  banter = !!c.banter;
+  el('chess-level').value = String(level);
+  el('chess-banter').checked = banter;
+  document.querySelectorAll('#chess-side-switch button').forEach((b) => b.classList.toggle('on', b.dataset.side === playerColor));
+  game = new Game(START_FEN);
+  fenStack = [game.exportFEN()];
+  flipped = playerColor === 'black';
+  selected = null; lastMove = null; finished = false; busy = false;
+  refreshLegal();
+  renderAll();
 }

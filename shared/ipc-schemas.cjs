@@ -90,7 +90,8 @@ const CHANNELS = {
   // ---- 双窗口会话同步（0.8）----
   // 主窗口 → 主进程 → 展台：消息 / 状态 / 角色切换的**只读广播**
   'overlay:session': v.args(v.object({
-    type: v.oneOf(['messages', 'status', 'character', 'models']),
+    // motion / expression / scale：主窗口 → 展台的演出控制（模型在展台那边加载）
+    type: v.oneOf(['messages', 'status', 'character', 'models', 'motion', 'expression', 'scale']),
     // 消息只允许 role + 纯文本（不带任何 HTML 片段，展台侧自己转义）
     messages: v.optional(v.arr(v.object({
       role: v.oneOf(['user', 'assistant']),
@@ -99,6 +100,8 @@ const CHANNELS = {
     status: v.optional(v.object({}, { allowUnknown: true })),
     character: v.optional(v.object({ name: v.optional(v.str({ max: 200 })) }, { allowUnknown: true })),
     models: v.optional(v.arr(v.object({ name: v.str({ max: 200 }) }, { allowUnknown: true }), { max: 100 })),
+    name: v.optional(v.str({ max: 200, allowEmpty: true })),
+    value: v.optional(v.num({ min: 0, max: 10 })),
   }, { allowUnknown: false })),
   // 展台 → 主进程 → 主窗口：用户在小面板里的操作请求
   'overlay:request': v.args(v.object({

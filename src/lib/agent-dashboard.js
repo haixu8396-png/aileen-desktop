@@ -33,8 +33,17 @@ let toolCalls = [];
 function applyPanelVisibility(on) {
   const drawer = $('agent-drawer');
   if (!drawer) return;
-  drawer.classList.toggle('hidden', !on);
-  // 用一个 body 级类名让主窗口的栅格知道「抽屉占了一列」，方便做宽度过渡
+  const scrim = $('drawer-scrim');
+  if (on) {
+    drawer.classList.remove('hidden');
+    if (scrim) scrim.classList.add('on');
+    requestAnimationFrame(() => drawer.classList.add('open'));
+  } else {
+    drawer.classList.remove('open');
+    if (scrim) scrim.classList.remove('on');
+    // 等滑出动画结束再真正隐藏（否则收起时是硬切）
+    setTimeout(() => { if (!drawer.classList.contains('open')) drawer.classList.add('hidden'); }, 180);
+  }
   if (document.body && document.body.classList) {
     document.body.classList.toggle('agent-drawer-open', !!on);
   }
@@ -320,14 +329,14 @@ export function initAgentDashboard() {
 /** 自检用：抽屉当前可见吗、日志有多少行、有没有待批 */
 export function dashboardState() {
   const drawer = $('agent-drawer');
-  const stage = $('stage-container');
   return {
     visible: !!drawer && !drawer.classList.contains('hidden'),
     status: ($('dash-status') || {}).textContent || '',
     task: ($('dash-task') || {}).textContent || '',
-    logLines: (($('ag-log') || $('dash-log') || {}).childElementCount) || 0,
+    logLines: (($('ag-log') || {}) .childElementCount) || 0,
     approvalVisible: !!$('ag-approval') && !$('ag-approval').classList.contains('hidden'),
-    // 0.8：Agent 干活时展台**必须可见**（旧版这里是 stageHidden，语义已经反过来）
-    stageHidden: !!stage && stage.classList.contains('hidden'),
+    // 0.8：主窗口里**没有** stage 容器 —— 角色只在独立展台窗口渲染。
+    // 保留这个字段是为了让老断言能表达「主窗口没有为 Agent 让位的东西」。
+    stageHidden: !document.getElementById('stage-container'),
   };
 }

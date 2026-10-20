@@ -69,6 +69,9 @@ const UI_LANGS = ['en', 'ja', 'zh'];
 const CHESS_SIDES = ['white', 'black'];
 const NARRATION_LEVELS = ['off', 'rare', 'natural', 'rich'];
 const PACING_LEVELS = ['off', 'rare', 'natural'];
+// 外观：三种主题模式 + 四个预设强调色（custom = 用户自己挑的两个颜色）
+const APPEARANCE_MODES = ['light', 'dark', 'system'];
+const ACCENT_IDS = ['rose', 'sage', 'lavender', 'amber', 'custom'];
 const HEX_COLOR = /^#[0-9a-fA-F]{6}$/;
 
 const asStr = (v, max = 500) => (typeof v === 'string' ? v.slice(0, max) : '');
@@ -112,6 +115,7 @@ function normalizeSettings(raw, defaults) {
   const embedding = pick('embedding');
   const memoryCfg = pick('memoryCfg');
   const knowledgeCfg = pick('knowledgeCfg');
+  const appearance = pick('appearance');
 
   const extraModels = Array.isArray(r.extraModels)
     ? r.extraModels
@@ -121,8 +125,17 @@ function normalizeSettings(raw, defaults) {
     : [];
 
   return {
-    // 界面语言：默认英文，另有日文与简体中文
-    language: asOneOf(r.language, UI_LANGS, 'en'),
+    // 界面语言：默认简体中文（写作与文案以中文为准，英/日紧随其后）
+    language: asOneOf(r.language, UI_LANGS, 'zh'),
+    // 外观：浅色暖纸是默认；强调色只换主色，不动结构性令牌
+    appearance: {
+      mode: asOneOf(appearance.mode, APPEARANCE_MODES, 'light'),
+      accent: asOneOf(appearance.accent, ACCENT_IDS, 'rose'),
+      reduceMotion: asBool(appearance.reduceMotion, false),
+      custom: appearance.custom && typeof appearance.custom === 'object'
+        ? { primary: asHex(appearance.custom.primary, '#c87898'), secondary: asHex(appearance.custom.secondary, '#a99ac7') }
+        : null,
+    },
     llm: {
       provider: asOneOf(llm.provider, LLM_PROVIDERS, 'deepseek'),
       baseUrl: asUrl(llm.baseUrl),
@@ -276,5 +289,6 @@ function normalizeAuthorizationCfg(raw) {
 
 module.exports = {
   deepMerge, sanitizeFileName, isHttpUrl, isInsidePath, normalizeSettings, UI_LANGS,
+  APPEARANCE_MODES, ACCENT_IDS,
   LLM_PROVIDERS, TTS_PROVIDERS, STT_PROVIDERS, EMBEDDING_PROVIDERS,
 };

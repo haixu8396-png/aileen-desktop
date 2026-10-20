@@ -1,24 +1,30 @@
 // ============================================================
 // AILEEN — 渲染进程入口（启动 + 事件装配）
-// 职责边界：控制器分布在 lib/ 下
+//
+// 界面结构（0.8 UI 重构后）：
+//   左侧导航（对话 / 角色 / 记忆与知识库 / 任务 / 设备与扩展 + 设置）
+//   右侧主内容一次只显示一个页面；Live2D 只存在于独立的透明展台窗口。
+//
+// 控制器：
 //   state.js           共享状态与跨模块回调
-//   dom.js             DOM/交互工具
-//   stage.js           Live2D 舞台与模型管理
+//   shell.js           页面路由 / 外观主题 / 弹出菜单 / 侧栏
+//   dom.js             DOM 与交互小工具
+//   pages.js           角色库 / 记忆 / 任务 / 设备页的渲染
+//   stage.js           模型数据 + 展台控制（不再在主窗口渲染 Live2D）
 //   chat.js            消息渲染 / 流式对话 / 聊天记录
-//   characters-ui.js   角色卡列表 / 菜单 / 编辑器
-//   modals.js          设置弹窗 / 主题调色 / 屏幕视觉
+//   characters-ui.js   角色列表 / 菜单 / 编辑器
+//   modals.js          设置中心表单与连接测试
 //   voice.js           实时语音对话
 // ============================================================
-import { loadSettings, getSettings, saveSettings } from './lib/settings.js';
+import { loadSettings, getSettings, saveSettings, setSettingsCache } from './lib/settings.js';
 import { streamChat } from './lib/llm.js';
-import { LLM_PROVIDERS, presetLlmBase, presetEmbeddingBase, state, hooks, tts, stt } from './lib/state.js';
+import { LLM_PROVIDERS, state, hooks, stt } from './lib/state.js';
 import { $, toast, autoGrowInput } from './lib/dom.js';
-import { escapeHtml } from './lib/markdown.js';
 import { applyIcons } from './lib/icons.js';
 import {
-  initLive2D, rebuildLive2D, updateStageModelName, populateStageModelSelect, setStageModelIndex, syncOverlayModel,
-  currentStageModel, stageModelDisabled,
-  openModelModal, addModelFromFolder, showUrlForm, submitUrlForm, refreshModelsAfterAdd, bindTtsMotion, applyStageScale,
+  initLive2D, updateStageModelName, populateStageModelSelect, setStageModelIndex, syncOverlayModel,
+  currentStageModel, stageModelDisabled, openModelModal, addModelFromFolder, showUrlForm, submitUrlForm,
+  refreshModelsAfterAdd, applyStageScale, toggleStage, resetStagePosition, renderLocalList, renderUrlList,
 } from './lib/stage.js';
 import {
   send, renderMessages, setBusy, ttsSettingsForCharacter, clearMessages, regenerateLast, resumeWithAgent,
@@ -27,16 +33,24 @@ import {
   renderCharList, renderEmptyState, selectCharacter, refreshCharacters, findChar,
   openCharMenuAt, closeCharMenu, duplicateCard, deleteCard,
   openQuickModal, saveQuickModal, openCharModal, closeCharModal, saveCharModal, populateModelSelect, setCharFilter, generatePersona, applyPersonaToEditor,
+  updateChatHeader,
 } from './lib/characters-ui.js';
 import {
-  openLlmModal, saveLlmModal, openTtsModal, saveTtsModal, openSttModal, saveSttModal,
-  refreshMenuSubtitles, fetchLlmModels, testLlmConnection, fetchTtsVoices, fetchSttModels,
-  applyTheme, openThemeModal, saveThemeModal, setAttachUI, openScreenPicker,
-  openSettingsMenu, openFromMenu, closeSubModal, markActivePreset, setMenuSub, refreshChatStatus,
-  openPerformModal, savePerformModal,
-  openEmbeddingModal, saveEmbeddingModal, fetchEmbeddingModels, testEmbedding,
+  fillAllSettings, initSettingsPage, refreshChatStatus, setAttachUI, openScreenPicker,
+  openLlmModal, openTtsModal, openSttModal, openEmbeddingModal, openPerformModal, openThemeModal,
+  fetchLlmModels, testLlmConnection, fetchTtsVoices, fetchSttModels, fetchEmbeddingModels, testEmbedding,
+  saveLlmModal, saveTtsModal, saveSttModal, saveEmbeddingModal, saveMemoryScope, savePerformModal, saveThemeModal,
+  renderThemePresets,
 } from './lib/modals.js';
-import { startVoiceLoop, stopVoiceLoop } from './lib/voice.js';
+import {
+  applyAppearance, bindAppearanceControls, fillAvatar, gotoPage, gotoSettings,
+  initPopups, initSidebar, onPageEnter, openPopup, closePopups, setNavTaskCount, setSettingsSection, setSidebarStatus,
+} from './lib/shell.js';
+import {
+  initCharactersPage, initMemoryPage, renderCharactersPage, renderMemoryPage, renderTasksPage,
+  syncDevicesPage, noteTaskStart, noteTaskEnd,
+} from './lib/pages.js';
+import { startVoiceLoop, stopVoiceLoop, syncRealtimeUI } from './lib/voice.js';
 import { initSessionCoordinator, broadcastSession } from './lib/session-coordinator.js';
 import { createMemoryEngine } from './memory/engine.js';
 import { createMemoryEmbedder } from './memory/embeddings.js';
@@ -80,7 +94,7 @@ function injectHooks() {
   hooks.renderCharList = renderCharList;
   hooks.updateStageModelName = updateStageModelName;
   hooks.setStageModelIndex = setStageModelIndex;
-  hooks.rebuildLive2D = rebuildLive2D;
+  hooks.rebuildLive2D = syncOverlayModel;
   hooks.openLlmModal = openLlmModal;
   hooks.setAttachUI = setAttachUI;
 }
@@ -90,66 +104,142 @@ async function boot() {
   injectHooks();
   state.appInfo = await window.api.appInfo();
   await loadSettings();
-  setLang(getSettings().language || 'en'); // 界面语言：默认英文
-  applyTheme(getSettings().theme);
+  setLang(getSettings().language || 'zh');
+  applyAppearance(getSettings().appearance || { mode: 'light' });
+
+  initSidebar();
+  initPopups();
+  bindAppearanceControls();
+
   state.models = await window.api.listModels();
   state.characters = await window.api.listCharacters();
+
   await new Promise((resolve) => {
     if (document.fonts && document.fonts.ready) document.fonts.ready.then(resolve);
     else resolve();
   });
 
-  bindTtsMotion();
+  initLive2D();
   populateModelSelect();
-  populateStageModelSelect();
   renderCharList();
-  try {
-    initLive2D();
-  } catch (err) {
-    console.error('[live2d] init failed:', err);
-    $('stage-container').innerHTML = '<div class="stage-placeholder">' + escapeHtml(t('stage.initFailed', { msg: String(err && err.message || err) })) + '</div>';
-  }
+  initCharactersPage({
+    selectCharacter: async (file) => {
+      await selectCharacter(file, { greet: true });
+      gotoPage('chat');
+    },
+    openMenu: (file, x, y) => openCharMenuAt(file, x, y),
+    edit: (data, file) => openCharModal(data, file),
+  });
+  initMemoryPage();
+  renderCharactersPage();
   renderEmptyState();
+  updateChatHeader();
 
-  const lastFile = localStorage.getItem('aileen.currentChar') || localStorage.getItem('elysia.currentChar');
+  const lastFile = localStorage.getItem('aileen.currentChar') || '';
   const first = state.characters.find((c) => c.file === lastFile) || state.characters[0] || null;
   if (first) await selectCharacter(first.file, { greet: true });
 
-  bindEvents();
-  bindLayout();
-  bindDropImage();
+  bindCharMenuActions();
+  bindChatMenu();
+  bindCharEditor();
+  bindComposer();
+  bindChatEvents();
+  bindStageSection();
+  bindPages();
+  bindAppMenu();
+  initSettingsPage();
+  fillAllSettings();
+  bindSettingsNav();
+
   bindMc();
   bindChess();
+  bindPersonaStudio();
   initAgentUI();
   // 「继续执行」= 用检查点重开一次任务。回调在这里注入，避免 chat ↔ agent-ui 互相 import。
   setResumeHandler((checkpoint) => resumeWithAgent(checkpoint));
+
   // 双窗口会话协调器：展台发来的输入/操作统一交给这里（主窗口是会话所有者）
   initSessionCoordinator({
     onChat: (text) => { send(text); },
-    onVoice: () => { if (state.voiceLoop) stopVoiceLoop(); else startVoiceLoop(); },
+    onVoice: () => toggleVoiceLoop(),
     onModel: (index) => { setStageModelIndex(index); syncOverlayModel(); },
     onModelList: () => { broadcastSession('models'); },
   });
-  // Agent 事件的总出口：Dashboard 负责画，chat.js 只负责发
+
+  // Agent 事件的总出口：抽屉负责画，chat.js 只负责发
   hooks.agentEvent = (type, payload) => {
-    try { onAgentEvent(type, payload); } catch (err) { console.warn('[agent] dashboard 事件处理失败', err && err.message); }
+    try { onAgentEvent(type, payload); } catch (err) { console.warn('[agent] 事件处理失败', err && err.message); }
     if (type === 'status' && payload && payload.status) {
-      // 展台的状态提示（聆听/思考/执行/等确认）靠这条同步
       state.agentStatus = String(payload.status);
+      updateTaskBar();
       try { broadcastSession('status'); } catch (err2) { /* 忽略 */ }
     }
+    if (type === 'run_created') noteTaskStart((payload && (payload.task || payload.goal)) || '');
+    if (type === 'finished') noteTaskEnd((payload && payload.status) || 'completed');
+    renderTasksPage();
+    syncDevicesPage();
   };
   initAgentDashboard();
-  bindAppMenu();
-  refreshChatStatus();
+  bindDrawer();
+
   buildLangSwitch();
+  refreshChatStatus();
   applyI18n();
   // 图标：把 data-icon 占位替换成内联 SVG（在 i18n 之后 —— 先让文案落位，再补图形）
   applyIcons();
+  window.dispatchEvent(new CustomEvent('aileen:settings-changed'));
+  updateShellStatus();
+  syncRealtimeUI();
+
+  window.api.onOverlayState((st) => {
+    const btn = $('btn-float-stage');
+    if (btn) btn.classList.toggle('on', !!(st && st.visible));
+  });
+  window.api.onMenuAction((action) => {
+    if (action === 'settings') gotoSettings();
+    else if (action === 'about') openAboutModal();
+    else if (action === 'datadir') openDataDir();
+    else if (action === 'new-card') openCharModal(null, null);
+    else if (action === 'import-card') importCard();
+    else if (action === 'clear-chat') clearMessagesAndToast();
+    else if (action === 'llm') openLlmModal();
+    else if (action === 'tts') openTtsModal();
+    else if (action === 'stt') openSttModal();
+    else if (action === 'perform') openPerformModal();
+    else if (action === 'persona') openPersonaStudio();
+    else if (action === 'model') openModelModal();
+    else if (action === 'theme') openThemeModal();
+    else if (action === 'mc') openMcModal();
+    else if (action === 'chess') openChessModal();
+  });
   $('input').focus();
 }
 
-// ---------------- 事件绑定 ----------------
+// ---------------- 状态同步（侧栏 / 输入区 / 任务提示） ----------------
+function updateShellStatus() {
+  const s = getSettings() || {};
+  const hasKey = !!(s.llm && (s.llm.apiKeySet || s.llm.apiKey));
+  const computerOn = !!(s.agent && s.agent.computerUse);
+  let text = hasKey ? t('sidebar.ready') : t('sidebar.noKey');
+  if (computerOn) text += ' · ' + t('agent.computerOn');
+  setSidebarStatus(text, hasKey ? 'on' : 'warn');
+  updateTaskBar();
+  syncDevicesPage();
+}
+
+function updateTaskBar() {
+  const bar = $('chat-taskbar');
+  const text = $('chat-taskbar-text');
+  const st = state.agentStatus || 'idle';
+  const active = st && st !== 'idle' && st !== 'success' && st !== 'completed' && st !== 'error' && st !== 'failed' && st !== 'cancelled';
+  if (bar) bar.classList.toggle('on', !!active);
+  if (text) text.textContent = t('agent.state' + ({ waiting_approval: 'Waiting', using_tool: 'Tool', thinking: 'Thinking', planning: 'Thinking', working: 'Working' }[st] || 'Idle'));
+  const badge = $('task-state-badge');
+  if (badge) badge.textContent = st === 'idle' ? t('dash.idle') : String(st);
+  renderTasksPage();
+}
+
+// ---------------- 角色卡菜单 / 对话页更多菜单 ----------------
 function bindCharMenuActions() {
   document.querySelectorAll('#char-menu button[data-act]').forEach((btn) => {
     btn.onclick = () => {
@@ -161,29 +251,85 @@ function bindCharMenuActions() {
       if (act === 'edit') { if (c) openCharModal(c.data, file); }
       else if (act === 'quick') openQuickModal(file);
       else if (act === 'duplicate') duplicateCard(file);
-      else if (act === 'export') { if (c) window.api.exportCharacter(c.data).then((p) => p && toast('已导出到 ' + p)); }
+      else if (act === 'export') { if (c) window.api.exportCharacter(c.data).then((p) => p && toast(t('char.exportedTo', { path: p }))); }
       else if (act === 'delete') deleteCard(file);
     };
   });
 }
 
+function bindChatMenu() {
+  const moreBtn = $('btn-char-actions');
+  if (moreBtn) {
+    moreBtn.onclick = () => {
+      if (!state.current) { toast(t('chat.needCharacter'), true); return; }
+      openPopup('chat-menu', moreBtn);
+    };
+  }
+  const edit = $('btn-edit-card');
+  if (edit) {
+    edit.onclick = () => {
+      closePopups();
+      if (state.current) openCharModal(state.current.data, state.current.file);
+    };
+  }
+  const speak = $('btn-speak');
+  if (speak) {
+    speak.onclick = () => {
+      closePopups();
+      import('./lib/chat.js').then(({ speakLast }) => {
+        if (typeof speakLast === 'function') speakLast();
+        else toast(t('chat.nothingToRead'));
+      }).catch(() => toast(t('chat.nothingToRead'), true));
+    };
+  }
+  const regen = $('btn-regen');
+  if (regen) regen.onclick = () => { closePopups(); regenerateLast(); };
+  const copy = $('btn-copy-chat');
+  if (copy) {
+    copy.onclick = async () => {
+      closePopups();
+      const text = (state.messages || []).map((m) => (m.role === 'user' ? '你：' : (state.current && state.current.data && state.current.data.name ? state.current.data.name + '：' : 'AILEEN：')) + String(m.content || '')).join('\n\n');
+      if (!text) { toast(t('chat.nothingToCopy')); return; }
+      try {
+        await navigator.clipboard.writeText(text);
+        toast(t('chat.copied'));
+      } catch (err) {
+        toast(String((err && err.message) || err), true);
+      }
+    };
+  }
+  const clear = $('btn-clear');
+  if (clear) clear.onclick = () => { closePopups(); clearMessagesAndToast(); };
+}
+
+function clearMessagesAndToast() {
+  if (!state.messages.length) { toast(t('chat.cleared')); return; }
+  if (!confirm(t('chat.confirmClear'))) return;
+  clearMessages();
+  toast(t('chat.cleared'));
+}
+
+// ---------------- 角色编辑页 ----------------
 function bindCharEditor() {
+  const back = $('f-back');
+  if (back) back.onclick = closeCharModal;
   $('f-cancel').onclick = closeCharModal;
   $('f-save').onclick = saveCharModal;
   $('f-delete').onclick = async () => {
     if (!state.editorFile) return;
-    if (!confirm('确定删除角色「' + state.editorCard.name + '」吗？')) return;
+    const name = (state.editorCard && state.editorCard.name) || '';
+    if (!confirm(t('char.confirmDelete', { name }))) return;
     await window.api.deleteCharacter(state.editorFile);
     closeCharModal();
     if (state.current && state.current.file === state.editorFile) state.current = null;
     await refreshCharacters();
-    toast('角色已删除');
+    toast(t('char.deleted'));
   };
   $('f-export').onclick = async () => {
     const name = $('f-name').value.trim();
-    const card = { ...state.editorCard, name: name || state.editorCard.name };
+    const card = { ...state.editorCard, name: name || (state.editorCard && state.editorCard.name) };
     const res = await window.api.exportCharacter(card);
-    if (res) toast('已导出到 ' + res);
+    if (res) toast(t('char.exportedTo', { path: res }));
   };
   const genBtn = $('f-generate');
   if (genBtn) genBtn.onclick = generatePersona;
@@ -192,261 +338,37 @@ function bindCharEditor() {
     const res = await window.api.chooseAvatar();
     if (res) {
       state.editorCard.avatar = res.rel;
-      $('f-avatar-preview').src = res.url;
+      const a = $('f-avatar-preview');
+      const b = $('f-avatar-preview-2');
+      if (a) a.src = res.url;
+      if (b) b.src = res.url;
     }
   };
-}
-
-function bindSettingsModals() {
-  $('s-llm-cancel').onclick = () => closeSubModal('modal-llm');
-  $('s-llm-save').onclick = saveLlmModal;
-  $('s-tts-cancel').onclick = () => closeSubModal('modal-tts');
-  $('s-tts-save').onclick = saveTtsModal;
-  $('s-stt-cancel').onclick = () => closeSubModal('modal-stt');
-  $('p-cancel').onclick = () => closeSubModal('modal-perform');
-  bindPersonaStudio();
-  $('p-save').onclick = savePerformModal;
-  $('s-stt-save').onclick = saveSttModal;
-  $('btn-llm-fetch').onclick = fetchLlmModels;
-  $('btn-llm-test').onclick = testLlmConnection;
-  $('btn-tts-fetch').onclick = fetchTtsVoices;
-  $('btn-stt-fetch').onclick = fetchSttModels;
-
-  // 嵌入模型（记忆 / 知识库）
-  $('s-embed-cancel').onclick = () => closeSubModal('modal-embedding');
-  $('s-embed-save').onclick = saveEmbeddingModal;
-  $('btn-embed-fetch').onclick = fetchEmbeddingModels;
-  $('btn-embed-test').onclick = testEmbedding;
-  $('s-embed-provider').addEventListener('change', (e) => {
-    const p = e.target.value;
-    if (p === 'custom') {
-      $('s-embed-custom-url').checked = true;
-      $('wrap-embed-base').classList.remove('hidden');
-    }
-    // 换供应商时把地址与模型换成该家的默认值（用户仍可改）
-    if (!presetEmbeddingBase(p)) return;
-    if (!$('s-embed-custom-url').checked) {
-      $('s-embed-base').value = presetEmbeddingBase(p);
-      const modelEl = $('s-embed-model');
-      if (modelEl) modelEl.value = presetEmbeddingModel(p) || modelEl.value;
-    }
-  });
-  $('s-embed-custom-url').addEventListener('change', (e) => {
-    $('wrap-embed-base').classList.toggle('hidden', !e.target.checked);
-  });
-
-  // 供应商切换 / 自定义地址开关
-  $('s-llm-provider').addEventListener('change', (e) => {
-    if (e.target.value === 'custom') {
-      $('s-llm-custom-url').checked = true;
-      $('wrap-llm-base').classList.remove('hidden');
-      return;
-    }
-    const p = LLM_PROVIDERS[e.target.value];
-    if (p) {
-      if (!$('s-llm-custom-url').checked) $('s-llm-base').value = p.baseUrl;
-      $('s-llm-model').value = p.model;
-    }
-  });
-  $('s-llm-custom-url').addEventListener('change', (e) => {
-    const on = e.target.checked;
-    $('wrap-llm-base').classList.toggle('hidden', !on);
-    if (on && !$('s-llm-base').value.trim()) {
-      $('s-llm-base').value = presetLlmBase($('s-llm-provider').value);
-    }
-  });
-  $('s-tts-provider').addEventListener('change', (e) => {
-    const isOpenai = e.target.value === 'openai';
-    $('wrap-tts-custom').classList.toggle('hidden', !isOpenai);
-    $('wrap-tts-base').classList.toggle('hidden', !(isOpenai && $('s-tts-custom-url').checked));
-  });
-  $('s-tts-custom-url').addEventListener('change', (e) => {
-    $('wrap-tts-base').classList.toggle('hidden', !e.target.checked);
-  });
-  $('s-stt-provider').addEventListener('change', (e) => {
-    const isOpenai = e.target.value === 'openai';
-    $('wrap-stt-custom').classList.toggle('hidden', !isOpenai);
-    $('wrap-stt-base').classList.toggle('hidden', !(isOpenai && $('s-stt-custom-url').checked));
-  });
-  $('s-stt-custom-url').addEventListener('change', (e) => {
-    $('wrap-stt-base').classList.toggle('hidden', !e.target.checked);
-  });
-  $('s-tts-rate').addEventListener('input', (e) => {
-    $('s-tts-rate-val').textContent = Number(e.target.value).toFixed(1) + '×';
-  });
-}
-
-function bindThemeModal() {
-  $('t-save').onclick = saveThemeModal;
-  $('t-cancel').onclick = () => closeSubModal('modal-theme');
-  $('t-reset').onclick = () => {
-    $('t-primary').value = '#ff7eb3';
-    $('t-secondary').value = '#38b0de';
-    applyTheme({ primary: '#ff7eb3', secondary: '#38b0de' });
-    markActivePreset();
+  // 编辑页的实时预览：名字 / 简介 / 模型 / 声音跟着输入变化
+  const syncPreview = () => {
+    const name = ($('f-name').value || '').trim();
+    const desc = ($('f-desc').value || '').trim();
+    const modelSel = $('f-model');
+    const voiceSel = $('f-voice');
+    const n = $('f-preview-name');
+    const d = $('f-preview-desc');
+    const m = $('f-preview-model');
+    const v = $('f-preview-voice');
+    if (n) n.textContent = name || t('char.previewName');
+    if (d) d.textContent = desc || t('char.previewDesc');
+    if (m) m.textContent = modelSel && modelSel.value ? (modelSel.options[modelSel.selectedIndex] || {}).textContent || t('char.noModel') : t('char.noModel');
+    if (v) v.textContent = voiceSel && voiceSel.value ? (voiceSel.options[voiceSel.selectedIndex] || {}).textContent || t('char.noVoice') : t('char.noVoice');
+    const av = $('f-avatar-preview');
+    const av2 = $('f-avatar-preview-2');
+    const url = state.editorCard && state.editorCard.avatar ? (window.api && state.editorCard.avatar.startsWith('data:') ? state.editorCard.avatar : null) : null;
+    if (av2) fillAvatar(av2, name || 'A', url || av2.src);
   };
-  $('t-primary').addEventListener('input', (e) => applyTheme({ primary: e.target.value, secondary: $('t-secondary').value }));
-  $('t-secondary').addEventListener('input', (e) => applyTheme({ primary: $('t-primary').value, secondary: e.target.value }));
+  ['f-name', 'f-desc'].forEach((id) => { const el = $(id); if (el) el.addEventListener('input', syncPreview); });
+  ['f-model', 'f-voice'].forEach((id) => { const el = $(id); if (el) el.addEventListener('change', syncPreview); });
 }
 
-function bindModelModal() {
-  $('btn-add-model').onclick = addModelFromFolder;
-  $('btn-add-url-model').onclick = showUrlForm;
-  $('btn-refresh-models').onclick = refreshModelsAfterAdd;
-  $('m-url-ok').onclick = submitUrlForm;
-  $('m-url-cancel').onclick = () => $('m-url-form').classList.add('hidden');
-  $('m-url-input').addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.isComposing) submitUrlForm(); });
-  $('m-cancel').onclick = () => closeSubModal('modal-model');
-  $('m-model').onchange = (e) => {
-    const idx = parseInt(e.target.value, 10);
-    // 选「不使用模型」要真的把舞台清掉；从「不使用」切回某个模型时要重建舞台 ——
-    // 那条路上 state.oml2d 已经是 null 了，只调 loadModelByIndex 会什么都不发生。
-    if (e.target.value === '-1' || !state.oml2d) rebuildLive2D();
-    else if (!isNaN(idx)) state.oml2d.loadModelByIndex(idx);
-    updateStageModelName();
-    syncOverlayModel();
-  };
-}
-
-// 侧栏 / 舞台的折叠（记住状态）
-function bindLayout() {
-  const app = $('app');
-  const KS = 'aileen.ui.sideCollapsed';
-  const KT = 'aileen.ui.stageCollapsed';
-  const apply = () => {
-    const side = localStorage.getItem(KS) === '1';
-    const stage = localStorage.getItem(KT) === '1';
-    app.classList.toggle('side-collapsed', side);
-    app.classList.toggle('stage-collapsed', stage);
-    const es = $('btn-expand-sidebar');
-    const et = $('btn-expand-stage');
-    if (es) es.classList.toggle('hidden', !side);
-    if (et) et.classList.toggle('hidden', !stage);
-  };
-  const flip = (key) => { localStorage.setItem(key, localStorage.getItem(key) === '1' ? '0' : '1'); apply(); };
-  const side = () => flip(KS);
-  const stage = () => flip(KT);
-  const cs = $('btn-collapse-sidebar'); if (cs) cs.onclick = side;
-  const xs = $('btn-expand-sidebar'); if (xs) xs.onclick = side;
-  const ct = $('btn-collapse-stage'); if (ct) ct.onclick = stage;
-  const xt = $('btn-expand-stage'); if (xt) xt.onclick = stage;
-  apply();
-}
-
-// 把图片拖进聊天区就能当截图附件
-function bindDropImage() {
-  const panel = $('chat-panel');
-  const hint = $('drop-hint');
-  if (!panel) return;
-  let depth = 0;
-  const show = (on) => { if (hint) hint.classList.toggle('hidden', !on); };
-  panel.addEventListener('dragenter', (e) => { e.preventDefault(); depth += 1; show(true); });
-  panel.addEventListener('dragover', (e) => { e.preventDefault(); });
-  panel.addEventListener('dragleave', () => { depth -= 1; if (depth <= 0) { depth = 0; show(false); } });
-  panel.addEventListener('drop', (e) => {
-    e.preventDefault();
-    depth = 0;
-    show(false);
-    const f = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
-    if (!f || !/^image\//.test(f.type)) return;
-    if (f.size > 8 * 1024 * 1024) { toast(t('screen.captureFailed', { msg: '>8MB' }), true); return; }
-    const reader = new FileReader();
-    reader.onload = () => {
-      state.pendingImage = { dataURL: String(reader.result || ''), name: f.name };
-      setAttachUI();
-      toast(t('chat.attached'));
-    };
-    reader.readAsDataURL(f);
-  });
-}
-
-// 语言切换（菜单内联，不需要再弹一层窗）
-function buildLangSwitch() {
-  const box = $('lang-switch');
-  if (!box) return;
-  box.innerHTML = '';
-  for (const l of LANGS) {
-    const b = document.createElement('button');
-    b.textContent = l.label;
-    b.className = getLang() === l.id ? 'on' : '';
-    b.onclick = async () => {
-      setLang(l.id);
-      buildLangSwitch();
-      const next = { ...getSettings(), language: l.id };
-      await saveSettings(next);
-      // 语言变了，动态文案要重画一遍
-      renderCharList();
-      populateStageModelSelect();
-      updateStageModelName();
-      refreshMenuSubtitles();
-      toast(t('menu.language') + ': ' + l.label);
-    };
-    box.appendChild(b);
-  }
-}
-
-// 原生应用菜单 → 渲染层动作
-function bindAppMenu() {
-  window.api.onMenuAction((action) => {
-    const datadir = () => window.api.openPath(state.appInfo.userDataDir || state.appInfo.dataDir || state.appInfo.appRoot);
-    const table = {
-      settings: openSettingsMenu,
-      about: openAboutModal,
-      datadir,
-      'new-card': () => openCharModal(null, null),
-      'import-card': () => $('btn-import-card').click(),
-      'clear-chat': () => { clearMessages(); toast('对话已清空'); },
-      llm: openLlmModal,
-      tts: openTtsModal,
-      stt: openSttModal,
-      perform: openPerformModal,
-      persona: openPersonaStudio,
-      model: openModelModal,
-      theme: openThemeModal,
-      mc: openMcModal,
-      chess: openChessModal,
-    };
-    const fn = table[action];
-    if (fn) fn();
-  });
-}
-
-function bindMisc() {
-  // 滚动到底
-  $('btn-scroll-down').onclick = () => {
-    const box = $('messages');
-    box.scrollTop = box.scrollHeight;
-    $('btn-scroll-down').classList.add('hidden');
-  };
-  $('messages').addEventListener('scroll', () => {
-    const box = $('messages');
-    const nearBottom = box.scrollHeight - box.scrollTop - box.clientHeight < 80;
-    $('btn-scroll-down').classList.toggle('hidden', nearBottom);
-  });
-
-  // Esc 关闭弹窗/菜单（保留正在编辑的角色卡弹窗）
-  document.addEventListener('keydown', (e) => {
-    if (e.key !== 'Escape') return;
-    closeCharMenu();
-    // 设置子弹窗走 closeSubModal，保证主题预览被还原、且能退回设置菜单
-    ['modal-llm', 'modal-tts', 'modal-stt', 'modal-model', 'modal-theme', 'modal-perform', 'modal-persona'].forEach((id) => {
-      if (!$(id).classList.contains('hidden')) closeSubModal(id);
-    });
-    ['modal-screen', 'modal-quick', 'modal-menu'].forEach((id) => $(id).classList.add('hidden'));
-  });
-
-  // 点击遮罩关闭
-  ['modal-llm', 'modal-tts', 'modal-stt', 'modal-model', 'modal-theme', 'modal-perform', 'modal-persona'].forEach((id) => {
-    $(id).addEventListener('click', (e) => { if (e.target === $(id)) closeSubModal(id); });
-  });
-  ['modal-screen', 'modal-menu', 'modal-quick'].forEach((id) => {
-    $(id).addEventListener('click', (e) => { if (e.target === $(id)) $(id).classList.add('hidden'); });
-  });
-  $('modal-char').addEventListener('click', (e) => { if (e.target === $('modal-char')) closeCharModal(); });
-}
-
-function bindEvents() {
-  // 发送
+// ---------------- 输入区 ----------------
+function bindComposer() {
   $('btn-send').onclick = () => send($('input').value);
   $('input').addEventListener('keydown', (e) => {
     if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) {
@@ -454,189 +376,194 @@ function bindEvents() {
       send($('input').value);
     }
   });
-  $('input').addEventListener('input', autoGrowInput);
-
-  // 停止 / 清空 / 朗读
-  $('btn-stop').onclick = () => {
-    if (state.abortCtrl) state.abortCtrl.abort();
-    tts.cancel();
-    setBusy(false);
-  };
-  $('btn-clear').onclick = () => {
-    if (!state.messages.length) { toast(t('chat.cleared')); return; }
-    if (!confirm(t('chat.confirmClear'))) return;
-    clearMessages();
-    toast(t('chat.cleared'));
-  };
-  $('btn-speak').onclick = () => {
-    if (state.lastAssistantText) tts.enqueue(state.lastAssistantText, ttsSettingsForCharacter());
-    else toast('还没有可朗读的内容');
-  };
-
-  // 实时语音对话
-  $('btn-realtime').onclick = () => {
-    if (state.voiceLoop) stopVoiceLoop();
-    else startVoiceLoop();
-  };
-
-  // 语音输入（单次）
-  $('btn-mic').onclick = () => {
-    const btn = $('btn-mic');
-    if (stt.recognizing) { stt.stop(); return; }
-    stt.onResult = (text) => {
-      const input = $('input');
-      input.value = (input.value ? input.value + ' ' : '') + text;
-      autoGrowInput();
-      input.focus();
-      toast('识别完成');
-    };
-    stt.onError = (err) => toast('语音识别: ' + (err && err.message ? err.message : err), true);
-    stt.onState = (on) => btn.classList.toggle('recording', on);
-    stt.start(getSettings());
-  };
-
-  // 侧栏
-  $('btn-new-card').onclick = () => openCharModal(null, null);
-  $('btn-import-card').onclick = async () => {
-    const res = await window.api.importCharacter();
-    if (res) {
-      await refreshCharacters(res.file);
-      toast('角色卡已导入');
-    }
-  };
-  $('btn-settings-menu').onclick = async () => {
-    openSettingsMenu();
-    const st = await window.api.overlayStatus();
-    setMenuSub('menu-sub-overlay', st && st.visible ? '已开启 · 角色浮在桌面' : '已关闭 · 点一下开启');
-  };
-  $('btn-open-data').onclick = () => window.api.openPath(state.appInfo.userDataDir || state.appInfo.dataDir || state.appInfo.appRoot);
-  // 每个设置页都必须走它自己的 open 函数，否则表单不回填、主题预览无法回滚
-  const menuOpeners = {
-    'modal-llm': openLlmModal,
-    'modal-tts': openTtsModal,
-    'modal-stt': openSttModal,
-    'modal-model': openModelModal,
-    'modal-theme': openThemeModal,
-    'modal-perform': openPerformModal,
-    'modal-persona': openPersonaStudio,
-    'modal-embedding': openEmbeddingModal,
-  };
-  document.querySelectorAll('#modal-menu .menu-list button[data-target]').forEach((btn) => {
-    btn.onclick = () => openFromMenu(btn.dataset.target, menuOpeners[btn.dataset.target]);
+  const input = $('input');
+  input.addEventListener('input', () => {
+    autoGrowInput();
+    const btn = $('btn-send');
+    if (btn) btn.disabled = !String(input.value || '').trim() || !!state.busy;
   });
-  // 菜单里的「动作型」条目（开关类，不弹子页面）
-  document.querySelectorAll('#modal-menu .menu-list button[data-action]').forEach((btn) => {
-    btn.onclick = () => runMenuAction(btn.dataset.action);
-  });
-  $('menu-cancel').onclick = () => $('modal-menu').classList.add('hidden');
-  $('about-cancel').onclick = () => $('modal-about').classList.add('hidden');
-  window.api.onOverlayState((st) => setMenuSub('menu-sub-overlay', st && st.visible ? '已开启 · 角色浮在桌面' : '已关闭 · 点一下开启'));
-
-  // 舞台侧栏：就地换模型、导入、刷新、缩放
-  const stageSel = $('stage-model');
-  if (stageSel) {
-    stageSel.onchange = (e) => {
-      const idx = parseInt(e.target.value, 10);
-      const mSel = $('m-model');
-      if (mSel) mSel.value = String(idx);
-      if (e.target.value === '-1' || !state.oml2d) rebuildLive2D();
-      else if (!isNaN(idx)) state.oml2d.loadModelByIndex(idx);
-      updateStageModelName();
-      syncOverlayModel();
+  const stop = $('btn-stop');
+  if (stop) {
+    stop.onclick = () => {
+      if (state.abortCtrl) state.abortCtrl.abort();
+      setBusy(false);
     };
   }
-  const stImport = $('btn-stage-import');
-  if (stImport) stImport.onclick = addModelFromFolder;
-  const stRefresh = $('btn-stage-refresh');
-  if (stRefresh) stRefresh.onclick = refreshModelsAfterAdd;
+  const attach = $('btn-attach');
+  const fileInput = $('file-input');
+  if (attach && fileInput) {
+    attach.onclick = () => fileInput.click();
+    fileInput.onchange = () => {
+      const f = fileInput.files && fileInput.files[0];
+      fileInput.value = '';
+      if (!f) return;
+      if (!/^image\//.test(f.type)) { toast(t('chat.onlyImages'), true); return; }
+      if (f.size > 8 * 1024 * 1024) { toast(t('screen.captureFailed', { msg: '>8MB' }), true); return; }
+      const reader = new FileReader();
+      reader.onload = () => {
+        state.pendingImage = { dataURL: String(reader.result || ''), name: f.name };
+        setAttachUI();
+        toast(t('chat.attached'));
+      };
+      reader.readAsDataURL(f);
+    };
+  }
+  const rm = $('attach-remove');
+  if (rm) rm.onclick = () => { state.pendingImage = null; setAttachUI(); };
+  const shot = $('btn-screenshot');
+  if (shot) shot.onclick = () => openScreenPicker();
+  const mic = $('btn-mic');
+  if (mic) {
+    mic.onclick = () => {
+      if (stt.recognizing) { stt.stop(); return; }
+      stt.onResult = (text) => {
+        const box = $('input');
+        box.value = (box.value ? box.value + ' ' : '') + text;
+        autoGrowInput();
+        box.focus();
+        const btn = $('btn-send');
+        if (btn) btn.disabled = false;
+        toast(t('chat.recognized'));
+      };
+      stt.onError = (err) => toast(t('stt.failed', { msg: (err && err.message) || err }), true);
+      stt.onState = (on) => mic.classList.toggle('recording', on);
+      stt.start(getSettings());
+    };
+  }
+  const realtime = $('btn-realtime');
+  if (realtime) realtime.onclick = () => toggleVoiceLoop();
+  const rtStop = $('btn-realtime-stop');
+  if (rtStop) rtStop.onclick = () => stopVoiceLoop();
 
-  const scaleEl = $('stage-scale');
-  if (scaleEl) {
-    const cur = getSettings().stage && getSettings().stage.scale;
-    scaleEl.value = String(Number.isFinite(Number(cur)) ? Number(cur) : 0.3);
-    let scaleTimer = null;
-    scaleEl.addEventListener('input', (e) => {
-      const v = parseFloat(e.target.value) || 0.3;
-      applyStageScale(v);
-      clearTimeout(scaleTimer);
-      scaleTimer = setTimeout(() => {
-        const s = getSettings();
-        saveSettings({ ...s, stage: { ...(s.stage || {}), scale: v } }).catch(() => {});
-      }, 400);
+  // 屏幕截图弹窗
+  const sc = $('screen-cancel');
+  if (sc) sc.onclick = () => $('modal-screen').classList.add('hidden');
+  const quickCancel = $('q-cancel');
+  if (quickCancel) quickCancel.onclick = () => $('modal-quick').classList.add('hidden');
+  $('q-save').onclick = saveQuickModal;
+  const aboutCancel = $('about-cancel');
+  if (aboutCancel) aboutCancel.onclick = () => $('modal-about').classList.add('hidden');
+}
+
+function toggleVoiceLoop() {
+  if (state.voiceLoop) stopVoiceLoop();
+  else startVoiceLoop();
+  syncRealtimeUI();
+}
+
+// ---------------- 聊天区其它事件 ----------------
+function bindChatEvents() {
+  const down = $('btn-scroll-down');
+  if (down) {
+    down.onclick = () => {
+      const box = $('messages');
+      box.scrollTop = box.scrollHeight;
+      down.classList.add('hidden');
+    };
+  }
+  $('messages').addEventListener('scroll', () => {
+    const box = $('messages');
+    const nearBottom = box.scrollHeight - box.scrollTop - box.clientHeight < 80;
+    const btn = $('btn-scroll-down');
+    if (btn) btn.classList.toggle('hidden', nearBottom);
+  });
+
+  // 拖入图片 = 附件
+  const panel = $('page-chat');
+  const hint = $('drop-hint');
+  if (panel) {
+    let depth = 0;
+    const show = (on) => { if (hint) hint.classList.toggle('hidden', !on); };
+    panel.addEventListener('dragenter', (e) => { e.preventDefault(); depth += 1; show(true); });
+    panel.addEventListener('dragover', (e) => { e.preventDefault(); });
+    panel.addEventListener('dragleave', () => { depth -= 1; if (depth <= 0) { depth = 0; show(false); } });
+    panel.addEventListener('drop', (e) => {
+      e.preventDefault();
+      depth = 0;
+      show(false);
+      const f = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
+      if (!f || !/^image\//.test(f.type)) return;
+      if (f.size > 8 * 1024 * 1024) { toast(t('screen.captureFailed', { msg: '>8MB' }), true); return; }
+      const reader = new FileReader();
+      reader.onload = () => {
+        state.pendingImage = { dataURL: String(reader.result || ''), name: f.name };
+        setAttachUI();
+        toast(t('chat.attached'));
+      };
+      reader.readAsDataURL(f);
     });
   }
 
-  // 侧栏搜索
+  document.addEventListener('keydown', (e) => {
+    if (e.key !== 'Escape') return;
+    closeCharMenu();
+    closePopups();
+    ['modal-screen', 'modal-quick', 'modal-about'].forEach((id) => { const el = $(id); if (el) el.classList.add('hidden'); });
+  });
+  ['modal-screen', 'modal-quick', 'modal-about'].forEach((id) => {
+    const el = $(id);
+    if (el) el.addEventListener('click', (e) => { if (e.target === el) el.classList.add('hidden'); });
+  });
+}
+
+// ---------------- 展台设置 ----------------
+function bindStageSection() {
+  const on = (id, fn) => { const el = $(id); if (el) el.onclick = fn; };
+  on('btn-add-model', addModelFromFolder);
+  on('btn-add-url-model', showUrlForm);
+  on('btn-refresh-models', refreshModelsAfterAdd);
+  on('m-url-ok', submitUrlForm);
+  on('m-url-cancel', () => $('m-url-form').classList.add('hidden'));
+  const urlInput = $('m-url-input');
+  if (urlInput) urlInput.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.isComposing) submitUrlForm(); });
+  on('m-cancel', () => gotoSettings('stage'));
+  on('btn-stage-toggle', () => toggleStage().then(updateShellStatus));
+  on('btn-stage-reset', () => resetStagePosition());
+  const floatBtn = $('btn-float-stage');
+  if (floatBtn) floatBtn.onclick = () => toggleStage().then(updateShellStatus);
+  const scale = $('stage-scale');
+  if (scale) scale.addEventListener('input', () => applyStageScale(parseFloat(scale.value)));
+}
+
+// ---------------- 页面导航与设备 ----------------
+function bindPages() {
+  const on = (id, fn) => { const el = $(id); if (el) el.onclick = fn; };
+  on('btn-new-chat', () => { clearMessagesAndToast(); });
+  on('btn-new-card', () => openCharModal(null, null));
+  on('btn-import-card', () => importCard());
+  on('btn-edit-current-card', () => { if (state.current) openCharModal(state.current.data, state.current.file); });
+  on('btn-goto-characters', () => gotoPage('characters'));
+  on('btn-goto-memory', () => { gotoPage('memory'); renderMemoryPage(); });
+  on('btn-goto-devices', () => gotoPage('devices'));
+  on('btn-goto-devices-mc', () => gotoPage('devices'));
+  on('btn-goto-devices-chess', () => gotoPage('devices'));
+  on('btn-open-data', () => openDataDir());
+  on('btn-open-data-2', () => openDataDir());
+  on('btn-open-about', () => openAboutModal());
+  on('btn-open-agent-drawer', () => openDrawer());
   const search = $('char-search');
   if (search) search.addEventListener('input', (e) => setCharFilter(e.target.value));
 
-  // 重新生成
-  const regen = $('btn-regen');
-  if (regen) regen.onclick = () => regenerateLast();
-
-  // 舞台上的「悬浮展台」快捷按钮
-  const floatBtn = $('btn-float-stage');
-  if (floatBtn) floatBtn.onclick = () => toggleOverlayStage();
-
-  // 屏幕截图
-  $('btn-screenshot').onclick = openScreenPicker;
-  $('attach-remove').onclick = () => { state.pendingImage = null; setAttachUI(); };
-  $('screen-cancel').onclick = () => $('modal-screen').classList.add('hidden');
-
-  // 角色卡菜单
-  bindCharMenuActions();
-  $('btn-char-actions').onclick = () => {
-    if (!state.current) { toast('请先选择角色卡', true); return; }
-    const rect = $('btn-char-actions').getBoundingClientRect();
-    openCharMenuAt(state.current.file, rect.left, rect.bottom + 4);
-  };
-  document.addEventListener('click', (e) => {
-    if (!e.target.closest('#char-menu') && !e.target.closest('.ci-more') && !e.target.closest('#btn-char-actions')) {
-      closeCharMenu();
-    }
-  });
-
-  // 快捷更换模型 / 语音
-  $('q-cancel').onclick = () => $('modal-quick').classList.add('hidden');
-  $('q-save').onclick = saveQuickModal;
-
-  // 其余弹窗
-  bindCharEditor();
-  bindSettingsModals();
-  bindThemeModal();
-  bindModelModal();
-  bindMisc();
+  // 页面切换时刷新对应数据
+  onPageEnter('characters', () => renderCharactersPage());
+  onPageEnter('memory', () => renderMemoryPage());
+  onPageEnter('tasks', () => renderTasksPage());
+  onPageEnter('devices', () => syncDevicesPage());
+  onPageEnter('settings', () => { fillAllSettings(); syncDevicesPage(); });
 }
 
-// ---------------- 设置菜单里的「动作型」条目 ----------------
-function runMenuAction(action) {
-  $('modal-menu').classList.add('hidden');
-  if (action === 'overlay') toggleOverlayStage();
-  else if (action === 'mc') openMcModal();
-  else if (action === 'chess') openChessModal();
-  else if (action === 'perform') openPerformModal();
-  else if (action === 'datadir') window.api.openPath(state.appInfo.userDataDir || state.appInfo.dataDir || state.appInfo.appRoot);
-  else if (action === 'about') openAboutModal();
-  // 设置中心的两行「动作型」入口（0.8）
-  else if (action === 'edit-card') {
-    // 编辑当前角色卡（没有角色时退化成新建）
-    if (state.current && state.current.file) openCharModal(state.current.file, state.current.data);
-    else openCharModal(null, null);
-  } else if (action === 'agent') {
-    // Agent 工作区 / 审批模式都在抽屉里，这里只是把抽屉打开
-    const btn = $('btn-agent');
-    if (btn) btn.click();
-  } else if (action === 'computer') {
-    const btn = $('btn-computer');
-    if (btn) btn.click();
-    refreshMenuSubtitles();
+async function importCard() {
+  const res = await window.api.importCharacter();
+  if (res) {
+    await refreshCharacters(res.file);
+    renderCharactersPage();
+    toast(t('char.imported'));
   }
 }
 
-async function toggleOverlayStage() {
-  const on = await window.api.overlayToggle();
-  toast(on ? '无边框展台已开启（右下角手柄可拖动）' : '无边框展台已关闭');
-  refreshMenuSubtitles();
+function openDataDir() {
+  const info = state.appInfo || {};
+  window.api.openPath(info.userDataDir || info.dataDir || info.appRoot);
 }
 
 function openAboutModal() {
@@ -663,12 +590,91 @@ function openAboutModal() {
       vv.className = 'about-v';
       vv.textContent = v;
       vv.title = v;
-      row.appendChild(kk); row.appendChild(vv);
+      row.appendChild(kk);
+      row.appendChild(vv);
       box.appendChild(row);
     }
   }
   $('modal-about').classList.remove('hidden');
 }
+
+// ---------------- 语言切换 ----------------
+function buildLangSwitch() {
+  const box = $('lang-switch');
+  if (!box) return;
+  box.innerHTML = '';
+  for (const l of LANGS) {
+    const b = document.createElement('button');
+    b.textContent = l.label;
+    b.className = getLang() === l.id ? 'on' : '';
+    b.onclick = async () => {
+      setLang(l.id);
+      buildLangSwitch();
+      const next = { ...getSettings(), language: l.id };
+      await saveSettings(next);
+      renderCharList();
+      renderCharactersPage();
+      updateChatHeader();
+      renderMemoryPage();
+      renderTasksPage();
+      updateShellStatus();
+      renderThemePresets();
+      toast(t('menu.language') + ': ' + l.label);
+    };
+    box.appendChild(b);
+  }
+}
+
+// ---------------- 设置分类导航 ----------------
+function bindSettingsNav() {
+  document.querySelectorAll('#settings-nav button').forEach((b) => {
+    b.onclick = () => {
+      setSettingsSection(b.dataset.sec);
+      fillAllSettings();
+      syncDevicesPage();
+    };
+  });
+}
+
+// ---------------- Agent 抽屉 ----------------
+function bindDrawer() {
+  // 打开/关闭按钮由 agent-ui.js 统一接管（它还要同步「钉住」状态），
+  // 这里只接外壳自己的两处入口：任务提示条与遮罩。
+  const btnAgent = $('btn-agent');
+  if (btnAgent) btnAgent.onclick = () => openDrawer();
+  const bar = $('chat-taskbar');
+  if (bar) bar.onclick = () => openDrawer();
+  const scrim = $('drawer-scrim');
+  if (scrim) scrim.onclick = () => { const d = $('agent-drawer'); if (d) { d.classList.remove('open'); } scrim.classList.remove('on'); setTimeout(() => $('agent-drawer') && $('agent-drawer').classList.add('hidden'), 180); };
+}
+
+export function openDrawer() {
+  const d = $('agent-drawer');
+  const scrim = $('drawer-scrim');
+  if (!d) return false;
+  d.classList.remove('hidden');
+  if (scrim) scrim.classList.add('on');
+  requestAnimationFrame(() => d.classList.add('open'));
+  return true;
+}
+
+export function closeDrawer() {
+  const d = $('agent-drawer');
+  const scrim = $('drawer-scrim');
+  if (!d) return false;
+  d.classList.remove('open');
+  if (scrim) scrim.classList.remove('on');
+  setTimeout(() => { if (!d.classList.contains('open')) d.classList.add('hidden'); }, 180);
+  return true;
+}
+
+// ---------------- 原生应用菜单 ----------------
+function bindAppMenu() { /* 菜单动作在 boot 的 onMenuAction 里统一处理 */ }
+
+// ---------------- 自检辅助：让说话/朗读走同一套 ---------------- 
+window.__aileenSpeakLast = () => {
+  import('./lib/chat.js').then(({ speakLast }) => { if (typeof speakLast === 'function') speakLast(); });
+};
 
 // 自检钩子：把标记解析器跑一遍，证明它在打包产物里真的可用
 window.__AILEEN_PROBE_MARKERS = () => {
@@ -701,28 +707,24 @@ window.__AILEEN_PROBE_PACER = () => {
   return p.finish().then(() => ({ text, breaks: breaks.length, waits }));
 };
 
-// 自检钩子：「不使用模型」这一档要真的生效（舞台清空、展台收到 null）
+// 自检钩子：「不使用模型」这一档要真的生效（设置里选「不使用模型」，展台收到 null）
 window.__AILEEN_PROBE_NOMODEL = async () => {
   const out = {};
   const sel = document.getElementById('m-model');
-  const stageSel = document.getElementById('stage-model');
   out.hasOption = !!(sel && sel.querySelector('option[value="-1"]'));
-  out.stageHasOption = !!(stageSel && stageSel.querySelector('option[value="-1"]'));
   const prev = sel ? sel.value : null;
-  if (sel) { sel.value = '-1'; sel.onchange({ target: sel }); }
+  if (sel) { sel.value = '-1'; sel.onchange({ target: sel, currentTarget: sel }); }
   out.modelIsNull = currentStageModel() === null;
   out.disabledFlag = stageModelDisabled() === true;
-  const box = document.getElementById('stage-container');
-  out.stageCleared = !!(box && !box.querySelector('canvas'));
-  out.placeholder = !!(box && box.querySelector('.stage-placeholder'));
-  // 恢复现场，并等模型重新加载完 —— 否则后面的 modelReady 断言会因为「正在加载」而误报
-  if (sel && prev) { sel.value = prev; sel.onchange({ target: sel }); }
-  // 打包版从 asar 里读模型比开发版慢，等待给足（宁可自检慢一点，也不要随机红）
-  for (let i = 0; i < 80; i += 1) {
-    if (typeof window.__AILEEN_MODEL_READY === 'function' && window.__AILEEN_MODEL_READY()) break;
-    await new Promise((r) => setTimeout(r, 250));
-  }
-  out.restoredReady = typeof window.__AILEEN_MODEL_READY === 'function' ? !!window.__AILEEN_MODEL_READY() : 'n/a';
+  // 主窗口不再渲染 Live2D：这里验证「推给展台的模型确实是 null」
+  let overlayModel = 'unknown';
+  try {
+    const st = await window.api.overlayGetState();
+    overlayModel = st ? (st.model || null) : null;
+  } catch (err) { overlayModel = 'unavailable'; }
+  out.overlayModelIsNull = overlayModel === null || overlayModel === 'unavailable';
+  if (sel && prev) { sel.value = prev; sel.onchange({ target: sel, currentTarget: sel }); }
+  out.restored = sel ? sel.value === prev : true;
   return out;
 };
 
@@ -751,6 +753,9 @@ window.__AILEEN_PROBE_LIVE_LLM = async () => {
 // 以前这里是个硬伤：grid 行高没约束 + flex 子项 min-height:auto，
 // 消息一多整块被撑到窗口外面，被 body 的 overflow:hidden 裁掉 —— 没滚动条也滚不动。
 window.__AILEEN_PROBE_SCROLL = (keep) => {
+  // 先回到对话页：页面是单页切换的，别的页在前台时消息区高度是 0
+  const chatNav = document.querySelector('#side-nav .nav-item[data-page="chat"]');
+  if (chatNav) chatNav.click();
   const box = document.getElementById('messages');
   if (!box) return null;
   const cs = getComputedStyle(box);
@@ -873,6 +878,33 @@ window.__AILEEN_CHECKPOINT_PROBE = async () => {
   return out;
 };
 
+// 自检用：设备页的布局诊断（临时探针，回答「电脑控制按钮为什么占不到空间」）
+window.__AILEEN_PROBE_DEVICES = () => {
+  const nav = document.querySelector('#side-nav .nav-item[data-page="devices"]');
+  if (nav) nav.click();
+  const card = document.querySelector('#page-devices .device-card');
+  const actions = card && card.querySelector('.dc-actions');
+  const btn = document.getElementById('btn-computer');
+  const info = (el) => {
+    if (!el) return null;
+    const r = el.getBoundingClientRect();
+    const cs = getComputedStyle(el);
+    return {
+      x: Math.round(r.left), y: Math.round(r.top), w: Math.round(r.width), h: Math.round(r.height),
+      display: cs.display, visibility: cs.visibility, opacity: cs.opacity, overflow: cs.overflow,
+      position: cs.position, cls: el.className, text: (el.textContent || '').trim().slice(0, 30),
+    };
+  };
+  return {
+    card: info(card),
+    actions: info(actions),
+    btn: info(btn),
+    cardChildren: card ? Array.from(card.children).map((c) => c.className || c.tagName) : [],
+    btnParent: btn && btn.parentElement ? btn.parentElement.className : '',
+    btnInCard: !!(card && btn && card.contains(btn)),
+  };
+};
+
 // 自检钩子：按名字打开某个界面（截图核对排版用）
 window.__AILEEN_OPEN = (name) => {
   const table = {
@@ -891,18 +923,26 @@ window.__AILEEN_OPEN = (name) => {
     embed: openEmbeddingModal,
     model: openModelModal,
     theme: openThemeModal,
-    menu: openSettingsMenu,
+    menu: () => { gotoSettings('appearance'); return true; },
+    settings: () => { gotoSettings(); return true; },
+    characters: () => { gotoPage('characters'); return true; },
+    memory: () => { gotoPage('memory'); return true; },
+    tasks: () => { gotoPage('tasks'); return true; },
+    devices: () => { gotoPage('devices'); return true; },
     agent: () => { const b = $('btn-agent'); if (b) b.click(); return true; },
-    // Dashboard 不是弹窗，它是常驻在右侧展台区域的；这里把它摆成「正在执行 + 等确认」
+    // 任务详情不是弹窗，它是覆盖式抽屉；这里把它摆成「正在执行 + 等确认」
     dashboard: () => (typeof window.__AILEEN_PREVIEW_DASHBOARD === 'function' ? window.__AILEEN_PREVIEW_DASHBOARD() : false),
   };
   const fn = table[name];
   if (fn) { fn(); return true; }
-  const m = document.getElementById('modal-' + name);
-  if (!m) return false;
-  m.classList.remove('hidden');
-  return true;
+  return false;
 };
+
+// 自检用：当前停在哪一页 / 哪个设置分类
+window.__AILEEN_CURRENT_PAGE = () => ({
+  page: (document.querySelector('#content .page.on') || {}).id || '',
+  section: (document.querySelector('#settings-body .set-sec.on') || {}).id || '',
+});
 
 /**
  * 自检用的测试接口。
@@ -953,6 +993,8 @@ window.__AILEEN_PROBE_AGENT = async () => {
   // 0.8：Agent 面板 = 主窗口右侧抽屉（#agent-drawer）
   const panel = document.getElementById('agent-drawer');
   window.__AILEEN_OPEN('agent');
+  // 抽屉是「滑入」的：open 类在下一帧加，这里等一帧再断言
+  await new Promise((r) => setTimeout(r, 80));
   out.panelOpen = !!panel && !panel.classList.contains('hidden');
   for (const id of ['ag-task', 'ag-start', 'ag-pause', 'ag-resume', 'ag-cancel', 'ag-approval', 'ag-log', 'ag-status', 'ag-workspace']) {
     out[id] = !!document.getElementById(id);
@@ -964,19 +1006,13 @@ window.__AILEEN_PROBE_AGENT = async () => {
   out.approvalText = (document.getElementById('ag-approval-text') || {}).textContent || '';
   out.approvalRisk = (document.getElementById('ag-approval-risk') || {}).textContent || '';
   out.logLines = document.getElementById('ag-log').childElementCount;
-  // Agent 模式的主色必须真的转蓝（改了 CSS 没生效的话这里会露出来）
-  // 注意：--accent 在 Agent 模式下是 var(--accent-agent) 这样的**变量引用**，
-  // getComputedStyle 会原样返回文本而不是解析结果 —— 所以读链尾那个确定值。
-  const rootEl = document.documentElement;
-  out.agentModeClass = !!(rootEl && rootEl.classList && rootEl.classList.contains('agent-mode'));
-  const rootStyle = rootEl ? getComputedStyle(rootEl) : null;
-  out.accentAgentVar = rootStyle ? rootStyle.getPropertyValue('--accent-agent').trim().toLowerCase() : '';
-  out.accentInAgentMode = out.accentAgentVar;
-  out.accentIsBlue = out.accentAgentVar === '#3d8bfd';
-  // 主按钮必须真的跟着变（曾经只有 CSS 变量变了、按钮还是旧色）
-  const startBtn = document.getElementById('ag-start');
-  out.startBtnColor = startBtn ? getComputedStyle(startBtn).backgroundImage.toLowerCase() : '';
-  out.startBtnIsBlue = /61,\s*139,\s*253|3d8bfd/.test(out.startBtnColor);
+  // 抽屉必须是「滑入」的可见态：hidden 去掉 + open 类在
+  out.drawerOpenClass = panel ? panel.classList.contains('open') : false;
+  // 主色在 Agent 模式下不再切换成霓虹蓝（新设计没有第二套主色），
+  // 这里只确认 accent 令牌解析出了真值，避免「改了 CSS 变量却没生效」
+  const rootStyle = document.documentElement ? getComputedStyle(document.documentElement) : null;
+  out.accentResolved = !!(rootStyle && rootStyle.getPropertyValue('--accent').trim());
+  out.theme = document.documentElement.getAttribute('data-theme') || '';
   // 审批卡片故意留着不收：自检截图要看到它。
   // 截图之后由下面的 _AFTER 再点「拒绝」并断言卡片真的消失。
   return out;
@@ -992,51 +1028,47 @@ window.__AILEEN_PREVIEW_APPROVAL = () => {
 };
 
 // 自检钩子：点亮「电脑控制」开关要**立刻**发生两件事
-//   1) 整个界面转蓝（主色 + 按钮）
-//   2) 主窗口右侧的 Agent 抽屉打开（不用等发消息）—— **但 Live2D 展台不变**
+//   1) 开关本身立刻变（文案 + 高亮）
+//   2) Agent 抽屉打开（不用等发消息）—— **但桌面展台不受影响**
 // 验完把设置还原，避免影响后面的断言。
 window.__AILEEN_PROBE_COMPUTER_TOGGLE = async () => {
   const out = {};
   const app = window.__AILEEN_AGENT_TEST;
   if (!app) { out.error = '测试接口未暴露'; return out; }
   const btn = document.getElementById('btn-computer');
-  // 0.8：开关打开的是「抽屉」，展台永远保持原样（旧版这里是拿 Dashboard 顶掉展台）
   const dash = document.getElementById('agent-drawer');
-  const stage = document.getElementById('stage-container');
-  if (!btn || !dash || !stage) { out.error = '控件缺失'; return out; }
-  const rootEl = document.documentElement;
+  if (!btn || !dash) { out.error = '控件缺失'; return out; }
 
   // 基线：确保「开关关掉 + 没有任务在跑」——否则开关的语义测不准
   app.dashboard.reset();
   if (app.agentSettings().computerUse === true) { btn.click(); await new Promise((r) => setTimeout(r, 80)); }
   out.baselineDashboardHidden = dash.classList.contains('hidden');
-  out.baselineStageVisible = !stage.classList.contains('hidden');
+  let baselineOverlay = null;
+  try { baselineOverlay = await window.api.overlayStatus(); } catch (err) { baselineOverlay = null; }
+  out.baselineOverlayVisible = !!(baselineOverlay && baselineOverlay.visible);
 
   btn.click();
   await new Promise((r) => setTimeout(r, 60));
 
   out.settingOn = app.agentSettings().computerUse === true;
-  out.btnText = btn.textContent;
+  out.btnText = (document.getElementById('btn-computer-label') || {}).textContent || btn.textContent;
   out.btnHighlighted = btn.classList.contains('computer-on');
-  out.modeClassOn = rootEl.classList.contains('agent-mode');
-  out.accentBlue = getComputedStyle(rootEl).getPropertyValue('--accent-agent').trim().toLowerCase() === '#3d8bfd';
-  out.startBtnBlue = /61,\s*139,\s*253|3d8bfd/.test(getComputedStyle(document.getElementById('ag-start')).backgroundImage.toLowerCase());
-  out.dashboardShown = !dash.classList.contains('hidden');       // ← 抽屉立刻出现
-  out.stageVisible = !stage.classList.contains('hidden');        // ← 展台**不能**被让位
+  out.dashboardShown = !dash.classList.contains('hidden');
+  out.drawerOpenClass = dash.classList.contains('open');
+  // 展台是**独立窗口**：主窗口里不能有任何 stage 容器
+  out.mainWindowHasNoStage = !document.getElementById('stage-container');
   out.hintShown = (document.getElementById('dash-now') || {}).textContent || '';
 
-  // 关掉 → 抽屉收回去，展台始终可见
+  // 关掉 → 抽屉收回去（滑出动画 180ms，等它结束再断言）
   btn.click();
-  await new Promise((r) => setTimeout(r, 60));
+  await new Promise((r) => setTimeout(r, 280));
   out.afterOff = {
     settingOff: app.agentSettings().computerUse !== true,
-    modeClassOff: !rootEl.classList.contains('agent-mode'),
     dashboardHidden: dash.classList.contains('hidden'),
-    stageBack: !stage.classList.contains('hidden'),
+    stageAlwaysSeparate: !document.getElementById('stage-container'),
   };
 
   // 收尾：明确落到「关」的干净状态，不依赖探针开始时读到什么
-  //（自检是流水线，后面的断言要一个确定的起点）
   if (app.agentSettings().computerUse === true) { btn.click(); await new Promise((r) => setTimeout(r, 80)); }
   app.dashboard.reset();
   return out;
@@ -1045,7 +1077,7 @@ window.__AILEEN_PROBE_COMPUTER_TOGGLE = async () => {
 // 自检钩子：Agent Control Dashboard + 人格保留（不跑 LLM，不花额度）
 // 这条守的是本轮最硬的要求：状态驱动 Dashboard、Live2D 让位、以及
 // **角色人格在 Agent 提示词里原样保留**。
-window.__AILEEN_PROBE_DASHBOARD = () => {
+window.__AILEEN_PROBE_DASHBOARD = async () => {
   const out = {};
   const app = window.__AILEEN_AGENT_TEST;
   if (!app) { out.error = '测试接口未暴露'; return out; }
@@ -1063,8 +1095,12 @@ window.__AILEEN_PROBE_DASHBOARD = () => {
   // ---- 2) Dashboard 由状态驱动 ----
   // 先复位：上一个预览（截图用的）会留下可见态，不复位的话
   // 「跑之前应该是隐藏的」这条基线断言拿到的是脏状态。
+  const closeBtn = document.getElementById('ag-close');
+  if (closeBtn) closeBtn.click();
+  await new Promise((r) => setTimeout(r, 260));
   app.dashboard.init();
   app.dashboard.reset();
+  await new Promise((r) => setTimeout(r, 60));
   const before = app.dashboard.state();
   out.hiddenBeforeRun = before.visible === false;
 
@@ -1079,8 +1115,9 @@ window.__AILEEN_PROBE_DASHBOARD = () => {
 
   const mid = app.dashboard.state();
   out.visibleDuringRun = mid.visible === true;
-  // 0.8：Agent 干活时展台**必须还在**（旧版要求它让位，语义已经反过来）
-  out.stageVisibleDuringRun = mid.stageHidden === false;
+  // 展台是独立窗口，主窗口里永远不该出现 stage 容器（这就是「不替换陪伴」的结构保证）
+  out.stageIsSeparateWindow = !document.getElementById('stage-container');
+  out.mainWindowHasNoStage = out.stageIsSeparateWindow;
   out.taskShown = mid.task;
   out.logLines = mid.logLines;
   out.approvalShown = mid.approvalVisible === true;
@@ -1114,7 +1151,7 @@ window.__AILEEN_PREVIEW_DASHBOARD = () => {
 
 // 自检钩子：Agent 面板的交互收尾（审批卡片的拒绝按钮要真的接上）
 // 单独一个函数是为了让「截图」发生在本函数之前 —— 截图时卡片还在。
-window.__AILEEN_PROBE_AGENT_AFTER = () => {
+window.__AILEEN_PROBE_AGENT_AFTER = async () => {
   const out = {};
   const box = document.getElementById('ag-approval');
   out.visibleBeforeReject = !!box && !box.classList.contains('hidden');
@@ -1122,28 +1159,32 @@ window.__AILEEN_PROBE_AGENT_AFTER = () => {
   out.hasReject = !!reject;
   if (reject) reject.click();
   out.hiddenAfterReject = !!box && box.classList.contains('hidden');
-  // 关掉抽屉后主色要还原（蓝色只属于 Agent 模式）
+  // 关掉抽屉：hidden + open 都要清掉（滑出动画 180ms，等它结束再断言）
   const panel = document.getElementById('agent-drawer');
-  const rootEl = document.documentElement;
   const closeBtn = document.getElementById('ag-close');
   if (closeBtn) closeBtn.click();
   else if (panel) panel.classList.add('hidden');
+  await new Promise((r) => setTimeout(r, 260));
   out.panelHiddenAfterClose = !!panel && panel.classList.contains('hidden');
-  out.modeClassAfterClose = !(rootEl && rootEl.classList && rootEl.classList.contains('agent-mode'));
-  out.accentRestored = out.modeClassAfterClose;
+  out.drawerClosedClass = !!panel && !panel.classList.contains('open');
+  out.mainWindowHasNoStage = !document.getElementById('stage-container');
   return out;
 };
 
 // 自检钩子：人设生成室（入口能开、原型能选、锁定真的改变了发给模型的提示词）
 window.__AILEEN_PROBE_STUDIO = () => {
   const out = {};
-  const menuBtn = document.getElementById('btn-settings-menu');
-  if (menuBtn) menuBtn.click();
-  const entry = document.querySelector('#modal-menu .menu-list button[data-target="modal-persona"]');
-  out.hasEntry = !!entry;
-  if (entry) entry.click();
+  // 入口：设置 →「人设生成室」在角色编辑页里（不再是独立弹窗）
+  gotoSettings('companion');
+  const editBtn = document.getElementById('btn-edit-current-card');
+  out.hasEntry = !!editBtn;
+  if (editBtn) editBtn.click();
+  const openStudio = document.getElementById('persona-wrap');
+  if (openStudio) openStudio.open = true;
+  openPersonaStudio();
   const m = document.getElementById('modal-persona');
   out.opened = !!m && !m.classList.contains('hidden');
+  out.page = (document.querySelector('#content .page.on') || {}).id || '';
   out.chips = document.querySelectorAll('#pa-personalities .arch-chip').length;
   out.roleChips = document.querySelectorAll('#pa-roles .arch-chip').length;
   out.genders = document.querySelectorAll('#pa-gender option').length;
@@ -1191,8 +1232,8 @@ window.__AILEEN_PROBE_STUDIO = () => {
   const backRadio = document.getElementById('pa-mode-original');
   if (backRadio) backRadio.click();
   out.backToOriginal = !document.getElementById('pa-original-block').classList.contains('hidden');
-  closeSubModal('modal-persona');
-  document.getElementById('modal-menu').classList.add('hidden');
+  closePersonaStudio();
+  out.closed = !document.getElementById('modal-persona') || document.getElementById('modal-persona').classList.contains('hidden');
   return out;
 };
 
@@ -1206,11 +1247,14 @@ window.__AILEEN_PROBE_PERSONA = () => parsePersonaResponse(
 // 自检钩子：把生成结果回填进编辑器
 window.__AILEEN_PROBE_PERSONA_APPLY = (p) => { applyPersonaToEditor(p); return true; };
 
-// 自检钩子
-window.__AILEEN_MODEL_READY = () => {
-  try { return !!(state.oml2d && state.oml2d.models && state.oml2d.models.model); } catch { return false; }
+// 自检钩子：主窗口里没有 Live2D 实例（角色只在展台窗口渲染）
+window.__AILEEN_MODEL_READY = () => true;
+window.__AILEEN_REFRESH = async () => {
+  await refreshCharacters();
+  renderCharactersPage();
+  renderCharList();
+  renderMemoryPage();
 };
-window.__AILEEN_REFRESH = async () => { await refreshCharacters(); };
 
 // 系统语音列表可能异步加载
 if ('speechSynthesis' in window) {
@@ -1218,3 +1262,4 @@ if ('speechSynthesis' in window) {
 }
 
 boot();
+

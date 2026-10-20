@@ -48,6 +48,10 @@ const P = {
   regenerate: '<path d="M20 12a8 8 0 1 1-2.6-5.9"/><path d="M20 4v4.5h-4.5"/>',
   // 停止
   stop: '<rect x="6.5" y="6.5" width="11" height="11" rx="2"/>',
+  // 返回
+  arrowLeft: '<path d="M19 12H5.5"/><path d="M11.5 5.5 5 12l6.5 6.5"/>',
+  // 侧栏折叠
+  panelLeft: '<rect x="3.5" y="4.5" width="17" height="15" rx="2.2"/><path d="M9.5 4.5v15"/>',
   // 开始 / 继续（三角）
   play: '<path d="M8.5 5.8 18.8 11.6a.5.5 0 0 1 0 .8L8.5 18.2a.5.5 0 0 1-.8-.4V6.2a.5.5 0 0 1 .8-.4Z"/>',
   // 暂停

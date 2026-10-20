@@ -10,6 +10,7 @@ import { buildSystemPrompt } from './characters.js';
 import { t } from './i18n.js';
 import { escapeHtml } from './markdown.js';
 import { iconSvg } from './icons.js';
+import { gotoPage } from './shell.js';
 
 let autoReply = false;
 let replying = false;
@@ -128,7 +129,8 @@ export async function openMcModal() {
     personaBox.textContent = nm ? t('mc.personaActive', { name: nm }) : t('mc.personaNone');
     personaBox.className = 'mc-persona' + (nm ? ' on' : '');
   }
-  el('modal-mc').classList.remove('hidden');
+  // 设备页里就是 Minecraft 的全部入口（不再有独立弹窗）
+  gotoPage('devices');
   renderStatus(await window.api.mcStatus());
 }
 
@@ -154,7 +156,8 @@ export function bindMc() {
   };
 
   el('mc-disconnect').onclick = async () => { await window.api.mcDisconnect(); renderStatus(await window.api.mcStatus()); };
-  el('mc-close').onclick = () => el('modal-mc').classList.add('hidden');
+  const closeBtn = el('mc-close');
+  if (closeBtn) closeBtn.onclick = () => gotoPage('chat');
 
   el('mc-autoreply').onchange = async (e) => {
     autoReply = e.target.checked;
@@ -171,10 +174,10 @@ export function bindMc() {
   };
   el('mc-stopfollow').onclick = async () => { await window.api.mcStopFollow(); renderStatus(await window.api.mcStatus()); };
 
-  document.querySelectorAll('#modal-mc [data-mc-dir]').forEach((b) => {
+  document.querySelectorAll('#page-devices [data-mc-dir]').forEach((b) => {
     b.onclick = () => window.api.mcStep({ dir: b.dataset.mcDir, ms: 700 });
   });
-  const jump = document.querySelector('#modal-mc [data-mc-jump]');
+  const jump = document.querySelector('#page-devices [data-mc-jump]');
   if (jump) jump.onclick = () => window.api.mcJump();
 
   el('mc-say-input').addEventListener('keydown', async (e) => {

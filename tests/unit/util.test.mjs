@@ -122,10 +122,10 @@ describe('normalizeSettings · Minecraft 伙伴', () => {
 });
 
 describe('normalizeSettings · 界面语言', () => {
-  it('默认英文，非法值回退英文', () => {
-    expect(normalizeSettings({}).language).toBe('en');
-    expect(normalizeSettings({ language: 'fr' }).language).toBe('en');
-    expect(normalizeSettings({ language: 42 }).language).toBe('en');
+  it('默认简体中文，非法值回退中文', () => {
+    expect(normalizeSettings({}).language).toBe('zh');
+    expect(normalizeSettings({ language: 'fr' }).language).toBe('zh');
+    expect(normalizeSettings({ language: 42 }).language).toBe('zh');
   });
   it('接受 ja / zh', () => {
     expect(normalizeSettings({ language: 'ja' }).language).toBe('ja');

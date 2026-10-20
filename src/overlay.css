@@ -1,162 +1,188 @@
-/* ============ AILEEN 无边框悬浮展台 ============ */
-html, body {
-  margin: 0; height: 100%; background: transparent; overflow: hidden;
-  font-family: "Segoe UI", "Microsoft YaHei", system-ui, sans-serif;
-  /* 整页不接收鼠标，只有工具条例外 —— 保证角色不挡住底下的操作 */
-  pointer-events: none;
-  user-select: none;
-}
-#ov-root { position: fixed; inset: 0; }
-#ov-stage { position: absolute; inset: 0; transition: opacity 0.25s ease; }
-/* 关键：oh-my-live2d 在「滑入」动画里会重写 #oml2d-stage 的内联样式，
-   把定位和尺寸整个抹掉 —— 舞台元素塌成 20 来像素高，canvas 的绘制缓冲变成 0x0，
-   模型就永远画不出来（整窗一片空白）。内联样式盖不过 !important，这里钉死它。 */
-#ov-stage > #oml2d-stage {
-  position: absolute !important;
-  left: 0 !important; top: 0 !important; right: auto !important; bottom: auto !important;
-  width: 100% !important; height: 100% !important;
-  transform: none !important;
-  animation: none !important;
-  z-index: 1 !important;
-}
-#ov-stage > #oml2d-stage > canvas {
-  display: block !important;
-  width: 100% !important;
-  height: 100% !important;
-}
-/* 纯透明：占位文字不画任何底板，整窗除模型与悬浮工具条外全透明 */
-.ov-empty {
-  position: absolute; inset: 12px;
-  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px;
-  color: #e8e8f2; font-size: 12px; text-align: center; padding: 16px;
-  background: none; border: none;
-  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.9), 0 0 14px rgba(0, 0, 0, 0.7);
-  pointer-events: none;
-}
-.ov-empty span { color: #b9bfd0; font-size: 11px; }
+/* ============================================================
+   AILEEN 悬浮展台（独立透明窗口）
+   ------------------------------------------------------------
+   角色是主体：默认只看得见模型。
+   工具条与面板都是暖色半透明，只在需要时浮现，并且贴在窗口边缘 ——
+   不压在角色脸上，也不把桌面挡成一片黑玻璃。
+   ============================================================ */
 
-/* 右下角悬浮 UI 容器：热区就是这一整块。
-   内缩 26px：Windows 无边框窗口边缘是系统缩放手柄区，贴上会被当成缩放（越拖越大）。 */
-#ov-ui {
-  position: fixed; right: 26px; bottom: 26px;
-  display: flex; flex-direction: column; align-items: flex-end; gap: 8px;
-  pointer-events: none;
+:root {
+  --ov-surface: rgba(255, 252, 250, 0.94);
+  --ov-text: #39333a;
+  --ov-text-soft: #756d75;
+  --ov-border: rgba(57, 51, 58, 0.12);
+  --ov-accent: #c87898;
+  --ov-accent-soft: rgba(200, 120, 152, 0.16);
+  --ov-shadow: 0 10px 30px rgba(57, 51, 58, 0.18), 0 2px 8px rgba(57, 51, 58, 0.10);
+  --ov-r: 12px;
+  --ov-dur: 160ms;
+  --ov-font: "Segoe UI Variable Text", "Segoe UI", "Microsoft YaHei UI", "PingFang SC", system-ui, sans-serif;
 }
-/* 工具条：不动就隐藏，鼠标移上去才浮现 */
-#ov-tools {
-  display: flex; align-items: center; gap: 6px;
-  padding: 6px; border-radius: 999px;
-  background: rgba(28, 30, 39, 0.88); border: 1px solid #2c3040;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
-  opacity: 0; transform: translateY(6px);
-  transition: opacity 0.18s ease, transform 0.18s ease;
-  pointer-events: none;
-}
-#ov-tools.on { opacity: 1; transform: none; pointer-events: auto; }
-#ov-tools button {
-  width: 26px; height: 26px; border-radius: 50%; border: none;
-  background: transparent; color: #e8e8f2; font-size: 13px; line-height: 1;
-  cursor: pointer; display: flex; align-items: center; justify-content: center;
-}
-#ov-tools button:hover { background: rgba(255, 255, 255, 0.14); }
-#ov-tools button.on { background: #ff7eb3; color: #fff; }
-#ov-hide:hover { background: #ff5d6c !important; }
-#ov-grip {
-  width: 36px; height: 26px; border-radius: 999px;
-  display: flex; align-items: center; justify-content: center; gap: 3px;
-  cursor: grab; background: rgba(255, 255, 255, 0.10);
-  touch-action: none;
-}
-#ov-grip:hover { background: rgba(255, 126, 179, 0.28); }
-#ov-grip:active { cursor: grabbing; background: rgba(255, 126, 179, 0.45); }
-#ov-grip span { width: 3px; height: 12px; border-radius: 2px; background: #9aa0b4; display: block; }
 
-/* ---------- 状态提示（聆听/思考/执行/等确认） ---------- */
-/* 放在**顶部**居中：底部留给工具条和聊天面板，角色的脸在中间 —— 三者互不遮挡 */
+html[data-theme='dark'] {
+  --ov-surface: rgba(41, 37, 44, 0.94);
+  --ov-text: #f1eaf0;
+  --ov-text-soft: #bdb1bc;
+  --ov-border: rgba(241, 234, 240, 0.14);
+  --ov-accent: #da91ad;
+  --ov-accent-soft: rgba(218, 145, 173, 0.18);
+  --ov-shadow: 0 10px 30px rgba(0, 0, 0, 0.4), 0 2px 8px rgba(0, 0, 0, 0.25);
+}
+
+* { box-sizing: border-box; }
+html, body { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; background: transparent; }
+body {
+  font-family: var(--ov-font); color: var(--ov-text); font-size: 13px; user-select: none;
+  /* 整页不接收鼠标：只有工具条与面板例外，保证角色不挡住底下的桌面操作 */
+  pointer-events: none;
+}
+
+#ov-root { position: relative; width: 100%; height: 100%; }
+#ov-stage { position: absolute; inset: 0; }
+#ov-stage canvas { display: block; }
+
+/* 状态提示：贴在底部边缘（工具条上方），低对比，不遮脸 */
 .ov-status {
-  position: fixed; left: 50%; top: 10px; transform: translateX(-50%);
-  max-width: 90%; padding: 4px 12px; border-radius: 999px;
-  font-size: 11px; letter-spacing: 0.02em; white-space: nowrap;
-  color: #e8e8f2; background: rgba(20, 21, 26, 0.72);
-  border: 1px solid rgba(255, 255, 255, 0.10);
-  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.8);
-  pointer-events: none; opacity: 0.9;
-  transition: opacity 0.2s ease;
+  position: fixed; left: 50%; bottom: 52px; transform: translateX(-50%);
+  max-width: 90%;
+  padding: 4px 12px;
+  border-radius: 999px;
+  background: var(--ov-surface);
+  border: 1px solid var(--ov-border);
+  box-shadow: var(--ov-shadow);
+  color: var(--ov-text-soft);
+  font-size: 11.5px;
+  white-space: nowrap;
+  pointer-events: none;
+  opacity: 0.92;
 }
 .ov-status.hidden { display: none; }
-.ov-status.busy { border-color: rgba(240, 180, 91, 0.55); color: #ffd79a; }
-.ov-status.approval { border-color: rgba(61, 139, 253, 0.65); color: #9dc4ff; }
-.ov-status.listening { border-color: rgba(255, 126, 179, 0.55); color: #ffc3dc; }
 
-/* ---------- 小面板（聊天 / 动作表情） ---------- */
-/* 轻量、低干扰：半透明底 + 细边框，不用大块不透明面板 */
-.ov-panel {
-  width: 262px; max-height: 300px; overflow-y: auto;
-  padding: 10px; border-radius: 14px;
-  background: rgba(24, 26, 34, 0.92); border: 1px solid #2c3040;
-  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.55);
-  color: #e8e8f2; font-size: 12px;
+/* 悬浮 UI 容器：这一整块就是鼠标交互热区（收起时只有工具条那么大） */
+#ov-ui {
+  position: fixed; left: 50%; bottom: 10px; transform: translateX(-50%);
+  display: flex; flex-direction: column; align-items: center; gap: 8px;
+  max-width: calc(100% - 12px);
   pointer-events: auto;
-  animation: ov-panel-in 0.16s ease;
 }
-@keyframes ov-panel-in { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
-@media (prefers-reduced-motion: reduce) { .ov-panel { animation: none; } }
+
+/* 工具条：暖色半透明胶囊，不抢角色的视觉重量 */
+#ov-tools {
+  display: flex; align-items: center; gap: 2px;
+  padding: 5px;
+  border-radius: 999px;
+  background: var(--ov-surface);
+  border: 1px solid var(--ov-border);
+  box-shadow: var(--ov-shadow);
+  opacity: 0.4;
+  transition: opacity var(--ov-dur) ease;
+  pointer-events: auto;
+}
+#ov-tools:hover, #ov-tools.on { opacity: 1; }
+#ov-tools button {
+  width: 30px; height: 30px; padding: 0;
+  display: flex; align-items: center; justify-content: center;
+  border: none; border-radius: 50%;
+  background: transparent; color: var(--ov-text-soft);
+  cursor: pointer;
+}
+#ov-tools button:hover { background: var(--ov-accent-soft); color: var(--ov-text); }
+#ov-tools button.on { background: var(--ov-accent); color: #fff; }
+#ov-hide:hover { background: rgba(188, 98, 104, 0.16); color: #bc6268; }
+#ov-tools .ico { width: 15px; height: 15px; }
+
+#ov-grip {
+  width: 30px; height: 26px; border-radius: 999px;
+  display: flex; align-items: center; justify-content: center; gap: 3px;
+  cursor: grab; background: rgba(57, 51, 58, 0.08);
+  touch-action: none;
+}
+html[data-theme='dark'] #ov-grip { background: rgba(241, 234, 240, 0.12); }
+#ov-grip:hover { background: var(--ov-accent-soft); }
+#ov-grip:active { cursor: grabbing; }
+#ov-grip span { width: 3px; height: 10px; border-radius: 2px; background: var(--ov-text-soft); display: block; }
+
+/* 小聊天面板：宽 ≤340、高 ≤360，靠边缘，不挡脸 */
+.ov-panel {
+  width: min(332px, calc(100vw - 16px));
+  max-height: 360px;
+  display: flex; flex-direction: column; gap: 8px;
+  padding: 10px 12px;
+  border-radius: var(--ov-r);
+  background: var(--ov-surface);
+  border: 1px solid var(--ov-border);
+  box-shadow: var(--ov-shadow);
+  overflow: hidden;
+  pointer-events: auto;
+}
 .ov-panel.hidden { display: none; }
 .ov-panel-head {
-  display: flex; align-items: center; justify-content: space-between;
-  gap: 8px; margin-bottom: 8px; font-weight: 600; color: #ffb3d1;
+  display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  font-weight: 600; font-size: 13px; color: var(--ov-text);
 }
-.ov-panel-head span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ov-panel-head button {
-  width: 20px; height: 20px; border: none; border-radius: 50%;
-  background: transparent; color: #9aa0b4; cursor: pointer;
+  width: 22px; height: 22px; padding: 0;
+  border: none; border-radius: 50%; background: transparent;
+  color: var(--ov-text-soft); cursor: pointer;
 }
-.ov-panel-head button:hover { background: rgba(255, 255, 255, 0.12); color: #e8e8f2; }
-#ov-msgs { display: flex; flex-direction: column; gap: 6px; max-height: 150px; overflow-y: auto; margin-bottom: 8px; }
-.ov-msg { padding: 5px 8px; border-radius: 10px; line-height: 1.5; word-break: break-word; }
-.ov-msg.user { align-self: flex-end; background: rgba(255, 126, 179, 0.18); }
-.ov-msg.assistant { align-self: flex-start; background: rgba(255, 255, 255, 0.07); }
-.ov-msg.thinking { color: #9aa0b4; font-style: italic; }
+.ov-panel-head button:hover { background: var(--ov-accent-soft); color: var(--ov-text); }
+.ov-panel-head .ico { width: 13px; height: 13px; }
+
+#ov-msgs { display: flex; flex-direction: column; gap: 6px; overflow-y: auto; min-height: 0; flex: 1; }
+#ov-msgs::-webkit-scrollbar { width: 6px; }
+#ov-msgs::-webkit-scrollbar-thumb { background: var(--ov-border); border-radius: 999px; }
+.ov-msg { padding: 6px 9px; border-radius: 10px; line-height: 1.55; word-break: break-word; font-size: 12.5px; }
+.ov-msg.user { align-self: flex-end; background: var(--ov-accent-soft); color: var(--ov-text); max-width: 82%; }
+.ov-msg.assistant { align-self: flex-start; color: var(--ov-text); max-width: 92%; padding-left: 0; }
+.ov-msg.thinking { color: var(--ov-text-soft); font-style: italic; }
+.ov-msg .ov-who { display: block; font-size: 10.5px; color: var(--ov-text-soft); margin-bottom: 1px; }
+
 .ov-row { display: flex; align-items: center; gap: 6px; }
-.ov-row.ov-mini { margin-top: 6px; }
 #ov-input {
-  flex: 1; min-width: 0; padding: 6px 8px; font-size: 12px; color: #e8e8f2;
-  background: rgba(255, 255, 255, 0.06); border: 1px solid #2c3040; border-radius: 8px; outline: none;
+  flex: 1; min-width: 0; height: 32px; padding: 0 10px;
+  border: 1px solid var(--ov-border); border-radius: 8px;
+  background: transparent; color: var(--ov-text); font-size: 12.5px; outline: none;
 }
-#ov-input:focus { border-color: #ff7eb3; }
-#ov-send, .ov-row.ov-mini button {
-  border: none; border-radius: 8px; padding: 5px 9px; cursor: pointer;
-  background: rgba(255, 255, 255, 0.10); color: #e8e8f2; font-size: 12px;
-}
-/* 图标按钮：文字换成了 SVG，所以高度按图标定、别再靠 padding 撑 */
-.ov-row.ov-mini button {
-  width: 26px; height: 26px; padding: 0;
-  display: flex; align-items: center; justify-content: center;
-}
-#ov-send { background: linear-gradient(135deg, #ff7eb3, #d17ef5); color: #fff; font-weight: 600; }
+#ov-input::placeholder { color: var(--ov-text-soft); }
+#ov-input:focus { border-color: var(--ov-accent); }
 #ov-send {
-  width: 32px; height: 28px; padding: 0;
+  width: 32px; height: 32px; padding: 0; flex: none;
   display: flex; align-items: center; justify-content: center;
+  border: none; border-radius: 8px;
+  background: var(--ov-accent); color: #fff; cursor: pointer;
 }
-.ov-row.ov-mini button.on { background: #ff7eb3; color: #fff; }
-.ov-muted { color: #9aa0b4; font-size: 11px; margin-left: auto; }
-.ov-label { color: #9aa0b4; font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em; margin: 8px 0 4px; }
+#ov-send:hover { filter: brightness(1.05); }
+#ov-send .ico { width: 14px; height: 14px; }
+
+.ov-row.ov-mini { justify-content: space-between; }
+button.ov-link {
+  border: none; background: none; padding: 2px 4px;
+  color: var(--ov-accent); font-size: 12px; cursor: pointer; border-radius: 6px;
+}
+button.ov-link:hover { background: var(--ov-accent-soft); }
+.ov-muted { color: var(--ov-text-soft); font-size: 11px; margin-left: auto; }
+
+.ov-label { font-size: 10.5px; letter-spacing: 0.04em; text-transform: uppercase; color: var(--ov-text-soft); margin-top: 2px; }
 .ov-chips { display: flex; flex-wrap: wrap; gap: 4px; }
 .ov-chips button {
-  padding: 3px 8px; font-size: 11px; border-radius: 999px; cursor: pointer;
-  background: rgba(255, 255, 255, 0.07); border: 1px solid #2c3040; color: #e8e8f2;
+  padding: 3px 9px; font-size: 11.5px; border-radius: 999px; cursor: pointer;
+  background: transparent; border: 1px solid var(--ov-border); color: var(--ov-text-soft);
 }
-.ov-chips button:hover { border-color: #ff7eb3; }
-#ov-models, #ov-scale { width: 100%; }
+.ov-chips button:hover { border-color: var(--ov-accent); color: var(--ov-text); }
 #ov-models {
-  padding: 5px 8px; font-size: 12px; border-radius: 8px;
-  background: rgba(255, 255, 255, 0.06); color: #e8e8f2; border: 1px solid #2c3040;
+  width: 100%; height: 30px; padding: 0 8px;
+  border-radius: 8px; border: 1px solid var(--ov-border);
+  background: transparent; color: var(--ov-text); font-size: 12px;
 }
-#ov-scale { accent-color: #ff7eb3; }
+#ov-scale { width: 100%; accent-color: var(--ov-accent); }
 
-/* ---------- 图标（内联 SVG，和主窗口同一套 icons.js） ---------- */
+.ov-empty {
+  position: absolute; left: 50%; top: 46%; transform: translate(-50%, -50%);
+  width: min(300px, 86%);
+  color: var(--ov-text-soft); font-size: 12px; text-align: center; line-height: 1.7;
+  pointer-events: none;
+}
+
+/* 图标统一尺寸 */
 [data-icon] { display: inline-flex; align-items: center; justify-content: center; line-height: 0; }
 .ico { display: block; flex: none; }
-#ov-tools .ico { width: 14px; height: 14px; }
-.ov-panel-head .ico { width: 12px; height: 12px; }
-#ov-send .ico, .ov-row.ov-mini .ico { width: 13px; height: 13px; }

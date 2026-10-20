@@ -1,19 +1,24 @@
 // ============================================================
-// 设置类弹窗控制器：对话/TTS/STT 设置、外观调色、屏幕视觉、设置菜单
+// 设置中心：表单回填、保存、连接测试、主题与屏幕截图
+//
+// 旧版是「一个设置一个弹窗」，十来个风格相同但彼此割裂的弹窗。
+// 现在所有字段都住在 #page-settings 的 9 个分类里，这里只负责：
+//   · 打开分类时按真实设置回填（fill*）
+//   · 保存时组装 payload（save*），保存后留在原地并闪一下「已保存」
+//   · 取模型 / 测连接 / 屏幕截图这些短任务
+// 字段 id 全部沿用旧名，业务逻辑（payload 形状、密钥语义）没有改。
 // ============================================================
 import { getSettings, saveSettings, hasApiKey } from './settings.js';
 import { state, presetLlmBase, presetEmbeddingBase, presetEmbeddingModel } from './state.js';
 import { $, toast } from './dom.js';
 import { escapeHtml } from './markdown.js';
 import { t } from './i18n.js';
+import { accentList, applyAppearance, flashSaved, gotoSettings } from './shell.js';
 
-// ---------------- API Key 字段（只写） ----------------
+// ---------------- API Key 字段 ----------------
 //
-// 渲染层拿不到明文密钥，所以输入框平时是空的；已配置时填一个掩码。
-// 语义（三种状态都要让用户能表达清楚）：
-//   · 掩码原样不动  → 不改动已有密钥
-//   · 填新字符串    → 覆盖
-//   · 把输入框清空  → 删除密钥（否则用户没有任何办法撤销一个配错的 Key）
+// 渲染层拿不到明文密钥，所以输入框平时是掩码；三种状态都要能表达：
+//   · 掩码不动 → 不改；填新值 → 覆盖；清空 → 删除（否则用户没法撤销配错的 Key）
 const KEY_MASK = '\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022';
 
 function setKeyField(id, group) {
@@ -22,16 +27,20 @@ function setKeyField(id, group) {
   const configured = hasApiKey(group);
   el.value = configured ? KEY_MASK : '';
   el.placeholder = configured ? t('llm.keyKeepHint') : 'sk-…';
+  const hintId = id.replace(/^s-/, '').replace(/-key$/, '-key-state');
+  const hint = $(hintId);
+  if (hint) {
+    hint.textContent = configured ? t('settings.keyConfigured') : t('settings.keyMissing');
+    hint.style.color = configured ? 'var(--sage)' : 'var(--text-tertiary)';
+  }
 }
 
-/** 用户这次在输入框里真正输入的新密钥（什么都没输 / 只有掩码 → 空） */
 function typedKey(id) {
   const el = $(id);
   const v = el ? el.value.trim() : '';
   return (!v || v === KEY_MASK) ? '' : v;
 }
 
-/** 送进设置的 apiKey 值：'' = 保持不变，SECRET_CLEAR = 清除，其它 = 新密钥 */
 function keyPatch(id, group) {
   const el = $(id);
   const v = el ? el.value.trim() : '';
@@ -44,8 +53,18 @@ function errText(err) {
   return String((err && err.message) ? err.message : err);
 }
 
-// ---------------- 对话设置 ----------------
-export function openLlmModal() {
+function sectionOf(id) {
+  const el = $(id);
+  return el ? el.closest('.set-sec') : null;
+}
+
+function saved(id, key) {
+  toast(t(key));
+  flashSaved(sectionOf(id));
+}
+
+// ---------------- 对话模型 ----------------
+export function fillLlm() {
   const s = getSettings();
   const prov = s.llm.provider;
   $('s-llm-provider').value = prov;
@@ -57,7 +76,11 @@ export function openLlmModal() {
   $('s-llm-model').value = s.llm.model || '';
   $('s-llm-temp').value = s.llm.temperature ?? 0.8;
   $('s-llm-max').value = s.llm.maxTokens ?? 1024;
-  $('modal-llm').classList.remove('hidden');
+}
+
+export function openLlmModal() {
+  fillLlm();
+  gotoSettings('models');
 }
 
 export function saveLlmModal() {
@@ -74,14 +97,15 @@ export function saveLlmModal() {
     temperature: parseFloat($('s-llm-temp').value) || 0.8,
     maxTokens: parseInt($('s-llm-max').value, 10) || 1024,
   };
-  saveSettings(next).then(() => {
-    toast(t('llm.saved'));
-    closeSubModal('modal-llm');
+  return saveSettings(next).then(() => {
+    saved('s-llm-save', 'llm.saved');
+    setKeyField('s-llm-key', 'llm');
+    try { window.dispatchEvent(new CustomEvent('aileen:settings-changed')); } catch (err) { /* ignore */ }
   });
 }
 
-// ---------------- TTS 设置 ----------------
-export function openTtsModal() {
+// ---------------- TTS ----------------
+export function fillTts() {
   const s = getSettings();
   $('s-tts-provider').value = s.tts.provider || 'web';
   $('s-tts-language').value = s.tts.language || 'zh';
@@ -97,7 +121,11 @@ export function openTtsModal() {
   $('s-tts-rate').value = String(s.tts.rate ?? 1);
   $('s-tts-rate-val').textContent = Number(s.tts.rate ?? 1).toFixed(1) + '×';
   $('s-tts-auto').checked = !!s.tts.autoPlay;
-  $('modal-tts').classList.remove('hidden');
+}
+
+export function openTtsModal() {
+  fillTts();
+  gotoSettings('voice');
 }
 
 export function saveTtsModal() {
@@ -116,14 +144,14 @@ export function saveTtsModal() {
     rate: parseFloat($('s-tts-rate').value) || 1,
     autoPlay: $('s-tts-auto').checked,
   };
-  saveSettings(next).then(() => {
-    toast(t('tts.saved'));
-    closeSubModal('modal-tts');
+  return saveSettings(next).then(() => {
+    saved('s-tts-save', 'tts.saved');
+    setKeyField('s-tts-key', 'tts');
   });
 }
 
-// ---------------- STT 设置 ----------------
-export function openSttModal() {
+// ---------------- STT ----------------
+export function fillStt() {
   const s = getSettings();
   $('s-stt-provider').value = s.stt.provider || 'openai';
   $('s-stt-language').value = s.stt.language || 'zh';
@@ -135,7 +163,11 @@ export function openSttModal() {
   $('s-stt-base').value = s.stt.baseUrl || 'https://api.openai.com/v1';
   setKeyField('s-stt-key', 'stt');
   $('s-stt-model').value = s.stt.model || '';
-  $('modal-stt').classList.remove('hidden');
+}
+
+export function openSttModal() {
+  fillStt();
+  gotoSettings('voice');
 }
 
 export function saveSttModal() {
@@ -151,20 +183,14 @@ export function saveSttModal() {
     apiKey: keyPatch('s-stt-key', 'stt'),
     model: $('s-stt-model').value.trim(),
   };
-  saveSettings(next).then(() => {
-    toast(t('stt.saved'));
-    closeSubModal('modal-stt');
+  return saveSettings(next).then(() => {
+    saved('s-stt-save', 'stt.saved');
+    setKeyField('s-stt-key', 'stt');
   });
 }
 
-// ---------------- 嵌入模型设置（长期记忆 / 知识库） ----------------
-/**
- * 打开「记忆与知识库」设置。
- *
- * 这里的东西只影响**语义检索**：关掉之后记忆与知识库仍然可用，
- * 只是检索退化成关键词匹配（离线可用，语义弱一些）。
- */
-export function openEmbeddingModal() {
+// ---------------- 嵌入模型 + 记忆范围 ----------------
+export function fillEmbedding() {
   const s = getSettings();
   const e = s.embedding || {};
   const mem = s.memoryCfg || {};
@@ -180,7 +206,21 @@ export function openEmbeddingModal() {
   $('s-mem-perchar').value = mem.perCharacter === false ? 'no' : 'yes';
   $('s-mem-tokens').value = mem.maxContextTokens ?? 800;
   $('s-know-tokens').value = know.maxContextTokens ?? 1200;
-  $('modal-embedding').classList.remove('hidden');
+}
+
+export function openEmbeddingModal() {
+  fillEmbedding();
+  gotoSettings('models');
+}
+
+function embeddingFormPayload() {
+  const custom = $('s-embed-custom-url').checked;
+  const provider = $('s-embed-provider').value;
+  return {
+    baseUrl: (custom ? $('s-embed-base').value.trim() : '') || presetEmbeddingBase(provider),
+    model: $('s-embed-model').value.trim(),
+    apiKey: typedKey('s-embed-key'),
+  };
 }
 
 export function saveEmbeddingModal() {
@@ -192,11 +232,21 @@ export function saveEmbeddingModal() {
     enabled: $('s-embed-enabled').checked,
     provider,
     customBaseUrl: custom,
-    baseUrl: custom ? $('s-embed-base').value.trim() : presetEmbeddingBase(provider),
+    baseUrl: (custom ? $('s-embed-base').value.trim() : '') || presetEmbeddingBase(provider),
     apiKey: keyPatch('s-embed-key', 'embedding'),
     model: $('s-embed-model').value.trim(),
     batchSize: (s.embedding && s.embedding.batchSize) || 16,
   };
+  return saveSettings(next).then(() => {
+    saved('s-embed-save', 'embed.saved');
+    setKeyField('s-embed-key', 'embedding');
+  });
+}
+
+/** 记忆范围与预算（与嵌入模型分开保存：它们属于「记忆」而不是「模型连接」） */
+export function saveMemoryScope() {
+  const s = getSettings();
+  const next = { ...s };
   next.memoryCfg = {
     ...(s.memoryCfg || {}),
     perCharacter: $('s-mem-perchar').value === 'yes',
@@ -206,20 +256,7 @@ export function saveEmbeddingModal() {
     ...(s.knowledgeCfg || {}),
     maxContextTokens: parseInt($('s-know-tokens').value, 10) || 0,
   };
-  saveSettings(next).then(() => {
-    toast(t('embed.saved'));
-    closeSubModal('modal-embedding');
-  });
-}
-
-/** 取当前表单里的 embedding 连接参数（「先测再存」用，不必先保存） */
-function embeddingFormPayload() {
-  return {
-    baseUrl: $('s-embed-base').value.trim() || presetEmbeddingBase($('s-embed-provider').value),
-    model: $('s-embed-model').value.trim(),
-    // 只写语义：掩码不动=不传（由主进程用已保存的 Key）
-    apiKey: typedKey('s-embed-key'),
-  };
+  return saveSettings(next).then(() => saved('s-mem-save', 'memory.saved'));
 }
 
 export async function fetchEmbeddingModels() {
@@ -228,23 +265,11 @@ export async function fetchEmbeddingModels() {
     if (btn) btn.disabled = true;
     const res = await window.api.embeddingListModels(embeddingFormPayload());
     const list = (res && res.models) || [];
-    const dl = $('dl-embed-models');
-    if (dl) {
-      dl.innerHTML = '';
-      for (const id of list.slice(0, 200)) {
-        const opt = document.createElement('option');
-        opt.value = id;
-        dl.appendChild(opt);
-      }
-    }
+    fillDatalist('dl-embed-models', list);
     const suggested = (res && res.suggested) || [];
-    if (!list.length) {
-      toast(t('embed.noModels'), true);
-    } else if (suggested.length && !$('s-embed-model').value.trim()) {
-      // 有像嵌入模型的就先填上，省得用户自己挑
-      $('s-embed-model').value = suggested[0];
-      toast(t('embed.fetched', { n: list.length }));
-    } else {
+    if (!list.length) toast(t('embed.noModels'), true);
+    else {
+      if (suggested.length && !$('s-embed-model').value.trim()) $('s-embed-model').value = suggested[0];
       toast(t('embed.fetched', { n: list.length }));
     }
   } catch (err) {
@@ -267,98 +292,25 @@ export async function testEmbedding() {
   }
 }
 
-// ---------------- 设置菜单导航 ----------------
-// 从设置菜单打开子页面时记住来源，关闭子页面后回到菜单，而不是直接甩回聊天界面。
-let openedFromMenu = false;
-
-export function openSettingsMenu() {
-  refreshMenuSubtitles();
-  openedFromMenu = false;
-  $('modal-menu').classList.remove('hidden');
-}
-
-/**
- * 从设置菜单打开子页面。
- * 必须调用各页面自己的 open 函数（回填表单 / 建立主题快照 / 刷新模型列表），
- * 只把弹窗 remove('hidden') 是不够的 —— 那会导致表单空白、主题「取消」回滚失效。
- */
-export function openFromMenu(targetId, opener) {
-  $('modal-menu').classList.add('hidden');
-  openedFromMenu = true;
-  if (typeof opener === 'function') opener();
-  else $(targetId).classList.remove('hidden');
-}
-
-/** 关闭子弹窗；若它是由设置菜单打开的，则退回设置菜单 */
-export function closeSubModal(id) {
-  if (id === 'modal-theme') cancelThemePreview();
-  $(id).classList.add('hidden');
-  if (openedFromMenu) {
-    openedFromMenu = false;
-    refreshMenuSubtitles();
-    $('modal-menu').classList.remove('hidden');
-  }
-}
-
-// ---------------- 设置菜单副标题 ----------------
-/** 聊天区右上角的状态点：有没有配 API Key 一眼可见 */
+// ---------------- 聊天状态点 ----------------
 export function refreshChatStatus() {
   const dot = $('chat-status');
   if (!dot) return;
-  const s = getSettings();
   const ok = hasApiKey('llm');
   dot.classList.toggle('off', !ok);
   dot.title = ok ? t('chat.statusReady') : t('chat.statusNoKey');
 }
 
-/** 副标题：元素不存在时静默跳过（菜单结构改动不该让整个菜单炸掉） */
-function sub(id, text) {
-  const el = $(id);
-  if (el) el.textContent = text;
-}
-
-export function refreshMenuSubtitles() {
-  const s = getSettings();
-  const llm = s.llm;
-  const prov = s.llm.provider === 'custom' ? t('provider.custom') : t('provider.' + (llm.provider || 'custom'));
-  sub('menu-sub-llm', prov + ' · ' + (llm.model || '—'));
-  const ttsLabel = t('tts.provider.' + (s.tts.provider || 'web'));
-  sub('menu-sub-tts', ttsLabel + ' · ' + String(s.tts.language || 'zh').toUpperCase());
-  const sttLabel = t('stt.provider.' + (s.stt.provider || 'openai'));
-  sub('menu-sub-stt', sttLabel + ' · ' + String(s.stt.language || 'zh').toUpperCase());
-  sub('menu-sub-model', state.models.length ? t('menu.subModels', { n: state.models.length }) : t('menu.subNoModels'));
-  sub('menu-sub-theme', ((s.theme && s.theme.primary) || '#ff7eb3'));
-  const b = s.behavior || {};
-  sub('menu-sub-perform', t('perform.' + (b.narration || 'natural')) + ' · ' + t('perform.' + (b.pacing || 'natural')));
-  const emb = s.embedding || {};
-  sub('menu-sub-embedding', emb.enabled === false ? t('embed.off') : (emb.model || t('embed.builtin')));
-  // 设置中心新增的三行副标题（0.8）：角色 / Agent 授权 / 电脑控制开关。
-  // 副标题只是「一眼看到当前值」，算不出来也不该让整个菜单报错。
-  try {
-    const cur = state.current;
-    sub('menu-sub-char', (cur && cur.data && String(cur.data.name || '')) || '—');
-    const auth = s.agent && s.agent.authorization ? s.agent.authorization : {};
-    const mode = String(auth.mode || 'manual');
-    sub('menu-sub-agent', mode === 'trust'
-      ? t('agent.authTrustTag', { scope: auth.scope === 'persistent' ? t('agent.scopePersistent') : t('agent.scopeTask') })
-      : t(mode === 'batch' ? 'agent.authBatchTag' : 'agent.authManualTag'));
-    sub('menu-sub-computer', (s.agent && s.agent.computerUse) ? t('agent.computerOn') : t('agent.computerOff'));
-  } catch (err) { /* 忽略 */ }
-  refreshChatStatus();
-}
-
-/** 供其他模块写入菜单副标题（如无边框展台开关状态） */
-export function setMenuSub(id, text) {
-  const el = $(id);
-  if (el) el.textContent = text;
-}
-
-// ---------------- 表演（括号动作 / 回复节奏） ----------------
-export function openPerformModal() {
+// ---------------- 表演 ----------------
+export function fillPerform() {
   const b = getSettings().behavior || {};
   $('p-narration').value = b.narration || 'natural';
   $('p-pacing').value = b.pacing || 'natural';
-  $('modal-perform').classList.remove('hidden');
+}
+
+export function openPerformModal() {
+  fillPerform();
+  gotoSettings('companion');
 }
 
 export function savePerformModal() {
@@ -368,16 +320,13 @@ export function savePerformModal() {
     narration: $('p-narration').value,
     pacing: $('p-pacing').value,
   };
-  saveSettings(next).then(() => {
-    toast(t('perform.saved'));
-    closeSubModal('modal-perform');
-  });
+  return saveSettings(next).then(() => saved('p-save', 'perform.saved'));
 }
 
-// ---------------- 获取模型 / 音色列表 ----------------
+// ---------------- 取模型 / 音色列表 ----------------
 export function fillDatalist(id, items) {
   const dl = $(id);
-  if (dl) dl.innerHTML = items.map((x) => '<option value="' + escapeHtml(String(x)) + '"></option>').join('');
+  if (dl) dl.innerHTML = (items || []).map((x) => '<option value="' + escapeHtml(String(x)) + '"></option>').join('');
 }
 
 function effectiveLlmBase() {
@@ -389,7 +338,6 @@ export async function fetchLlmModels() {
   const baseUrl = effectiveLlmBase();
   if (!baseUrl) { toast(t('llm.needBaseUrl'), true); return; }
   try {
-    // 请求在主进程发（带上刚输入的密钥，或已保存的那把）
     const ids = await window.api.llmListModels({ baseUrl, apiKey: typedKey('s-llm-key') });
     fillDatalist('dl-llm-models', ids);
     toast(t('llm.fetched', { n: ids.length }));
@@ -436,7 +384,6 @@ export async function fetchTtsVoices() {
   if (provider === 'openai') {
     fillDatalist('dl-tts-voices', ['alloy', 'echo', 'fable', 'onyx', 'nova', 'shimmer']);
     toast(t('tts.builtinOpenai'));
-    return;
   }
 }
 
@@ -456,80 +403,69 @@ export async function fetchSttModels() {
   }
 }
 
-// ---------------- 外观调色 ----------------
-export const THEME_PRESETS = [
-  { key: 'theme.preset.aileen', primary: '#ff7eb3', secondary: '#38b0de' },
-  { key: 'theme.preset.sky', primary: '#38b0de', secondary: '#7c9bff' },
-  { key: 'theme.preset.mint', primary: '#4ecdc4', secondary: '#a8e6a3' },
-  { key: 'theme.preset.night', primary: '#a78bfa', secondary: '#f472b6' },
-  { key: 'theme.preset.lava', primary: '#ff8c5a', secondary: '#ffd166' },
-  { key: 'theme.preset.peach', primary: '#ff6f91', secondary: '#ffc75f' },
-];
-
-export function applyTheme(t) {
-  const theme = t || {};
-  const root = document.documentElement;
-  root.style.setProperty('--accent', theme.primary || '#ff7eb3');
-  root.style.setProperty('--accent2', theme.secondary || '#38b0de');
+// ---------------- 主题（强调色 + 自定义） ----------------
+/**
+ * 应用强调色。传 { accent: 'rose' } 用预设；传 { primary, secondary } 用自定义。
+ * 只改强调色，不动 --app-bg 等结构性令牌 —— 主题模式由 data-theme 决定。
+ */
+export function applyAccent(patch) {
+  const s = getSettings();
+  const appearance = Object.assign({}, s.appearance, patch);
+  if (patch && patch.primary) appearance.accent = 'custom';
+  applyAppearance(appearance);
+  return appearance;
 }
 
 export function renderThemePresets() {
   const box = $('theme-presets');
   if (!box) return;
   box.innerHTML = '';
-  for (const pre of THEME_PRESETS) {
-    const sw = document.createElement('div');
-    sw.className = 'theme-swatch';
-    sw.dataset.primary = pre.primary;
-    sw.dataset.secondary = pre.secondary;
-    sw.style.background = 'linear-gradient(135deg, ' + pre.primary + ', ' + pre.secondary + ')';
-    const pname = t(pre.key);
-    sw.textContent = pname;
-    sw.title = t('theme.previewTip', { name: pname });
-    sw.onclick = () => {
-      $('t-primary').value = pre.primary;
-      $('t-secondary').value = pre.secondary;
-      applyTheme(pre);
-      markActivePreset();
+  const s = getSettings();
+  const appearance = s.appearance || {};
+  for (const a of accentList()) {
+    const sw = document.createElement('button');
+    sw.className = 'theme-swatch' + (appearance.accent === a.id ? ' on' : '');
+    sw.dataset.accent = a.id;
+    sw.style.background = a.primary;
+    sw.title = t(a.label);
+    sw.setAttribute('aria-label', t(a.label));
+    sw.onclick = async () => {
+      const next = { ...getSettings() };
+      // 选预设 = 放弃之前的自定义颜色，否则行内 --accent 会一直压着预设
+      next.appearance = Object.assign({}, next.appearance, { accent: a.id, custom: null });
+      applyAppearance(next.appearance);
+      renderThemePresets();
+      await saveSettings(next);
     };
     box.appendChild(sw);
   }
 }
 
-/** 高亮与当前所选颜色一致的预设色块 */
-export function markActivePreset() {
-  const p = $('t-primary');
-  const s2 = $('t-secondary');
-  if (!p || !s2) return;
-  const cur = (p.value || '').toLowerCase() + '|' + (s2.value || '').toLowerCase();
-  document.querySelectorAll('.theme-swatch').forEach((x) => {
-    x.classList.toggle('on', (x.dataset.primary + '|' + x.dataset.secondary) === cur);
-  });
-}
+export function markActivePreset() { renderThemePresets(); }
 
-// 主题是「即时预览」的，所以打开时先记下原配色；取消/Esc/点遮罩时还原，
-// 否则用户点了预览又取消，界面颜色变了但设置没存，重启后又变回去（旧版 bug）。
 let themeSnapshot = null;
 
-function cancelThemePreview() {
-  if (!themeSnapshot) return;
-  applyTheme(themeSnapshot);
-  themeSnapshot = null;
+function refreshColorInputs() {
   const theme = getSettings().theme || {};
-  if ($('t-primary')) $('t-primary').value = theme.primary || '#ff7eb3';
-  if ($('t-secondary')) $('t-secondary').value = theme.secondary || '#38b0de';
-  markActivePreset();
+  if ($('t-primary')) $('t-primary').value = theme.primary || '#c87898';
+  if ($('t-secondary')) $('t-secondary').value = theme.secondary || '#a99ac7';
 }
 
 export function openThemeModal() {
-  // 同样别用 t 做局部变量名（遮蔽 i18n 的 t）
-  const theme = getSettings().theme || {};
-  themeSnapshot = { primary: theme.primary || '#ff7eb3', secondary: theme.secondary || '#38b0de' };
-  $('t-primary').value = themeSnapshot.primary;
-  $('t-secondary').value = themeSnapshot.secondary;
+  const appearance = getSettings().appearance || {};
+  refreshColorInputs();
   renderThemePresets();
-  markActivePreset();
-  $('modal-theme').classList.remove('hidden');
+  gotoSettings('appearance');
+  // 取消时只还原强调色：主题模式是即时生效的开关，不该被「取消」改回去
+  themeSnapshot = { accent: appearance.accent };
+}
+
+export function cancelThemePreview() {
+  // 不依赖「先打开过设置页」这一前提：直接从已保存的设置重画一次外观，
+  // 这样任何路径点「取消」都能把即时预览的颜色收回去。
+  applyAppearance(Object.assign({}, getSettings().appearance));
+  refreshColorInputs();
+  themeSnapshot = null;
 }
 
 export function saveThemeModal() {
@@ -538,17 +474,35 @@ export function saveThemeModal() {
     primary: $('t-primary').value,
     secondary: $('t-secondary').value,
   };
-  saveSettings(next).then(() => {
-    themeSnapshot = null; // 已保存，取消时不再还原
-    applyTheme(getSettings().theme);
-    toast(t('theme.saved'));
-    closeSubModal('modal-theme');
+  next.appearance = Object.assign({}, next.appearance, {
+    accent: 'custom',
+    custom: { primary: next.theme.primary, secondary: next.theme.secondary },
+  });
+  return saveSettings(next).then(() => {
+    applyAppearance(next.appearance);
+    themeSnapshot = null;
+    renderThemePresets();
+    saved('t-save', 'theme.saved');
+  });
+}
+
+export function resetTheme() {
+  const next = { ...getSettings() };
+  next.theme = { primary: '#c87898', secondary: '#a99ac7' };
+  next.appearance = Object.assign({}, next.appearance, { accent: 'rose', custom: null });
+  return saveSettings(next).then(() => {
+    applyAppearance(next.appearance);
+    if ($('t-primary')) $('t-primary').value = next.theme.primary;
+    if ($('t-secondary')) $('t-secondary').value = next.theme.secondary;
+    renderThemePresets();
+    toast(t('theme.resetDone'));
   });
 }
 
 // ---------------- 屏幕视觉（截图发给角色） ----------------
 export function setAttachUI() {
   const bar = $('attach-bar');
+  if (!bar) return;
   if (state.pendingImage) {
     $('attach-preview').src = state.pendingImage.dataURL;
     $('attach-name').textContent = state.pendingImage.name;
@@ -588,4 +542,97 @@ export async function openScreenPicker() {
     grid.appendChild(item);
   }
   $('modal-screen').classList.remove('hidden');
+}
+
+// ---------------- 初始化 ----------------
+/** 把所有表单与按钮接起来（只调一次） */
+export function initSettingsPage() {
+  // 保存
+  const bind = (id, fn) => { const el = $(id); if (el) el.onclick = () => fn().catch((err) => toast(errText(err), true)); };
+  bind('s-llm-save', saveLlmModal);
+  bind('s-tts-save', saveTtsModal);
+  bind('s-stt-save', saveSttModal);
+  bind('s-embed-save', saveEmbeddingModal);
+  bind('s-mem-save', saveMemoryScope);
+  bind('p-save', savePerformModal);
+  bind('t-save', saveThemeModal);
+  bind('s-llm-cancel', () => { fillLlm(); return Promise.resolve(); });
+  bind('s-tts-cancel', () => { fillTts(); return Promise.resolve(); });
+  bind('s-stt-cancel', () => { fillStt(); return Promise.resolve(); });
+  bind('s-embed-cancel', () => { fillEmbedding(); return Promise.resolve(); });
+  bind('p-cancel', () => { fillPerform(); return Promise.resolve(); });
+  bind('t-cancel', () => { cancelThemePreview(); refreshColorInputs(); return Promise.resolve(); });
+  bind('t-reset', resetTheme);
+
+  // 取列表 / 测连接
+  const wire = (id, fn) => { const el = $(id); if (el) el.onclick = () => fn().catch((err) => toast(errText(err), true)); };
+  wire('btn-llm-fetch', fetchLlmModels);
+  wire('btn-llm-test', testLlmConnection);
+  wire('btn-tts-fetch', fetchTtsVoices);
+  wire('btn-stt-fetch', fetchSttModels);
+  wire('btn-embed-fetch', fetchEmbeddingModels);
+  wire('btn-embed-test', testEmbedding);
+
+  // 服务商切换：自定义地址字段跟着显隐
+  const llmProv = $('s-llm-provider');
+  if (llmProv) {
+    llmProv.onchange = () => {
+      const custom = $('s-llm-custom-url').checked;
+      $('s-llm-base').value = presetLlmBase(llmProv.value);
+      $('wrap-llm-base').classList.toggle('hidden', !custom);
+    };
+  }
+  const llmCustom = $('s-llm-custom-url');
+  if (llmCustom) llmCustom.onchange = () => $('wrap-llm-base').classList.toggle('hidden', !llmCustom.checked);
+
+  const ttsProv = $('s-tts-provider');
+  if (ttsProv) {
+    ttsProv.onchange = () => {
+      const isOpenai = ttsProv.value === 'openai';
+      $('wrap-tts-custom').classList.toggle('hidden', !isOpenai);
+      $('wrap-tts-base').classList.toggle('hidden', !(isOpenai && $('s-tts-custom-url').checked));
+    };
+  }
+  const ttsCustom = $('s-tts-custom-url');
+  if (ttsCustom) {
+    ttsCustom.onchange = () => {
+      const show = $('s-tts-provider').value === 'openai' && ttsCustom.checked;
+      $('wrap-tts-base').classList.toggle('hidden', !show);
+    };
+  }
+
+  const sttProv = $('s-stt-provider');
+  if (sttProv) {
+    sttProv.onchange = () => {
+      const isOpenai = sttProv.value === 'openai';
+      $('wrap-stt-custom').classList.toggle('hidden', !isOpenai);
+      $('wrap-stt-base').classList.toggle('hidden', !(isOpenai && $('s-stt-custom-url').checked));
+    };
+  }
+  const sttCustom = $('s-stt-custom-url');
+  if (sttCustom) sttCustom.onchange = () => $('wrap-stt-base').classList.toggle('hidden', !(sttProv.value === 'openai' && sttCustom.checked));
+
+  const embedCustom = $('s-embed-custom-url');
+  if (embedCustom) embedCustom.onchange = () => $('wrap-embed-base').classList.toggle('hidden', !embedCustom.checked);
+
+  const rate = $('s-tts-rate');
+  if (rate) rate.addEventListener('input', () => { $('s-tts-rate-val').textContent = Number(rate.value).toFixed(1) + '×'; });
+
+  // 主题自定义颜色：改一下就预览（保存才生效）
+  if ($('t-primary')) $('t-primary').addEventListener('input', () => applyAppearance(Object.assign({}, getSettings().appearance, { accent: 'custom', custom: { primary: $('t-primary').value, secondary: $('t-secondary').value } })));
+  if ($('t-secondary')) $('t-secondary').addEventListener('input', () => applyAppearance(Object.assign({}, getSettings().appearance, { accent: 'custom', custom: { primary: $('t-primary').value, secondary: $('t-secondary').value } })));
+
+  renderThemePresets();
+}
+
+/** 进入设置页 / 相关分类时回填所有表单 */
+export function fillAllSettings() {
+  fillLlm();
+  fillTts();
+  fillStt();
+  fillEmbedding();
+  fillPerform();
+  if ($('t-primary')) $('t-primary').value = (getSettings().theme && getSettings().theme.primary) || '#c87898';
+  if ($('t-secondary')) $('t-secondary').value = (getSettings().theme && getSettings().theme.secondary) || '#a99ac7';
+  renderThemePresets();
 }

@@ -11,7 +11,9 @@ import { setStageModelIndex, updateStageModelName, syncOverlayModel } from './st
 import { t } from './i18n.js';
 import { generatePersonaCard } from './persona.js';
 import { broadcastSession } from './session-coordinator.js';
-import { iconSvg } from './icons.js';
+import { iconSvg, applyIcons } from './icons.js';
+import { currentPage, fillAvatar, gotoPage } from './shell.js';
+import { renderCharactersPage } from './pages.js';
 
 export function findChar(file) {
   return state.characters.find((c) => c.file === file);
@@ -40,41 +42,37 @@ export function renderCharList() {
     box.innerHTML = '<div class="ci-empty">' + t('nav.noChars') + '</div>';
     return;
   }
-  const list = state.characters.filter(matchesFilter);
-  if (!list.length) {
-    box.innerHTML = '<div class="ci-empty">' + t('sidebar.noMatch', { q: charFilter }) + '</div>';
-    return;
-  }
-  for (const c of list) {
+  // 侧栏只放最近用的 6 个：完整角色库在「角色」页，这里保持导航安静
+  const all = state.characters.filter(matchesFilter);
+  const recent = all.slice(0, 6);
+  for (const c of recent) {
     const item = document.createElement('div');
     item.className = 'char-item' + (state.current && state.current.file === c.file ? ' active' : '');
     item.dataset.file = c.file;
-    const img = document.createElement('img');
-    img.src = avatarUrl(c.data.avatar) || 'data:image/svg+xml;utf8,' + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="80" height="80"><rect width="80" height="80" rx="16" fill="#2c3040"/><text x="40" y="50" font-size="30" text-anchor="middle" fill="#9aa0b4" font-family="sans-serif">' + escapeHtml((c.data.name || '?').slice(0, 1)) + '</text></svg>');
-    img.onerror = () => { img.src = ''; };
+    const img = document.createElement('span');
+    img.className = 'avatar';
+    img.alt = '';
+    fillAvatar(img, c.data.name || c.file, avatarUrl(c.data.avatar));
     const meta = document.createElement('div');
-    meta.style.cssText = 'min-width:0';
+    meta.style.cssText = 'min-width:0;flex:1';
     const nm = document.createElement('div');
     nm.className = 'ci-name';
     nm.textContent = c.data.name || c.file;
-    const ds = document.createElement('div');
-    ds.className = 'ci-desc';
-    ds.textContent = c.data.description || '';
-    meta.appendChild(nm); meta.appendChild(ds);
+    meta.appendChild(nm);
     // 绑定徽章：一眼看出这张卡有没有配模型 / 音色
     const badges = document.createElement('div');
     badges.className = 'ci-badges';
     if (c.data.model) {
       const b = document.createElement('span');
       b.className = 'ci-badge';
-      b.innerHTML = iconSvg('layers', 13);
+      b.innerHTML = iconSvg('layers', 12);
       b.title = t('char.model') + ': ' + c.data.model;
       badges.appendChild(b);
     }
     if (c.data.voice) {
       const b = document.createElement('span');
       b.className = 'ci-badge voice';
-      b.innerHTML = iconSvg('speaker', 13);
+      b.innerHTML = iconSvg('speaker', 12);
       b.title = t('char.voice') + ': ' + c.data.voice;
       badges.appendChild(b);
     }
@@ -82,11 +80,11 @@ export function renderCharList() {
 
     const more = document.createElement('button');
     more.className = 'ci-more';
-    more.textContent = '⋯';
+    more.innerHTML = iconSvg('more', 14);
     more.title = t('chat.menuTitle');
     more.onclick = (e) => { e.stopPropagation(); openCharMenuAt(c.file, e.clientX, e.clientY); };
     item.appendChild(img); item.appendChild(meta); item.appendChild(more);
-    item.onclick = () => selectCharacter(c.file, { greet: true });
+    item.onclick = async () => { await selectCharacter(c.file, { greet: true }); gotoPage('chat'); };
     item.ondblclick = () => openCharModal(c.data, c.file);
     item.oncontextmenu = (e) => { e.preventDefault(); openCharMenuAt(c.file, e.clientX, e.clientY); };
     box.appendChild(item);
@@ -94,26 +92,32 @@ export function renderCharList() {
 }
 
 export function renderEmptyState() {
+  const box = $('messages');
+  if (!box) return;
   if (state.characters.length > 0) return;
-  const av = $('chat-avatar');
-  if (av) av.src = '';
+  fillAvatar($('chat-avatar'), 'AILEEN', '');
   $('chat-name').textContent = 'AILEEN';
   $('chat-desc').textContent = t('chat.emptyDesc');
-  const box = $('messages');
-  // 空状态：品牌标识 + 引导语，安静居中（不用一个假的气泡冒充对话）
+  // 空状态：品牌标识 + 一句引导，安静居中（不用一个假的气泡冒充对话）
   box.innerHTML = '<div class="empty-state">'
-    + '<span class="empty-mark" aria-hidden="true">' + iconSvg('mark', 34) + '</span>'
-    + '<p class="empty-title">' + t('chat.welcome') + '</p>'
+    + '<span class="empty-mark" aria-hidden="true">' + iconSvg('mark', 40) + '</span>'
+    + '<p class="empty-title">' + escapeHtml(t('chat.emptyTitle')) + '</p>'
+    + '<p class="empty-desc">' + escapeHtml(t('chat.emptyDesc')) + '</p>'
+    + '<div class="empty-actions"><button id="empty-new-card" class="primary">'
+    + '<span data-icon="plus"></span>' + escapeHtml(t('nav.newChar')) + '</button></div>'
     + '</div>';
+  const btn = $('empty-new-card');
+  if (btn) btn.onclick = () => openCharModal(null, null);
+  applyIcons(box);
   scrollBottom();
   broadcastSession('messages');
 }
 
 export function updateChatHeader() {
   if (!state.current) { renderEmptyState(); return; }
-  $('chat-avatar').src = avatarUrl(state.current.data.avatar);
+  fillAvatar($('chat-avatar'), state.current.data.name || state.current.file, avatarUrl(state.current.data.avatar));
   $('chat-name').textContent = state.current.data.name || state.current.file;
-  $('chat-desc').textContent = state.current.data.description || '';
+  $('chat-desc').textContent = state.current.data.description || t('chat.noCharacterHint');
 }
 
 export async function selectCharacter(file, opts = {}) {
@@ -132,13 +136,10 @@ export async function selectCharacter(file, opts = {}) {
   // 双窗口：角色切换要同步给展台（同一套角色数据，不各维护一份）
   try { broadcastSession('character'); } catch (err) { /* 展台没开就算了 */ }
 
-  // 绑定 Live2D 模型
+  // 绑定 Live2D 模型（主窗口不再渲染，模型推给独立展台）
   if (found.data.model) {
     const idx = state.models.findIndex((m) => m.file === found.data.model);
-    if (idx >= 0) {
-      setStageModelIndex(idx);
-      if (state.oml2d && state.oml2d.modelIndex !== idx) state.oml2d.loadModelByIndex(idx);
-    }
+    if (idx >= 0) setStageModelIndex(idx);
     updateStageModelName();
   }
   syncOverlayModel();
@@ -270,6 +271,7 @@ export function populateVoiceSelect() {
 }
 
 export function openCharModal(card, file) {
+  state.editorReturnPage = currentPage();
   state.editorCard = card ? deepMerge(emptyCard(), card) : emptyCard();
   state.editorFile = file || null;
   $('char-modal-title').textContent = state.editorFile ? t('char.edit', { name: state.editorCard.name }) : t('char.new');
@@ -284,9 +286,23 @@ export function openCharModal(card, file) {
   populateVoiceSelect();
   $('f-model').value = state.editorCard.model || '';
   $('f-voice').value = state.editorCard.voice || '';
-  $('f-avatar-preview').src = avatarUrl(state.editorCard.avatar);
+  fillAvatar($('f-avatar-preview'), state.editorCard.name || 'A', avatarUrl(state.editorCard.avatar));
+  fillAvatar($('f-avatar-preview-2'), state.editorCard.name || 'A', avatarUrl(state.editorCard.avatar));
+  const n = $('f-preview-name');
+  const d = $('f-preview-desc');
+  const m = $('f-preview-model');
+  const v = $('f-preview-voice');
+  if (n) n.textContent = state.editorCard.name || t('char.previewName');
+  if (d) d.textContent = state.editorCard.description || t('char.previewDesc');
+  if (m) m.textContent = state.editorCard.model || t('char.noModel');
+  if (v) v.textContent = state.editorCard.voice || t('char.noVoice');
   $('f-delete').classList.toggle('hidden', !state.editorFile);
-  $('modal-char').classList.remove('hidden');
+  // 人设生成室默认收起：它是编辑页里的可选工具，不抢正文
+  const wrap = $('persona-wrap');
+  if (wrap) wrap.open = false;
+  const persona = $('modal-persona');
+  if (persona) persona.classList.add('hidden');
+  gotoPage('char-edit');
 }
 
 // ---------------- 自动生成人设 ----------------
@@ -333,7 +349,11 @@ export async function generatePersona() {
   const seedEl = $('f-seed');
   const seed = seedEl ? seedEl.value.trim() : '';
   const label = btn ? btn.textContent : '';
-  if (btn) { btn.disabled = true; btn.textContent = t('char.genBusy'); }
+  const setLabel = (text) => {
+    if (!btn) return;
+    btn.innerHTML = iconSvg('spark', 16) + '<span>' + escapeHtml(text) + '</span>';
+  };
+  if (btn) { btn.disabled = true; setLabel(t('char.genBusy')); }
   try {
     // 写一整张角色卡比日常闲聊费 token 得多，而且推理模型的开销是随机的。
     // 额度起步、被思考吃光或被截断后的重试，都在 generatePersonaCard 里处理，
@@ -346,12 +366,15 @@ export async function generatePersona() {
   } catch (err) {
     toast(String((err && err.message) || err), true);
   } finally {
-    if (btn) { btn.disabled = false; btn.textContent = label || t('char.genBtn'); }
+    if (btn) { btn.disabled = false; setLabel(label || t('char.genBtn')); }
   }
 }
 
 export function closeCharModal() {
-  $('modal-char').classList.add('hidden');
+  const persona = $('modal-persona');
+  if (persona) persona.classList.add('hidden');
+  const back = state.editorReturnPage && state.editorReturnPage !== 'char-edit' ? state.editorReturnPage : 'characters';
+  gotoPage(back);
 }
 
 export function saveCharModal() {
@@ -371,9 +394,11 @@ export function saveCharModal() {
   if (!card.createdAt) card.createdAt = Date.now();
 
   const file = cardFileName(card);
-  window.api.writeCharacter(file, card, state.editorFile ? 'update' : 'create').then((res) => {
+  return window.api.writeCharacter(file, card, state.editorFile ? 'update' : 'create').then(async (res) => {
     toast(t('char.saved'));
-    closeCharModal();
-    return refreshCharacters(res.file);
+    await refreshCharacters(res.file);
+    renderCharList();
+    renderCharactersPage();
+    gotoPage('characters');
   });
 }

@@ -441,10 +441,16 @@ export function initAgentUI() {
     // 先钉住再可见：否则 syncDashboardMode 会在「开关关着 + 没在跑」时又收回去
     pinDrawer(true);
     drawer.classList.remove('hidden');
+    const scrim = $('drawer-scrim');
+    if (scrim) scrim.classList.add('on');
+    requestAnimationFrame(() => drawer.classList.add('open'));
     applyAgentMode();
   };
   const close = () => {
-    drawer.classList.add('hidden');
+    drawer.classList.remove('open');
+    const scrim = $('drawer-scrim');
+    if (scrim) scrim.classList.remove('on');
+    setTimeout(() => { if (!drawer.classList.contains('open')) drawer.classList.add('hidden'); }, 180);
     applyAgentMode();
     pinDrawer(false);
   };
