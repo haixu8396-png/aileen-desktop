@@ -35,10 +35,15 @@ html, body {
 }
 .ov-empty span { color: #b9bfd0; font-size: 11px; }
 
-/* 右下角工具条：不动就隐藏，鼠标移上去才浮现 */
-#ov-tools {
-  /* 内缩 26px：Windows 无边框窗口边缘是系统缩放手柄区，贴上会被当成缩放（越拖越大） */
+/* 右下角悬浮 UI 容器：热区就是这一整块。
+   内缩 26px：Windows 无边框窗口边缘是系统缩放手柄区，贴上会被当成缩放（越拖越大）。 */
+#ov-ui {
   position: fixed; right: 26px; bottom: 26px;
+  display: flex; flex-direction: column; align-items: flex-end; gap: 8px;
+  pointer-events: none;
+}
+/* 工具条：不动就隐藏，鼠标移上去才浮现 */
+#ov-tools {
   display: flex; align-items: center; gap: 6px;
   padding: 6px; border-radius: 999px;
   background: rgba(28, 30, 39, 0.88); border: 1px solid #2c3040;
@@ -65,3 +70,77 @@ html, body {
 #ov-grip:hover { background: rgba(255, 126, 179, 0.28); }
 #ov-grip:active { cursor: grabbing; background: rgba(255, 126, 179, 0.45); }
 #ov-grip span { width: 3px; height: 12px; border-radius: 2px; background: #9aa0b4; display: block; }
+
+/* ---------- 状态提示（聆听/思考/执行/等确认） ---------- */
+/* 放在**顶部**居中：底部留给工具条和聊天面板，角色的脸在中间 —— 三者互不遮挡 */
+.ov-status {
+  position: fixed; left: 50%; top: 10px; transform: translateX(-50%);
+  max-width: 90%; padding: 4px 12px; border-radius: 999px;
+  font-size: 11px; letter-spacing: 0.02em; white-space: nowrap;
+  color: #e8e8f2; background: rgba(20, 21, 26, 0.72);
+  border: 1px solid rgba(255, 255, 255, 0.10);
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.8);
+  pointer-events: none; opacity: 0.9;
+  transition: opacity 0.2s ease;
+}
+.ov-status.hidden { display: none; }
+.ov-status.busy { border-color: rgba(240, 180, 91, 0.55); color: #ffd79a; }
+.ov-status.approval { border-color: rgba(61, 139, 253, 0.65); color: #9dc4ff; }
+.ov-status.listening { border-color: rgba(255, 126, 179, 0.55); color: #ffc3dc; }
+
+/* ---------- 小面板（聊天 / 动作表情） ---------- */
+/* 轻量、低干扰：半透明底 + 细边框，不用大块不透明面板 */
+.ov-panel {
+  width: 262px; max-height: 300px; overflow-y: auto;
+  padding: 10px; border-radius: 14px;
+  background: rgba(24, 26, 34, 0.92); border: 1px solid #2c3040;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.55);
+  color: #e8e8f2; font-size: 12px;
+  pointer-events: auto;
+  animation: ov-panel-in 0.16s ease;
+}
+@keyframes ov-panel-in { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+@media (prefers-reduced-motion: reduce) { .ov-panel { animation: none; } }
+.ov-panel.hidden { display: none; }
+.ov-panel-head {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 8px; margin-bottom: 8px; font-weight: 600; color: #ffb3d1;
+}
+.ov-panel-head span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ov-panel-head button {
+  width: 20px; height: 20px; border: none; border-radius: 50%;
+  background: transparent; color: #9aa0b4; cursor: pointer;
+}
+.ov-panel-head button:hover { background: rgba(255, 255, 255, 0.12); color: #e8e8f2; }
+#ov-msgs { display: flex; flex-direction: column; gap: 6px; max-height: 150px; overflow-y: auto; margin-bottom: 8px; }
+.ov-msg { padding: 5px 8px; border-radius: 10px; line-height: 1.5; word-break: break-word; }
+.ov-msg.user { align-self: flex-end; background: rgba(255, 126, 179, 0.18); }
+.ov-msg.assistant { align-self: flex-start; background: rgba(255, 255, 255, 0.07); }
+.ov-msg.thinking { color: #9aa0b4; font-style: italic; }
+.ov-row { display: flex; align-items: center; gap: 6px; }
+.ov-row.ov-mini { margin-top: 6px; }
+#ov-input {
+  flex: 1; min-width: 0; padding: 6px 8px; font-size: 12px; color: #e8e8f2;
+  background: rgba(255, 255, 255, 0.06); border: 1px solid #2c3040; border-radius: 8px; outline: none;
+}
+#ov-input:focus { border-color: #ff7eb3; }
+#ov-send, .ov-row.ov-mini button {
+  border: none; border-radius: 8px; padding: 5px 9px; cursor: pointer;
+  background: rgba(255, 255, 255, 0.10); color: #e8e8f2; font-size: 12px;
+}
+#ov-send { background: linear-gradient(135deg, #ff7eb3, #d17ef5); color: #fff; font-weight: 600; }
+.ov-row.ov-mini button.on { background: #ff7eb3; color: #fff; }
+.ov-muted { color: #9aa0b4; font-size: 11px; margin-left: auto; }
+.ov-label { color: #9aa0b4; font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em; margin: 8px 0 4px; }
+.ov-chips { display: flex; flex-wrap: wrap; gap: 4px; }
+.ov-chips button {
+  padding: 3px 8px; font-size: 11px; border-radius: 999px; cursor: pointer;
+  background: rgba(255, 255, 255, 0.07); border: 1px solid #2c3040; color: #e8e8f2;
+}
+.ov-chips button:hover { border-color: #ff7eb3; }
+#ov-models, #ov-scale { width: 100%; }
+#ov-models {
+  padding: 5px 8px; font-size: 12px; border-radius: 8px;
+  background: rgba(255, 255, 255, 0.06); color: #e8e8f2; border: 1px solid #2c3040;
+}
+#ov-scale { accent-color: #ff7eb3; }

@@ -599,6 +599,37 @@ function registerOverlayIpc() {
     theme: readSettings().theme || {},
     language: readSettings().language || 'en',
   }));
+  // ---- 双窗口会话同步（0.8）----
+  // 主窗口是会话的唯一所有者：它把消息/状态广播出去，展台只读地显示。
+  handle('overlay:session', (_e, payload) => {
+    if (!overlayWin || overlayWin.isDestroyed()) return false;
+    try {
+      overlayWin.webContents.send('overlay:session', payload);
+      return true;
+    } catch (err) {
+      console.warn('[overlay] 会话广播失败：', err && err.message);
+      return false;
+    }
+  });
+  // 展台 → 主窗口：用户在小面板里说话 / 切语音 / 换模型，统一交给主窗口的协调器处理
+  handle('overlay:request', (_e, payload) => {
+    if (!mainWin || mainWin.isDestroyed()) return false;
+    try {
+      mainWin.webContents.send('overlay:request', payload);
+      return true;
+    } catch (err) {
+      console.warn('[overlay] 请求转发失败：', err && err.message);
+      return false;
+    }
+  });
+  // 展台 →「打开主窗口」（用户主动点的，所以这里允许抢一次前台）
+  handle('overlay:openMain', () => {
+    if (!mainWin || mainWin.isDestroyed()) return false;
+    if (mainWin.isMinimized()) mainWin.restore();
+    mainWin.show();
+    mainWin.focus();
+    return true;
+  });
   handle('overlay:resize', async (_e, payload) => {
     const dw = Math.round((payload && payload.dw) || 0);
     const dh = Math.round((payload && payload.dh) || 0);

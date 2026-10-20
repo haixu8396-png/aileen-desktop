@@ -87,6 +87,27 @@ const CHANNELS = {
   'overlay:dragStart': v.NO_ARGS,
   'overlay:dragMove': v.NO_ARGS,
   'overlay:dragEnd': v.NO_ARGS,
+  // ---- 双窗口会话同步（0.8）----
+  // 主窗口 → 主进程 → 展台：消息 / 状态 / 角色切换的**只读广播**
+  'overlay:session': v.args(v.object({
+    type: v.oneOf(['messages', 'status', 'character', 'models']),
+    // 消息只允许 role + 纯文本（不带任何 HTML 片段，展台侧自己转义）
+    messages: v.optional(v.arr(v.object({
+      role: v.oneOf(['user', 'assistant']),
+      text: v.str({ max: 4000 }),
+    }, { allowUnknown: false }), { max: 20 })),
+    status: v.optional(v.object({}, { allowUnknown: true })),
+    character: v.optional(v.object({ name: v.optional(v.str({ max: 200 })) }, { allowUnknown: true })),
+    models: v.optional(v.arr(v.object({ name: v.str({ max: 200 }) }, { allowUnknown: true }), { max: 100 })),
+  }, { allowUnknown: false })),
+  // 展台 → 主进程 → 主窗口：用户在小面板里的操作请求
+  'overlay:request': v.args(v.object({
+    type: v.oneOf(['sync', 'chat', 'voice', 'model', 'motion', 'expression', 'openMain']),
+    text: v.optional(v.str({ max: 4000, allowEmpty: true })),
+    name: v.optional(v.str({ max: 200, allowEmpty: true })),
+    index: v.optional(v.num({ min: 0, max: 999 })),
+  }, { allowUnknown: false })),
+  'overlay:openMain': v.NO_ARGS,
 
   // ---- Minecraft ----
   'mc:connect': v.args(v.object({

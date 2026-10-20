@@ -9,12 +9,51 @@
 <body>
 <div id="ov-root">
   <div id="ov-stage"></div>
-  <div id="ov-tools" data-i18n-title="overlay.toolsTitle">
-    <button id="ov-smaller" data-i18n-title="overlay.smaller">−</button>
-    <button id="ov-bigger" data-i18n-title="overlay.bigger">＋</button>
-    <button id="ov-lock" data-i18n-title="overlay.lockOff">🖱</button>
-    <div id="ov-grip" data-i18n-title="overlay.drag"><span></span><span></span><span></span></div>
-    <button id="ov-hide" data-i18n-title="overlay.hide">✕</button>
+  <!-- 状态提示：聆听 / 思考 / 执行 / 等确认 —— 默认很淡，闲置时淡出 -->
+  <div id="ov-status" class="ov-status hidden"></div>
+
+  <!-- 悬浮 UI 都收在这个容器里：整块就是「交互热区」，
+       收起时只剩工具条那么大，不会长期挡住桌面。 -->
+  <div id="ov-ui">
+    <!-- 小聊天面板：和主窗口共用同一段对话（只读展示 + 输入转交主窗口） -->
+    <div id="ov-chat" class="ov-panel hidden">
+      <div class="ov-panel-head">
+        <span id="ov-char">AILEEN</span>
+        <button id="ov-chat-close" data-i18n-title="overlay.hide">✕</button>
+      </div>
+      <div id="ov-msgs"></div>
+      <div class="ov-row">
+        <input id="ov-input" type="text" autocomplete="off" data-i18n-ph="overlay.chatPlaceholder" />
+        <button id="ov-send" class="primary" data-i18n-title="overlay.send" data-i18n="overlay.send">➤</button>
+      </div>
+      <div class="ov-row ov-mini">
+        <button id="ov-mic" data-i18n-title="overlay.micTip">🎤</button>
+        <button id="ov-open-main" data-i18n-title="overlay.openMainTip">🪟</button>
+        <span id="ov-hint" class="ov-muted"></span>
+      </div>
+    </div>
+
+    <!-- 动作 / 表情 / 模型 / 尺寸 -->
+    <div id="ov-more" class="ov-panel hidden">
+      <div class="ov-label" data-i18n="overlay.motion">Motion</div>
+      <div id="ov-motions" class="ov-chips"></div>
+      <div class="ov-label" data-i18n="overlay.expression">Expression</div>
+      <div id="ov-exprs" class="ov-chips"></div>
+      <div class="ov-label" data-i18n="overlay.model">Model</div>
+      <select id="ov-models"></select>
+      <div class="ov-label" data-i18n="overlay.size">Size</div>
+      <input id="ov-scale" type="range" min="0.25" max="1" step="0.05" />
+    </div>
+
+    <div id="ov-tools" data-i18n-title="overlay.toolsTitle">
+      <button id="ov-chat-toggle" data-i18n-title="overlay.chatTip">💬</button>
+      <button id="ov-more-toggle" data-i18n-title="overlay.moreTip">⋯</button>
+      <button id="ov-smaller" data-i18n-title="overlay.smaller">−</button>
+      <button id="ov-bigger" data-i18n-title="overlay.bigger">＋</button>
+      <button id="ov-lock" data-i18n-title="overlay.lockOff">🖱</button>
+      <div id="ov-grip" data-i18n-title="overlay.drag"><span></span><span></span><span></span></div>
+      <button id="ov-hide" data-i18n-title="overlay.hide">✕</button>
+    </div>
   </div>
 </div>
 <script>

@@ -36,6 +36,7 @@ import {
   openEmbeddingModal, saveEmbeddingModal, fetchEmbeddingModels, testEmbedding,
 } from './lib/modals.js';
 import { startVoiceLoop, stopVoiceLoop } from './lib/voice.js';
+import { initSessionCoordinator, broadcastSession } from './lib/session-coordinator.js';
 import { createMemoryEngine } from './memory/engine.js';
 import { createMemoryEmbedder } from './memory/embeddings.js';
 import { createMemoryFsBridge } from './lib/memory-host.js';
@@ -121,9 +122,21 @@ async function boot() {
   initAgentUI();
   // 「继续执行」= 用检查点重开一次任务。回调在这里注入，避免 chat ↔ agent-ui 互相 import。
   setResumeHandler((checkpoint) => resumeWithAgent(checkpoint));
+  // 双窗口会话协调器：展台发来的输入/操作统一交给这里（主窗口是会话所有者）
+  initSessionCoordinator({
+    onChat: (text) => { send(text); },
+    onVoice: () => { if (state.voiceLoop) stopVoiceLoop(); else startVoiceLoop(); },
+    onModel: (index) => { setStageModelIndex(index); syncOverlayModel(); },
+    onModelList: () => { broadcastSession('models'); },
+  });
   // Agent 事件的总出口：Dashboard 负责画，chat.js 只负责发
   hooks.agentEvent = (type, payload) => {
     try { onAgentEvent(type, payload); } catch (err) { console.warn('[agent] dashboard 事件处理失败', err && err.message); }
+    if (type === 'status' && payload && payload.status) {
+      // 展台的状态提示（聆听/思考/执行/等确认）靠这条同步
+      state.agentStatus = String(payload.status);
+      try { broadcastSession('status'); } catch (err2) { /* 忽略 */ }
+    }
   };
   initAgentDashboard();
   bindAppMenu();

@@ -845,6 +845,16 @@ win.webContents.on('did-finish-load', () => {
             rep.mainWindowMq = await win.webContents.executeJavaScript('({ mq: window.matchMedia("screen and (max-width: 768px)").matches, screen: [window.screen.width, window.screen.height] })').catch(() => null);
           } catch (err) { rep.errors.push('overlay probe: ' + String((err && err.message) || err)); }
           await new Promise((r) => setTimeout(r, 400));
+          // 截图前可以把悬浮面板摆出来（核对排版用；正常运行不会调用）
+          const panelName = process.env.AILEEN_SELFTEST_OVERLAY_PANEL;
+          if (panelName) {
+            try {
+              rep.overlayPanel = await w.webContents.executeJavaScript(
+                'window.__AILEEN_OVERLAY_PANEL ? window.__AILEEN_OVERLAY_PANEL(' + JSON.stringify(panelName) + ') : false',
+              );
+              await new Promise((r) => setTimeout(r, 300));
+            } catch (err) { rep.errors.push('overlay panel: ' + String((err && err.message) || err)); }
+          }
           try {
             const shot = await w.webContents.capturePage();
             fs.writeFileSync(path.join(DIR3, 'overlay.png'), shot.toPNG());

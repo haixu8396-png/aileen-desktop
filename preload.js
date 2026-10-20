@@ -75,6 +75,12 @@ contextBridge.exposeInMainWorld('api', {
   overlayDragStart: () => ipcRenderer.invoke('overlay:dragStart'),
   overlayDragMove: () => ipcRenderer.invoke('overlay:dragMove'),
   overlayDragEnd: () => ipcRenderer.invoke('overlay:dragEnd'),
+  // ---- 双窗口会话同步（0.8）----
+  // 主窗口 → 展台：广播会话（消息 / 状态 / 角色）
+  overlaySendSession: (payload) => ipcRenderer.invoke('overlay:session', payload),
+  // 展台 → 主窗口：用户的输入与操作请求
+  overlayRequest: (payload) => ipcRenderer.invoke('overlay:request', payload),
+  overlayOpenMain: () => ipcRenderer.invoke('overlay:openMain'),
   overlayReset: () => ipcRenderer.invoke('overlay:reset'),
   onMenuAction: (cb) => ipcRenderer.on('menu:action', (_e, action) => cb(action)),
   // ---- Minecraft 伙伴 ----
@@ -90,4 +96,6 @@ contextBridge.exposeInMainWorld('api', {
 
   onOverlayState: (cb) => ipcRenderer.on('overlay:state', (_e, st) => cb(st)),
   onOverlayModel: (cb) => ipcRenderer.on('overlay:model', (_e, m) => cb(m)),
+  onOverlaySession: (cb) => ipcRenderer.on('overlay:session', (_e, s) => cb(s)),
+  onOverlayRequest: (cb) => ipcRenderer.on('overlay:request', (_e, r) => cb(r)),
 });

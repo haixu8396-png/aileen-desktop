@@ -10,6 +10,7 @@ import { renderMessages, saveChatFor, loadChatFor, clearChatFor, ttsSettingsForC
 import { setStageModelIndex, updateStageModelName, syncOverlayModel } from './stage.js';
 import { t } from './i18n.js';
 import { generatePersonaCard } from './persona.js';
+import { broadcastSession } from './session-coordinator.js';
 
 export function findChar(file) {
   return state.characters.find((c) => c.file === file);
@@ -122,6 +123,8 @@ export async function selectCharacter(file, opts = {}) {
   localStorage.setItem('aileen.currentChar', file);
   renderCharList();
   updateChatHeader();
+  // 双窗口：角色切换要同步给展台（同一套角色数据，不各维护一份）
+  try { broadcastSession('character'); } catch (err) { /* 展台没开就算了 */ }
 
   // 绑定 Live2D 模型
   if (found.data.model) {

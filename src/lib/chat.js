@@ -19,6 +19,7 @@ import { buildPersonaSystemPrompt, buildTaskMessage, buildToolContext, assertPer
 import { createAgentBridge, createAgentLlm, isSensitivePath } from './agent-bridge.js';
 import { onAgentEvent, bindAgentRun, initAgentDashboard } from './agent-dashboard.js';
 import { normalizeAuthorization } from '../agent/authorization.js';
+import { broadcastSession } from './session-coordinator.js';
 import { createContextEngine, DEFAULT_BUDGET } from '../context/engine.js';
 import { createRetrievalAdapters, ensureEngines } from './memory-host.js';
 
@@ -105,6 +106,8 @@ export function renderMessages() {
     box.appendChild(makeMsgEl(m.role, m.content, i, i === lastAssistant));
   });
   scrollBottom();
+  // 双窗口：主窗口是会话所有者，消息一变就把快照推给展台（只读展示）
+  try { broadcastSession('messages'); } catch (err) { /* 展台没开就算了 */ }
 }
 
 export function copyText(text) {
@@ -202,6 +205,8 @@ export function ttsSettingsForCharacter() {
 
 export function setBusy(b) {
   state.busy = b;
+  // 展台的状态提示跟着「在想 / 空闲」走
+  try { broadcastSession('status'); } catch (err) { /* 忽略 */ }
   const send = $('btn-send');
   const stop = $('btn-stop');
   const typing = $('typing');

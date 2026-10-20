@@ -7,6 +7,8 @@ import { loadOml2d } from 'oh-my-live2d';
 import { t, setLang } from './lib/i18n.js';
 
 const stageBox = document.getElementById('ov-stage');
+// 悬浮 UI 容器：热区按这一整块算（收起时只有工具条那么大）
+const ui = document.getElementById('ov-ui');
 const tools = document.getElementById('ov-tools');
 const grip = document.getElementById('ov-grip');
 const lockBtn = document.getElementById('ov-lock');
@@ -20,15 +22,22 @@ let hideTimer = null;
 let askedInteractive = null;
 
 // ---------------- 交互热区 ----------------
+/**
+ * 热区 = 整个悬浮 UI 容器的矩形。
+ * 收起面板时它就只剩工具条那么大（不会长期挡住桌面）；
+ * 打开聊天/动作面板时它才会变大 —— 那是用户自己打开的区域，本来就该可点。
+ */
 function reportHitArea() {
-  const r = tools.getBoundingClientRect();
+  const box = ui || tools;
+  const r = box.getBoundingClientRect();
   if (!r.width || !r.height) return false; // 还没排版，别上报全 0 热区
   window.api.overlaySetHitArea({ x: r.left, y: r.top, w: r.width, h: r.height });
   return true;
 }
 
 function overTools(x, y) {
-  const r = tools.getBoundingClientRect();
+  const box = ui || tools;
+  const r = box.getBoundingClientRect();
   // 还没排版完（宽高为 0）时一律视为「不在把手上」，否则全 0 矩形会把整窗误判成可交互
   if (!r.width || !r.height) return false;
   const pad = 6; // 轻微外扩，保证不会碰到窗口边缘的系统缩放手柄
@@ -189,6 +198,8 @@ async function init() {
   renderStage(st && st.model);
   reportHitArea();
   showTools();
+  // 问主窗口要一份完整快照（它才是会话所有者）
+  try { await window.api.overlayRequest({ type: 'sync' }); } catch (err) { /* 主窗口没开就算了 */ }
 }
 
 // 自检钩子：主进程要能问出「展台到底有没有把模型画出来」（这里没有日志通道，只能主动问）
@@ -266,6 +277,202 @@ window.__AILEEN_OVERLAY_PROBE = () => {
     })(),
     emptyHint: !!document.querySelector('.ov-empty'),
   };
+};
+
+// ============================================================
+// 小聊天面板 / 状态提示 / 动作表情（0.8 双窗口）
+//
+// 分工很清楚：
+//   · **主窗口是会话的唯一所有者**，这里只负责显示最近几条 + 把输入转交过去；
+//   · 动作/表情在展台本地执行（模型就在这个窗口里，不必绕一圈）；
+//   · 换模型要通知主窗口（模型列表与角色绑定都在那边），再走 overlay:model 回来。
+// ============================================================
+const chatPanel = document.getElementById('ov-chat');
+const morePanel = document.getElementById('ov-more');
+const msgsBox = document.getElementById('ov-msgs');
+const inputEl = document.getElementById('ov-input');
+const statusEl = document.getElementById('ov-status');
+const micBtn = document.getElementById('ov-mic');
+const charLabel = document.getElementById('ov-char');
+const modelSelect = document.getElementById('ov-models');
+
+let voiceOn = false;
+let busy = false;
+let agentLabel = '';
+
+function el(tag, cls, text) {
+  const node = document.createElement(tag);
+  if (cls) node.className = cls;
+  if (text != null) node.textContent = String(text);
+  return node;
+}
+
+/** 只画最近几条；内容只当纯文本（绝不用 innerHTML，避免把消息里的 HTML 执行进来） */
+function renderMessages(list) {
+  if (!msgsBox) return;
+  msgsBox.innerHTML = '';
+  const recent = (Array.isArray(list) ? list : []).slice(-6);
+  if (!recent.length) {
+    msgsBox.appendChild(el('div', 'ov-msg assistant', t('overlay.statusIdle')));
+  } else {
+    for (const m of recent) {
+      msgsBox.appendChild(el('div', 'ov-msg ' + (m.role === 'user' ? 'user' : 'assistant'), String(m.text || '').slice(0, 600)));
+    }
+  }
+  if (busy) msgsBox.appendChild(el('div', 'ov-msg thinking', t('overlay.statusThinking')));
+  msgsBox.scrollTop = msgsBox.scrollHeight;
+}
+
+function setStatus(st) {
+  if (!statusEl) return;
+  const s = st || {};
+  busy = !!s.busy;
+  voiceOn = !!s.voice;
+  agentLabel = String(s.label || '');
+  const label = agentLabel || (voiceOn ? t('overlay.statusListening') : (busy ? t('overlay.statusThinking') : t('overlay.statusIdle')));
+  const idle = !busy && !voiceOn && (!s.agent || s.agent === 'idle');
+  statusEl.textContent = label;
+  statusEl.className = 'ov-status'
+    + (idle ? ' hidden' : '')
+    + (s.agent === 'waiting_approval' ? ' approval' : '')
+    + (voiceOn ? ' listening' : '')
+    + (busy && s.agent !== 'waiting_approval' ? ' busy' : '');
+  if (micBtn) micBtn.classList.toggle('on', voiceOn);
+  reportHitArea();
+}
+
+function togglePanel(node) {
+  if (!node) return;
+  const willShow = node.classList.contains('hidden');
+  for (const p of [chatPanel, morePanel]) if (p && p !== node) p.classList.add('hidden');
+  node.classList.toggle('hidden', !willShow);
+  if (willShow && node === morePanel) renderMore();
+  reportHitArea();
+  showTools();
+}
+
+/** 动作/表情 chip：打开面板时才去问模型，避免模型没加载好就崩 */
+function renderMore() {
+  const model = oml2d && oml2d.models && oml2d.models.model;
+  const motionBox = document.getElementById('ov-motions');
+  const exprBox = document.getElementById('ov-exprs');
+  if (motionBox) {
+    motionBox.innerHTML = '';
+    let groups = [];
+    try { groups = Object.keys((model && model.internalModel.motionManager.motionGroups) || {}); } catch (err) { groups = []; }
+    if (!groups.length) motionBox.appendChild(el('span', 'ov-muted', t('overlay.none')));
+    for (const g of groups.slice(0, 12)) {
+      const b = el('button', null, g);
+      b.onclick = () => { try { model.motion(g); } catch (err) { /* 忽略 */ } };
+      motionBox.appendChild(b);
+    }
+  }
+  if (exprBox) {
+    exprBox.innerHTML = '';
+    let defs = [];
+    try {
+      defs = ((model && model.internalModel.motionManager.expressionManager
+        && model.internalModel.motionManager.expressionManager.definitions) || []).map((d) => d.name);
+    } catch (err) { defs = []; }
+    if (!defs.length) exprBox.appendChild(el('span', 'ov-muted', t('overlay.none')));
+    for (const name of defs.slice(0, 12)) {
+      const b = el('button', null, name);
+      b.onclick = () => { try { model.expression(name); } catch (err) { /* 忽略 */ } };
+      exprBox.appendChild(b);
+    }
+  }
+  reportHitArea();
+}
+
+if (chatPanel) {
+  document.getElementById('ov-chat-toggle').onclick = () => togglePanel(chatPanel);
+  document.getElementById('ov-chat-close').onclick = () => { chatPanel.classList.add('hidden'); reportHitArea(); };
+}
+if (morePanel) {
+  document.getElementById('ov-more-toggle').onclick = () => togglePanel(morePanel);
+}
+if (inputEl) {
+  inputEl.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendChat(); }
+  });
+}
+if (document.getElementById('ov-send')) document.getElementById('ov-send').onclick = sendChat;
+if (micBtn) {
+  micBtn.onclick = () => {
+    // 语音循环在主窗口里（STT/TTS 都在那边），这里只是开关 + 状态显示
+    window.api.overlayRequest({ type: 'voice' });
+    showTools();
+  };
+}
+if (document.getElementById('ov-open-main')) {
+  document.getElementById('ov-open-main').onclick = () => window.api.overlayOpenMain();
+}
+if (modelSelect) {
+  modelSelect.onchange = () => window.api.overlayRequest({ type: 'model', index: Number(modelSelect.value) || 0 });
+}
+if (document.getElementById('ov-scale')) {
+  document.getElementById('ov-scale').value = String(overlayCfg.scale || 0.45);
+  document.getElementById('ov-scale').oninput = (e) => {
+    const v = Number(e.target.value) || 0.45;
+    overlayCfg.scale = v;
+    try { if (oml2d && typeof oml2d.setModelScale === 'function') oml2d.setModelScale(v); } catch (err) { /* 忽略 */ }
+    syncStageSize(false);
+  };
+}
+
+function sendChat() {
+  if (!inputEl) return;
+  const text = String(inputEl.value || '').trim();
+  if (!text) return;
+  inputEl.value = '';
+  window.api.overlayRequest({ type: 'chat', text });
+  showTools();
+}
+
+// 主窗口广播过来的会话（只读展示）
+if (typeof window.api.onOverlaySession === 'function') {
+  window.api.onOverlaySession((s) => {
+    if (!s || !s.type) return;
+    if (s.type === 'messages') renderMessages(s.messages);
+    else if (s.type === 'status') setStatus(s.status);
+    else if (s.type === 'character') {
+      const name = (s.character && s.character.name) || 'AILEEN';
+      if (charLabel) charLabel.textContent = name;
+    } else if (s.type === 'models') {
+      if (!modelSelect) return;
+      modelSelect.innerHTML = '';
+      (s.models || []).forEach((m, i) => {
+        const opt = document.createElement('option');
+        opt.value = String(i);
+        opt.textContent = String(m && m.name ? m.name : '#' + i);
+        modelSelect.appendChild(opt);
+      });
+    }
+    reportHitArea();
+  });
+}
+
+// 自检钩子：把悬浮面板摆出来（截图核对排版用；正常运行不会调用）
+window.__AILEEN_OVERLAY_PANEL = (name) => {
+  try {
+    showTools();
+    if (name === 'chat') {
+      renderMessages([
+        { role: 'user', text: '帮我看看这个报错' },
+        { role: 'assistant', text: '好，我先看下堆栈，稍等。' },
+      ]);
+      setStatus({ busy: true, voice: true, agent: 'idle', label: '' });
+      togglePanel(chatPanel);
+      if (chatPanel) chatPanel.classList.remove('hidden');
+    } else if (name === 'more') {
+      if (morePanel) morePanel.classList.remove('hidden');
+      renderMore();
+    }
+    reportHitArea();
+    // 返回几何信息：自检会把它写进报告，排版不对时不用靠猜
+    const r = (node) => { if (!node) return null; const b = node.getBoundingClientRect(); return [Math.round(b.left), Math.round(b.top), Math.round(b.width), Math.round(b.height)]; };
+    return { chat: chatPanel ? chatPanel.className : null, chatRect: r(chatPanel), moreRect: r(morePanel), uiRect: r(ui), toolsRect: r(tools) };
+  } catch (err) { return { error: String((err && err.message) || err) }; }
 };
 
 window.api.onOverlayModel((m) => renderStage(m));
