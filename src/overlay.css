@@ -59,29 +59,30 @@ body {
 .ov-status.hidden { display: none; }
 
 /* 悬浮 UI 容器：这一整块就是鼠标交互热区（收起时只有工具条那么大）。
-   底边留 22px：系统缩放手柄在窗口边缘，热区压上去会把拖动变成缩放（CI 门禁要求 ≥14px）。 */
+   贴着**舞台右下角**：右侧 / 底边各留 16px —— 系统缩放手柄在窗口边缘，
+   热区压上去会把拖动变成缩放（CI 门禁要求热区离边缘 ≥14px）。 */
 #ov-ui {
-  position: fixed; left: 50%; bottom: 22px; transform: translateX(-50%);
-  display: flex; flex-direction: column; align-items: center; gap: 8px;
-  max-width: calc(100% - 12px);
+  position: fixed; right: 16px; bottom: 16px; left: auto; transform: none;
+  display: flex; flex-direction: column; align-items: flex-end; gap: 8px;
+  max-width: calc(100% - 32px);
   pointer-events: auto;
 }
 
-/* 工具条：暖色半透明胶囊，不抢角色的视觉重量 */
+/* 工具条：竖着束成一列贴在右下角，不抢角色的视觉重量 */
 #ov-tools {
-  display: flex; align-items: center; gap: 2px;
+  display: flex; flex-direction: column; align-items: center; gap: 1px;
   padding: 5px;
-  border-radius: 999px;
+  border-radius: 18px;
   background: var(--ov-surface);
   border: 1px solid var(--ov-border);
   box-shadow: var(--ov-shadow);
-  opacity: 0.4;
+  opacity: 0.42;
   transition: opacity var(--ov-dur) ease;
   pointer-events: auto;
 }
 #ov-tools:hover, #ov-tools.on { opacity: 1; }
 #ov-tools button {
-  width: 30px; height: 30px; padding: 0;
+  width: 28px; height: 28px; padding: 0;
   display: flex; align-items: center; justify-content: center;
   border: none; border-radius: 50%;
   background: transparent; color: var(--ov-text-soft);
@@ -93,7 +94,7 @@ body {
 #ov-tools .ico { width: 15px; height: 15px; }
 
 #ov-grip {
-  width: 30px; height: 26px; border-radius: 999px;
+  width: 28px; height: 24px; border-radius: 999px;
   display: flex; align-items: center; justify-content: center; gap: 3px;
   cursor: grab; background: rgba(57, 51, 58, 0.08);
   touch-action: none;
