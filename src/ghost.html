@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="zh">
+<head>
+  <meta charset="utf-8" />
+  <title>AILEEN Drag Preview</title>
+  <style>
+    html, body {
+      margin: 0;
+      height: 100%;
+      background: transparent;
+      overflow: hidden;
+      pointer-events: none;
+      user-select: none;
+      font-family: "Microsoft YaHei UI", "Segoe UI", system-ui, sans-serif;
+    }
+    .box {
+      position: absolute;
+      inset: 3px;
+      box-sizing: border-box;
+      border: 2px dashed rgba(200, 120, 152, 0.9);
+      border-radius: 18px;
+      background: rgba(200, 120, 152, 0.10);
+    }
+    .label {
+      position: absolute;
+      left: 50%;
+      top: 14px;
+      transform: translateX(-50%);
+      padding: 4px 12px;
+      border-radius: 999px;
+      background: rgba(246, 243, 240, 0.94);
+      color: #8a5b70;
+      border: 1px solid rgba(200, 120, 152, 0.45);
+      font-size: 12px;
+      font-weight: 600;
+      white-space: nowrap;
+    }
+    .label:empty { display: none; }
+  </style>
+</head>
+<body>
+  <div class="box"></div>
+  <div class="label" id="label"></div>
+  <script>
+    // 拖动提示框：只画一个虚线轮廓，告诉用户「松手会放到这里」。
+    // 文案由主进程通过 query 传进来（跟界面语言一致）。
+    try {
+      const label = new URLSearchParams(location.search).get('label') || '';
+      document.getElementById('label').textContent = label;
+    } catch (err) { /* 拿不到就只显示轮廓 */ }
+  </script>
+</body>
+</html>

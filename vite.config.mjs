@@ -13,10 +13,11 @@ export default defineConfig({
     emptyOutDir: true,
     chunkSizeWarningLimit: 4096,
     rollupOptions: {
-      // 主窗口 + 无边框悬浮展台窗，两个独立入口
+      // 主窗口 / 无边框悬浮展台窗 / 拖动提示框，三个独立入口
       input: {
         index: resolve(root, 'index.html'),
         overlay: resolve(root, 'overlay.html'),
+        ghost: resolve(root, 'ghost.html'),
       },
     },
   },

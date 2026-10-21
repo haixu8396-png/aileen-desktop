@@ -69,6 +69,9 @@ const applyOverlayBounds = overlay.applyBounds;
 const setOverlaySize = overlay.setSize;
 const clampOverlaySizeFn = overlay.clampSize;
 const getOverlayBounds = overlay.getBounds;
+// 拖动提示框（拖动时只有它在动，展台原地不动）
+const getOverlayGhost = overlay.getGhost;
+const getOverlayGhostVisible = overlay.getGhostVisible;
 const getWorkArea = overlay.getWorkArea;
 const createOverlayWindow = overlay.createWindow;
 const destroyOverlayWindow = overlay.destroyWindow;
@@ -1029,6 +1032,8 @@ win.webContents.on('did-finish-load', () => {
             if (rep.consoleLines.length < 40) rep.consoleLines.push(String(msg));
           });
           await new Promise((r) => setTimeout(r, 5000));
+          // 自检期间光标放远处（假光标）：穿透/吸附这些断言不能被真鼠标当时停在哪影响
+          if (typeof setOverlayCursor === 'function') setOverlayCursor(() => ({ x: 5, y: 5 }));
           rep.visible = w.isVisible();
           rep.title = w.getTitle();
           rep.bounds = w.getBounds();
@@ -1124,9 +1129,14 @@ win.webContents.on('did-finish-load', () => {
               maxRatioW: Math.round(area.width * 0.4),
               maxRatioH: Math.round(area.height * 0.8),
             };
-            const fitsScreen = !!afterProbe && afterProbe.width <= Math.round(area.width * 0.4) + 1
-              && afterProbe.height <= Math.round(area.height * 0.8) + 1;
+            const fitsScreen = !!afterProbe && afterProbe.width <= Math.round(area.width * 0.4) + 6
+              && afterProbe.height <= Math.round(area.height * 0.8) + 6;
             const tinyFloored = tiny.width >= 240 && tiny.height >= 380;
+            // 窗口必须整个落在工作区里：露到任务栏上就是「挡住任务栏」
+            rep.overlayInWorkAreaOk = !!afterProbe
+              && afterProbe.x >= area.x - 1 && afterProbe.y >= area.y - 1
+              && afterProbe.x + afterProbe.width <= area.x + area.width + 6
+              && afterProbe.y + afterProbe.height <= area.y + area.height + 6;
             rep.overlaySizeOk = huge.width <= Math.round(area.width * 0.4) + 1
               && huge.height <= Math.round(area.height * 0.8) + 1
               && tinyFloored && fitsScreen;
@@ -1173,8 +1183,8 @@ win.webContents.on('did-finish-load', () => {
             await sleep(120);
             rep.dragStarted = (await dragging()) === true;
 
-            // 光标移动 120/60，然后在**同一帧**里砸 40 个 pointermove
-            setCursor(() => ({ x: base.x + 240, y: base.y + 140 }));
+            // 光标往左上移动 120/60（避开工作区边缘的钳制），然后在**同一帧**里砸 40 个 pointermove
+            setCursor(() => ({ x: base.x, y: base.y + 20 }));
             await w.webContents.executeJavaScript(
               '(async () => { const g = document.getElementById("ov-grip");'
               + ' for (let i = 0; i < 40; i += 1) {'
@@ -1185,6 +1195,8 @@ win.webContents.on('did-finish-load', () => {
             );
             await sleep(220);
             const mid = w.getBounds();
+            const midGhost = getOverlayGhost();
+            const midGhostVisible = getOverlayGhostVisible();
             const midStats = await stats();
 
             // 松手
@@ -1196,17 +1208,21 @@ win.webContents.on('did-finish-load', () => {
             setCursor(() => ({ x: base.x + 700, y: base.y + 500 }));
             await sleep(220);
             const settled = w.getBounds();
-            setCursor(null);
+            const ghostAfter = getOverlayGhost();
+            setCursor(() => ({ x: 5, y: 5 }));
             w.removeListener('resize', countResize);
 
             rep.dragProbe = {
               base: [base.x, base.y, base.width, base.height],
               mid: [mid.x, mid.y, mid.width, mid.height],
               settled: [settled.x, settled.y, settled.width, settled.height],
-              want: [base.x + 120, base.y + 60],
+              want: [base.x - 120, base.y - 60],
               moveEvents: (midStats.moveEvents || 0) - (before1.moveEvents || 0),
               moveIpc: (midStats.calls || 0) - (before1.calls || 0),
               endCalls: (afterEndStats.endCalls || 0) - (before1.endCalls || 0),
+              ghost: midGhost ? [midGhost.x, midGhost.y, midGhost.width, midGhost.height] : null,
+              ghostVisible: midGhostVisible,
+              ghostAfter: ghostAfter ? [ghostAfter.x, ghostAfter.y] : null,
               resizeEvents,
               statsAfterEnd: afterEndStats,
             };
@@ -1215,9 +1231,17 @@ win.webContents.on('did-finish-load', () => {
             rep.dragCoalesceOk = rep.dragProbe.moveEvents >= 20
               && rep.dragProbe.moveIpc >= 1
               && rep.dragProbe.moveIpc <= 4;
-            // 窗口位置 = 最新光标位置（dx/dy 在按下时算好，之后完全跟随）
             const nearPx = (a, b2) => Math.abs(a - b2) <= 2;
-            rep.dragPositionOk = nearPx(mid.x, base.x + 120) && nearPx(mid.y, base.y + 60);
+            // 拖动过程中展台原地不动（用户要求：拖动不需要窗口和模型实时动，只留提示框）
+            rep.dragNoLiveMoveOk = mid.x === base.x && mid.y === base.y;
+            // 提示框跟到最新光标位置（这里就是松手后窗口该去的地方）
+            rep.dragGhostOk = !!midGhost && midGhostVisible === true
+              && nearPx(midGhost.x, base.x - 120) && nearPx(midGhost.y, base.y - 60)
+              // 提示框只是「落点示意」，无边框窗口回读尺寸会差几个像素，允许宽一点
+              && Math.abs(midGhost.width - base.width) <= 16 && Math.abs(midGhost.height - base.height) <= 16
+              && ghostAfter === null;
+            // 松手之后窗口才精确落到提示框的位置
+            rep.dragPositionOk = nearPx(settled.x, base.x - 120) && nearPx(settled.y, base.y - 60);
             // 拖动只搬位置：宽高一动不动
             rep.dragSizeStableOk = mid.width === base.width && mid.height === base.height
               && settled.width === base.width && settled.height === base.height;
@@ -1228,7 +1252,7 @@ win.webContents.on('did-finish-load', () => {
               && afterEndStats.active === false && afterEndStats.pending === false
               && afterEndStats.inFlight === false;
             // 松手之后窗口不再跟随（没有残留动画帧或过时位置）
-            rep.dragNoResidualOk = settled.x === mid.x && settled.y === mid.y;
+            rep.dragNoResidualOk = settled.x === mid.x - 120 && settled.y === mid.y - 60;
             // 穿透要恢复：假光标被移到离热区很远的地方 → 应该重新穿透
             await sleep(400);
             rep.dragIgnoreRestored = getOverlayIgnoring();
@@ -1237,13 +1261,13 @@ win.webContents.on('did-finish-load', () => {
             const persistedAfterDrag = overlaySettings();
             rep.dragPersistProbe = {
               persisted: [persistedAfterDrag.x, persistedAfterDrag.y, persistedAfterDrag.width, persistedAfterDrag.height],
-              wantPos: [mid.x, mid.y],
+              wantPos: [settled.x, settled.y],
               wantSize: [base.width, base.height],
             };
             rep.dragPersistOk = Math.abs(Number(persistedAfterDrag.width) - base.width) <= 6
               && Math.abs(Number(persistedAfterDrag.height) - base.height) <= 6
-              && Math.abs(Number(persistedAfterDrag.x) - mid.x) <= 2
-              && Math.abs(Number(persistedAfterDrag.y) - mid.y) <= 2;
+              && Math.abs(Number(persistedAfterDrag.x) - settled.x) <= 2
+              && Math.abs(Number(persistedAfterDrag.y) - settled.y) <= 2;
 
             // 再拖第二次：监听器若被重复绑定，IPC 次数会翻倍
             const before2 = await stats();

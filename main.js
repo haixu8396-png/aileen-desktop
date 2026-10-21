@@ -437,12 +437,9 @@ function overlayBounds() {
   const defY = area.y + area.height - height - 28;
   const rawX = typeof o.x === 'number' ? o.x : defX;
   const rawY = typeof o.y === 'number' ? o.y : defY;
-  return {
-    x: Math.round(Math.min(Math.max(rawX, area.x - width + 80), area.x + area.width - 80)),
-    y: Math.round(Math.min(Math.max(rawY, area.y), area.y + area.height - 60)),
-    width,
-    height,
-  };
+  // 位置也必须**整个落在工作区内**：以前允许露到屏幕外，结果就是「挡住任务栏」。
+  const pos = clampOverlayPosition(rawX, rawY, width, height);
+  return { x: pos.x, y: pos.y, width, height };
 }
 
 const sleepMs = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -453,9 +450,12 @@ async function applyOverlayBounds(next) {
   overlayExpectedSize = { width: next.width, height: next.height };
   overlayGuardSize = { width: next.width, height: next.height };
   overlayProgrammaticUntil = Date.now() + 900;
+  // 位置也要钳：改大之后右下角可能会顶出工作区（压到任务栏上）
+  const pos = clampOverlayPosition(next.x, next.y, next.width, next.height);
+  const target = { x: pos.x, y: pos.y, width: next.width, height: next.height };
   const locked = !overlayWin.isResizable();
   if (locked) { overlayWin.setResizable(true); await sleepMs(50); }
-  overlayWin.setBounds(next);
+  overlayWin.setBounds(target);
   await sleepMs(50);
   if (locked) { overlayWin.setResizable(false); }
   reassertOverlayIgnore();
@@ -553,10 +553,15 @@ function armDragTimeout() {
     } catch (err) { stillDragging = false; }
     if (stillDragging) { armDragTimeout(); return; }
     if (overlayDrag) {
+      const drop = overlayDragLast;
       overlayDrag = null;
       overlayDragLast = null;
-      if (overlayWin && !overlayWin.isDestroyed()) {
+      destroyOverlayGhost();
+      // 和正常松手一样：把提示框的位置落到展台上
+      if (drop && overlayWin && !overlayWin.isDestroyed()) {
         const b = overlayWin.getBounds();
+        const pos = clampOverlayPosition(drop.x, drop.y, b.width, b.height);
+        overlayWin.setPosition(pos.x, pos.y, false);
         overlayGuardSize = { width: b.width, height: b.height };
       }
       persistOverlayBounds();
@@ -618,7 +623,97 @@ function stopOverlayWatch() {
   if (overlayWatch) { clearInterval(overlayWatch); overlayWatch = null; }
 }
 
+// ------------------------------------------------------------
+// 拖动提示框（ghost）
+//
+// 用户要求：拖动时「不需要窗口和模型实时动，留个提示框就行」。
+// 所以拖动过程中真正跟手移动的只是这个**透明的小窗口**（只画一个虚线轮廓），
+// 展台窗口连同一整块 Live2D 画布原地不动 —— 不触发重绘，也就不卡不闪；
+// 松手时才把展台窗口一次性挪到提示框的位置。
+// ------------------------------------------------------------
+let overlayGhost = null;
+const DRAG_HINT_TEXT = { zh: '拖动中 · 松手放下', en: 'Moving · release to drop', ja: '移動中 · 離して配置' };
+
+function dragHintText() {
+  let lang = 'zh';
+  try { lang = readSettings().language || 'zh'; } catch (err) { lang = 'zh'; }
+  return DRAG_HINT_TEXT[lang] || DRAG_HINT_TEXT.en;
+}
+
+function createOverlayGhost() {
+  if (overlayGhost && !overlayGhost.isDestroyed()) return overlayGhost;
+  if (!overlayWin || overlayWin.isDestroyed()) return null;
+  const b = overlayWin.getBounds();
+  overlayGhost = new BrowserWindow({
+    x: b.x,
+    y: b.y,
+    width: b.width,
+    height: b.height,
+    title: 'AILEEN Drag Preview',
+    frame: false,
+    transparent: true,
+    backgroundColor: '#00000000',
+    hasShadow: false,
+    resizable: false,
+    minimizable: false,
+    maximizable: false,
+    fullscreenable: false,
+    skipTaskbar: true,
+    alwaysOnTop: true,
+    focusable: false,
+    show: false,
+    webPreferences: { contextIsolation: true, nodeIntegration: false },
+  });
+  try { overlayGhost.setIgnoreMouseEvents(true); } catch (err) { /* ignore */ }
+  try { overlayGhost.setAlwaysOnTop(true, 'screen-saver'); } catch (err) { /* ignore */ }
+  const ghostPath = path.join(APP_ROOT, 'dist', 'ghost.html');
+  const label = dragHintText();
+  if (!process.env.AILEEN_DEV_URL && fs.existsSync(ghostPath)) {
+    overlayGhost.loadFile(ghostPath, { search: 'label=' + encodeURIComponent(label) });
+  } else {
+    // 兜底：万一没构建出 ghost.html，也别让拖动完全没有反馈
+    const html = '<body style="margin:0;height:100vh;box-sizing:border-box;background:transparent;'
+      + 'border:2px dashed rgba(200,120,152,.9);border-radius:18px;pointer-events:none"></body>';
+    overlayGhost.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(html));
+  }
+  overlayGhost.once('ready-to-show', () => {
+    if (overlayGhost && !overlayGhost.isDestroyed()) overlayGhost.showInactive();
+  });
+  overlayGhost.on('closed', () => { overlayGhost = null; });
+  return overlayGhost;
+}
+
+function moveOverlayGhost(pos) {
+  if (!overlayGhost || overlayGhost.isDestroyed()) return false;
+  try {
+    overlayGhost.setPosition(Math.round(pos.x), Math.round(pos.y));
+    return true;
+  } catch (err) {
+    return false;
+  }
+}
+
+function destroyOverlayGhost() {
+  if (overlayGhost && !overlayGhost.isDestroyed()) overlayGhost.destroy();
+  overlayGhost = null;
+}
+
+/** 把目标位置钳进「离光标最近的那块屏幕」的工作区：绝不压到任务栏上 */
+function clampOverlayPosition(x, y, width, height) {
+  const probe = { x: Math.round(x + width / 2), y: Math.round(y + height / 2) };
+  let area = null;
+  try { area = screen.getDisplayNearestPoint(probe).workArea; } catch (err) { area = null; }
+  if (!area) area = screen.getPrimaryDisplay().workArea;
+  const maxX = area.x + area.width - width;
+  const maxY = area.y + area.height - height;
+  return {
+    x: Math.round(Math.min(Math.max(x, area.x), Math.max(area.x, maxX))),
+    y: Math.round(Math.min(Math.max(y, area.y), Math.max(area.y, maxY))),
+  };
+}
+
 function destroyOverlayWindow() {
+  destroyOverlayGhost();
   stopOverlayWatch();
   if (overlayWin && !overlayWin.isDestroyed()) overlayWin.destroy();
   overlayWin = null;
@@ -827,13 +922,11 @@ function registerOverlayIpc() {
     const pt = overlayCursorPoint();
     const b = overlayWin.getBounds();
     overlayDrag = { dx: pt.x - b.x, dy: pt.y - b.y };
+    // 拖动过程中真正跟手的是提示框；这里只记它的起点（松手时才落到展台上）
     overlayDragLast = { x: b.x, y: b.y };
-    // 拖动只搬位置、不动尺寸：把当前尺寸登记成「守卫目标」。
-    // 跨显示器拖动时 Windows 会按新 DPI 重算 DIP 尺寸（物理尺寸不变），
-    // 不登记的话尺寸守卫会把窗口硬拽回旧 DIP 值 —— 和系统互相打架，就是「拖动时尺寸失控/闪烁」。
-    // 注意只动 guard，不动 expected：expected 是落盘要存的「请求尺寸」，
-    // 存回读值会让窗口每重启一次就大几像素。
+    // 尺寸守卫的目标：拖动期间窗口不移动，但跨屏时 DPI 可能重算，登记一下更稳
     overlayGuardSize = { width: b.width, height: b.height };
+    createOverlayGhost();
     armDragTimeout();
     setOverlayIgnore(false);
     return true;
@@ -843,22 +936,29 @@ function registerOverlayIpc() {
     // 位置由主进程按**当前真实光标**算，渲染层只负责说「该更新了」：
     // 这样即使事件堆积过时了，落到的也永远是最新位置。
     const pt = overlayCursorPoint();
-    const x = Math.round(pt.x - overlayDrag.dx);
-    const y = Math.round(pt.y - overlayDrag.dy);
+    const b = overlayWin.getBounds();
+    const pos = clampOverlayPosition(pt.x - overlayDrag.dx, pt.y - overlayDrag.dy, b.width, b.height);
     armDragTimeout();
-    if (overlayDragLast && overlayDragLast.x === x && overlayDragLast.y === y) return true;
-    overlayDragLast = { x, y };
-    overlayWin.setPosition(x, y, false);
+    if (overlayDragLast && overlayDragLast.x === pos.x && overlayDragLast.y === pos.y) return true;
+    overlayDragLast = pos;
+    // 只挪提示框：展台（连同整块 Live2D 画布）原地不动，所以不会卡、不会闪
+    if (!moveOverlayGhost(pos)) {
+      // 提示框没起来（极少见）就退回旧行为，至少还能拖
+      overlayWin.setPosition(pos.x, pos.y, false);
+    }
     return true;
   });
   handle('overlay:dragEnd', () => {
     if (overlayDragTimer) { clearTimeout(overlayDragTimer); overlayDragTimer = null; }
+    const drop = overlayDragLast;
     overlayDrag = null;
     overlayDragLast = null;
-    // 结束这一刻把真实尺寸记成守卫目标（跨屏 DPI 变化后，别让守卫再弹回旧值）；
-    // expected（落盘值）保持程序化设定的请求尺寸，避免「每跑一次就大几像素」。
-    if (overlayWin && !overlayWin.isDestroyed()) {
+    destroyOverlayGhost();
+    // 松手才真正把展台挪过去（一次 setPosition，不触发重绘/重排模型）
+    if (drop && overlayWin && !overlayWin.isDestroyed()) {
       const b = overlayWin.getBounds();
+      const pos = clampOverlayPosition(drop.x, drop.y, b.width, b.height);
+      overlayWin.setPosition(pos.x, pos.y, false);
       overlayGuardSize = { width: b.width, height: b.height };
     }
     persistOverlayBounds();
@@ -1106,6 +1206,9 @@ function selfTestDeps() {
       clampSize: (w, h) => clampOverlaySize(w, h),
       getBounds: () => (overlayWin && !overlayWin.isDestroyed() ? overlayWin.getBounds() : null),
       getWorkArea: () => screen.getPrimaryDisplay().workArea,
+      // 拖动提示框：拖动时它跟手，松手才落位
+      getGhost: () => (overlayGhost && !overlayGhost.isDestroyed() ? overlayGhost.getBounds() : null),
+      getGhostVisible: () => (overlayGhost && !overlayGhost.isDestroyed() ? overlayGhost.isVisible() : false),
       createWindow: () => createOverlayWindow(),
       destroyWindow: () => destroyOverlayWindow(),
     },
