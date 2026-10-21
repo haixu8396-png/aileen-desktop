@@ -861,10 +861,11 @@
               <p data-i18n="settings.stageDesc">角色显示在独立的透明窗口里，主窗口不再常驻展台。动作与表情由展台自己的工具条控制。</p>
             </div>
             <div class="set-group">
-              <div class="set-group-head"><h3 data-i18n="stage.models">模型</h3><p data-i18n="stage.modelsDesc">从文件夹导入会复制到数据目录；URL 模型按地址加载。</p></div>
+              <div class="set-group-head"><h3 data-i18n="stage.models">模型</h3><p data-i18n="stage.modelsDesc">ZIP 或文件夹导入都会复制到数据目录；URL 模型按地址加载。</p></div>
               <div class="form-col">
                 <label><span data-i18n="model.current">当前模型</span><select id="m-model"></select></label>
                 <div class="row-btns">
+                  <button id="btn-add-zip-model" class="ghost"><span data-icon="archive"></span><span data-i18n="model.fromZip">从 ZIP 导入</span></button>
                   <button id="btn-add-model" class="ghost"><span data-icon="folder"></span><span data-i18n="model.fromFolder">从文件夹导入</span></button>
                   <button id="btn-add-url-model" class="ghost"><span data-icon="link"></span><span data-i18n="model.fromUrl">从 URL 加载</span></button>
                   <button id="btn-refresh-models" class="ghost"><span data-icon="regenerate"></span><span data-i18n="model.refresh">刷新列表</span></button>

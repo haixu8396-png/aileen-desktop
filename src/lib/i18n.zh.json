@@ -32,7 +32,7 @@
   "stage.tip1": "戳戳我呀～",
   "stage.tip2": "想和你聊天呢",
   "stage.tip3": "今天也要开心哦",
-  "stage.noModelsHint": "还没有 Live2D 模型。<br>请在 设置 → Live2D 模型设置中添加，<br>可以从文件夹或 URL 导入。",
+  "stage.noModelsHint": "还没有 Live2D 模型。<br>请在 设置 → Live2D 与展台 中添加，<br>可以直接导入 ZIP、文件夹或 URL。",
   "stage.gotoModels": "添加模型",
   "stage.loadFailed": "Live2D 加载失败：{msg}",
   "stage.initFailed": "Live2D 初始化失败：{msg}",
@@ -140,7 +140,7 @@
   "model.urlList": "已加载的 URL 模型",
   "model.noLocal": "还没有本地模型",
   "model.noUrl": "还没有 URL 模型",
-  "model.hint": "从文件夹导入会将模型复制到 models/。URL 模型会被保存，并可在此处移除。动作与表情在下面按模型列出，点一下在展台上试演。",
+  "model.hint": "从 ZIP 或文件夹导入都会把模型复制到 models/。URL 模型会被保存，并可在此处移除。动作与表情在下面按模型列出，点一下在展台上试演。",
   "model.close": "关闭",
   "model.localList": "本地模型（在磁盘上）",
   "model.delete": "删除",
@@ -693,7 +693,7 @@
   "companion.edit": "编辑当前角色",
   "companion.gallery": "角色库",
   "stage.models": "模型",
-  "stage.modelsDesc": "从文件夹导入会复制到数据目录；URL 模型按地址加载。",
+  "stage.modelsDesc": "ZIP 或文件夹导入都会复制到数据目录；URL 模型按地址加载。",
   "stage.window": "桌面展台",
   "stage.windowDesc": "透明、无边框、置顶，不挡桌面点击。",
   "stage.visible": "显示展台",
@@ -823,5 +823,8 @@
   "agent.statePaused": "已暂停",
   "tasks.backToChat": "去对话里用 Agent",
   "tasks.steps": "步",
-  "chat.copyCode": "复制这段代码"
+  "chat.copyCode": "复制这段代码",
+  "model.fromZip": "从 ZIP 导入",
+  "model.importedZip": "已从 ZIP 导入「{name}」（{n} 个文件）",
+  "model.zipFailed": "ZIP 导入失败：{msg}"
 }

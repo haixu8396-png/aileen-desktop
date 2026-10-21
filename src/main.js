@@ -23,7 +23,7 @@ import { $, toast, autoGrowInput } from './lib/dom.js';
 import { applyIcons } from './lib/icons.js';
 import {
   initLive2D, updateStageModelName, populateStageModelSelect, setStageModelIndex, syncOverlayModel,
-  currentStageModel, stageModelDisabled, openModelModal, addModelFromFolder, showUrlForm, submitUrlForm,
+  currentStageModel, stageModelDisabled, openModelModal, addModelFromFolder, addModelFromZip, showUrlForm, submitUrlForm,
   refreshModelsAfterAdd, applyStageScale, toggleStage, resetStagePosition, renderLocalList, renderUrlList,
   refreshStageCapabilities,
 } from './lib/stage.js';
@@ -502,6 +502,7 @@ function bindChatEvents() {
 function bindStageSection() {
   const on = (id, fn) => { const el = $(id); if (el) el.onclick = fn; };
   on('btn-add-model', addModelFromFolder);
+  on('btn-add-zip-model', addModelFromZip);
   on('btn-add-url-model', showUrlForm);
   on('btn-refresh-models', refreshModelsAfterAdd);
   on('m-url-ok', submitUrlForm);
@@ -914,6 +915,7 @@ window.__AILEEN_OPEN = (name) => {
     menu: () => { gotoSettings('appearance'); return true; },
     settings: () => { gotoSettings(); return true; },
     'agent-settings': () => { gotoSettings('agent'); return true; },
+    'stage-settings': () => { gotoSettings('stage'); return true; },
     characters: () => { gotoPage('characters'); return true; },
     memory: () => { gotoPage('memory'); return true; },
     tasks: () => { gotoPage('tasks'); return true; },

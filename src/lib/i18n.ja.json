@@ -32,7 +32,7 @@
   "stage.tip1": "つついてみて？",
   "stage.tip2": "お話ししたいな…",
   "stage.tip3": "今日もいい一日をね",
-  "stage.noModelsHint": "Live2Dモデルがまだありません。<br>設定 → Live2Dモデル設定で、<br>フォルダまたはURLから追加してください。",
+  "stage.noModelsHint": "Live2Dモデルがまだありません。<br>設定 → Live2D とデスクトップステージ で、<br>ZIP・フォルダー・URL から追加してください。",
   "stage.gotoModels": "モデルを追加",
   "stage.loadFailed": "Live2Dの読み込みに失敗しました：{msg}",
   "stage.initFailed": "Live2Dの初期化に失敗しました：{msg}",
@@ -140,7 +140,7 @@
   "model.urlList": "読み込み済みのURLモデル",
   "model.noLocal": "ローカルモデルはまだありません",
   "model.noUrl": "URLモデルはまだありません",
-  "model.hint": "フォルダーから読み込むと models/ にコピーされます。URL モデルは保存され、ここで削除できます。モーションと表情は下に一覧され、ステージで試せます。",
+  "model.hint": "ZIP またはフォルダーから読み込むと models/ にコピーされます。URL モデルは保存され、ここで削除できます。モーションと表情は下に一覧され、ステージで試せます。",
   "model.close": "閉じる",
   "model.localList": "ディスク上のモデル",
   "model.delete": "削除",
@@ -693,7 +693,7 @@
   "companion.edit": "現在のキャラクターを編集",
   "companion.gallery": "キャラクター一覧",
   "stage.models": "モデル",
-  "stage.modelsDesc": "フォルダーから読み込むとデータフォルダーにコピーされます。",
+  "stage.modelsDesc": "ZIP またはフォルダからインポートするとデータフォルダにコピーされます。URL モデルはアドレスから読み込みます。",
   "stage.window": "デスクトップステージ",
   "stage.windowDesc": "透過・枠なし・常に手前。デスクトップのクリックは妨げません。",
   "stage.visible": "ステージを表示",
@@ -823,5 +823,8 @@
   "agent.statePaused": "一時停止中",
   "tasks.backToChat": "会話で Agent を使う",
   "tasks.steps": "ステップ",
-  "chat.copyCode": "このコードをコピー"
+  "chat.copyCode": "このコードをコピー",
+  "model.fromZip": "ZIP からインポート",
+  "model.importedZip": "ZIP から「{name}」をインポートしました（{n} ファイル）",
+  "model.zipFailed": "ZIP のインポートに失敗しました：{msg}"
 }

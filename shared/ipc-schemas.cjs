@@ -37,6 +37,8 @@ const CHANNELS = {
   // ---- 模型 ----
   'models:list': v.NO_ARGS,
   'models:addFolder': v.NO_ARGS,
+  // 从 zip 直接导入模型：没有参数（文件路径由主进程的对话框给出）
+  'models:importZip': v.NO_ARGS,
   'models:addUrl': v.args(v.object({ url: v.url(), name: v.optional(v.str({ max: 120 })) })),
   'models:removeUrl': v.args(v.url()),
   // 注意 dir **不**用 fileName：这里刻意放行 ".."、分隔符、绝对路径，
@@ -210,8 +212,7 @@ const CHANNELS = {
     to: v.optional(v.str({ max: 500, allowEmpty: false })),
   }, { allowUnknown: true })),
 
-  // ---- Agent（电脑控制 / 编码）----
-  'agent:workspace': v.NO_ARGS,
+  // ---- Agent（电脑控制 / 编码）----  'agent:workspace': v.NO_ARGS,
   // 让用户挑一个工作目录：没有参数，返回 { workspace } 或 null
   'agent:chooseWorkspace': v.NO_ARGS,
   'agent:cursor': v.NO_ARGS,

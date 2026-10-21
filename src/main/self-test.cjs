@@ -43,6 +43,7 @@ const {
   secretPrefix: SECRET_PREFIX, secretClear: SECRET_CLEAR, resolveSecretPatch,
 } = settings;
 const { modelsDir: MODELS_DIR, charactersDir: CHARACTERS_DIR, scanModels } = models;
+// ZIP 导入探针要调 models.importZip（和「从 ZIP 导入」按钮同一条安装路径）
 const { userDataDir: USER_DATA_DIR } = opts;
 // 注意：这些是 main.js 注入进来的**取值函数**（getter），用的时候必须调用！
 // 曾经这里把它们当值用（rep.hitArea = overlayHit），于是
@@ -68,6 +69,92 @@ const applyOverlayBounds = overlay.applyBounds;
 const createOverlayWindow = overlay.createWindow;
 const destroyOverlayWindow = overlay.destroyWindow;
 
+// ------------------------------------------------------------
+// 「从 ZIP 导入模型」端到端探针（真机路径，不弹对话框）
+//
+// 造一个最小的 zip（store 方式，含 haru/haru.model3.json + moc3 + 贴图），
+// 走和按钮同一条 importModelZipFile()，然后确认：目录建出来了、scanModels 能扫到、
+// 清理之后又消失。坏包也要验：没有 model3.json 的 zip 必须被拒且不留残留目录。
+// ------------------------------------------------------------
+function makeStoredZip(entries) {
+  const locals = [];
+  const centrals = [];
+  let offset = 0;
+  for (const e of entries) {
+    const nameBuf = Buffer.from(e.name, 'utf8');
+    const raw = Buffer.isBuffer(e.data) ? e.data : Buffer.from(String(e.data), 'utf8');
+    const local = Buffer.alloc(30);
+    local.writeUInt32LE(0x04034b50, 0);
+    local.writeUInt16LE(20, 4);
+    local.writeUInt16LE(0x0800, 6);
+    local.writeUInt16LE(0, 8);
+    local.writeUInt32LE(raw.length, 18);
+    local.writeUInt32LE(raw.length, 22);
+    local.writeUInt16LE(nameBuf.length, 26);
+    const localOffset = offset;
+    locals.push(local, nameBuf, raw);
+    offset += 30 + nameBuf.length + raw.length;
+    const central = Buffer.alloc(46);
+    central.writeUInt32LE(0x02014b50, 0);
+    central.writeUInt16LE(20, 4);
+    central.writeUInt16LE(20, 6);
+    central.writeUInt16LE(0x0800, 8);
+    central.writeUInt16LE(0, 10);
+    central.writeUInt32LE(raw.length, 20);
+    central.writeUInt32LE(raw.length, 24);
+    central.writeUInt16LE(nameBuf.length, 28);
+    central.writeUInt32LE(localOffset, 42);
+    centrals.push(central, nameBuf);
+  }
+  const cdBuf = Buffer.concat(centrals);
+  const eocd = Buffer.alloc(22);
+  eocd.writeUInt32LE(0x06054b50, 0);
+  eocd.writeUInt16LE(entries.length, 8);
+  eocd.writeUInt16LE(entries.length, 10);
+  eocd.writeUInt32LE(cdBuf.length, 12);
+  eocd.writeUInt32LE(offset, 16);
+  return Buffer.concat([Buffer.concat(locals), cdBuf, eocd]);
+}
+
+async function probeModelZipImport() {
+  const zipHost = require('node:os').tmpdir();
+  const goodZip = path.join(zipHost, 'aileen-selftest-model-' + Date.now() + '.zip');
+  const badZip = path.join(zipHost, 'aileen-selftest-bad-' + Date.now() + '.zip');
+  const modelJson = JSON.stringify({ Version: 3, FileReferences: { Moc: 'haru.moc3', Textures: ['textures/00.png'] } });
+  const good = makeStoredZip([
+    { name: 'haru/haru.model3.json', data: modelJson },
+    { name: 'haru/haru.moc3', data: Buffer.from([1, 2, 3, 4, 5]) },
+    { name: 'haru/textures/00.png', data: Buffer.from([0x89, 0x50, 0x4e, 0x47, 0, 0, 0, 0]) },
+  ]);
+  const bad = makeStoredZip([{ name: 'notes.txt', data: 'no model here' }]);
+  fs.writeFileSync(goodZip, good);
+  fs.writeFileSync(badZip, bad);
+  const out = { good: null, badRejected: false, cleanedUp: false };
+  let importedDir = null;
+  try {
+    const res = models.importZip(goodZip);
+    importedDir = path.join(models.modelsDir, res.name);
+    const listed = models.scanModels(models.modelsDir, '');
+    out.good = {
+      name: res.name,
+      file: res.file,
+      files: res.files,
+      dirExists: fs.existsSync(importedDir),
+      configExists: fs.existsSync(path.join(importedDir, 'haru.model3.json')),
+      textureExists: fs.existsSync(path.join(importedDir, 'textures', '00.png')),
+      listed: listed.some((m) => m.name === res.name),
+      noTempLeft: fs.readdirSync(models.modelsDir).every((n) => !n.startsWith('.import-')),
+    };
+    try { models.importZip(badZip); out.badError = null; } catch (err) { out.badRejected = /model3\.json|model\.json/.test(String(err && err.message)); out.badError = String(err && err.message); }
+    out.noTempAfterBad = fs.readdirSync(models.modelsDir).every((n) => !n.startsWith('.import-'));
+  } finally {
+    try { fs.unlinkSync(goodZip); } catch (err) { /* ignore */ }
+    try { fs.unlinkSync(badZip); } catch (err) { /* ignore */ }
+    if (importedDir) { try { fs.rmSync(importedDir, { recursive: true, force: true }); } catch (err) { /* ignore */ } }
+    out.cleanedUp = importedDir ? !fs.existsSync(importedDir) : true;
+  }
+  return out;
+}
 const consoleLines = [];
 win.webContents.on('console-message', (event, ...args) => {
   const params = args[0];
@@ -140,6 +227,9 @@ win.webContents.on('did-finish-load', () => {
     } catch (err) {
       console.warn('[selftest] narrow scroll probe failed:', err && err.message);
     }
+    // ZIP 导入模型：真机路径探针（结果注入到下面的诊断脚本里）
+    let zipProbe = null;
+    try { zipProbe = await probeModelZipImport(); } catch (err) { zipProbe = { error: String((err && err.message) || err) }; }
     try {
       const diag = await win.webContents.executeJavaScript(`(async () => {
         await new Promise((r) => setTimeout(r, 400));
@@ -567,6 +657,13 @@ win.webContents.on('did-finish-load', () => {
           };
           copyUiOk = !!btn && clickable && belowBody && visible;
         } catch (err) { window.__AILEEN_ERRORS.push('copyUi: ' + String((err && err.message) || err)); }
+        const modelZipProbe = ${JSON.stringify(zipProbe)};
+        const modelZipOk = !!modelZipProbe && modelZipProbe.error === undefined
+          && !!modelZipProbe.good && modelZipProbe.good.dirExists === true
+          && modelZipProbe.good.configExists === true && modelZipProbe.good.textureExists === true
+          && modelZipProbe.good.listed === true && modelZipProbe.good.noTempLeft === true
+          && modelZipProbe.badRejected === true && modelZipProbe.noTempAfterBad === true
+          && modelZipProbe.cleanedUp === true;
         let uiElementsOk = false;
         let sideCollapseOk = false;
         let searchFilterOk = false;
@@ -792,6 +889,8 @@ win.webContents.on('did-finish-load', () => {
           uiBlockedBy,
           sideCollapseOk,
           searchFilterOk,
+          modelZipOk,
+          modelZipProbe,
           hScrollOk,
           hScrollDetail,
           jaText,

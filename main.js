@@ -17,6 +17,7 @@ const { registerAgentIpc } = require('./shared/agent-ipc.cjs');
 const { xiaomiAsrLang } = require('./shared/ai-langs.cjs');
 const mcBot = require('./mc-bot.cjs');
 const { menuText } = require('./shared/menu-i18n.cjs');
+const { extractZipBuffer } = require('./shared/zip.cjs');
 // 自检逻辑单独一份（src/main/self-test.cjs）—— 生产代码里不留断言
 const { attachSelfTest } = require('./src/main/self-test.cjs');
 const { startStaticServer } = require('./src/main/server/static-server.cjs');
@@ -264,6 +265,83 @@ function scanModels(dir, prefix) {
     }
   }
   return results;
+}
+
+// ------------------------------------------------------------
+// 从 ZIP 导入 Live2D 模型
+//
+// 用户下载到的模型基本都是 zip 包（Booth / GitHub / 网盘），让他先手动解压再「选文件夹」
+// 是多余的一步。这里直接吃 zip：解到 models/ 下的临时目录 → 找到 model3.json / model.json
+// → 把「模型根目录」整个挪成 models/<名字>/ → 清掉临时目录。
+// 任何一步失败都把临时目录删干净，绝不在 models/ 里留半成品。
+// ------------------------------------------------------------
+const MAX_MODEL_ZIP_BYTES = 200 * 1024 * 1024;
+
+/** models/ 里取一个不重名的目录名 */
+function uniqueModelDirName(base) {
+  const clean = sanitizeFileName(String(base || 'model')).replace(/[^\w\u4e00-\u9fa5-]+/g, '_') || 'model';
+  let name = clean;
+  for (let i = 2; fs.existsSync(path.join(MODELS_DIR, name)) && i < 999; i += 1) name = clean + '-' + i;
+  return name;
+}
+
+/** Live2D 配置的最小合法性检查：能解析成对象，并且带着 Cubism 2/3/4 的特征字段 */
+function looksLikeLive2dConfig(file) {
+  try {
+    const json = JSON.parse(fs.readFileSync(file, 'utf8'));
+    if (!json || typeof json !== 'object') return false;
+    return !!(json.FileReferences || json.model || json.Version || json.motions || json.physics);
+  } catch (err) {
+    return false;
+  }
+}
+
+/**
+ * 把一个 zip 文件安装成 models/<名字>/。
+ * @returns {{ name: string, file: string, files: number }}
+ */
+function importModelZipFile(zipPath) {
+  const src = path.resolve(String(zipPath || ''));
+  if (!/\.zip$/i.test(src)) throw new Error('只支持 .zip 压缩包');
+  let stat = null;
+  try { stat = fs.statSync(src); } catch (err) { throw new Error('找不到这个 ZIP 文件'); }
+  if (!stat.isFile()) throw new Error('这不是一个文件');
+  if (stat.size > MAX_MODEL_ZIP_BYTES) throw new Error('ZIP 太大（超过 200MB），模型不需要这么大');
+
+  const buf = fs.readFileSync(src);
+  const tmp = fs.mkdtempSync(path.join(MODELS_DIR, '.import-'));
+  try {
+    const out = extractZipBuffer(buf, tmp);
+    if (!out.modelJsons.length) throw new Error('这个 ZIP 里没有 Live2D 的 model3.json / model.json');
+    // 取层级最浅的那个配置（zip 里常有一层同名外壳目录）
+    const shallowest = out.modelJsons
+      .slice()
+      .sort((a, b) => a.split('/').length - b.split('/').length)[0];
+    const rootRel = path.posix.dirname(shallowest);
+    const modelRoot = rootRel === '.' ? tmp : path.join(tmp, rootRel.split('/').join(path.sep));
+    const configFile = path.join(modelRoot, path.posix.basename(shallowest));
+    if (!looksLikeLive2dConfig(configFile)) throw new Error('ZIP 里的 model3.json 看起来不是有效的 Live2D 配置');
+
+    const baseName = path.basename(modelRoot) === path.basename(tmp)
+      ? path.basename(src, path.extname(src))
+      : path.basename(modelRoot);
+    const name = uniqueModelDirName(baseName);
+    const dest = path.join(MODELS_DIR, name);
+    if (modelRoot === tmp) {
+      // 配置就在 zip 根目录：把临时目录直接改名
+      fs.renameSync(tmp, dest);
+    } else {
+      fs.renameSync(modelRoot, dest);
+      fs.rmSync(tmp, { recursive: true, force: true });
+    }
+    fs.mkdirSync(dest, { recursive: true });
+    const rel = path.relative(MODELS_DIR, path.join(dest, path.posix.basename(shallowest)))
+      .split(path.sep).join('/');
+    return { name, file: rel, files: out.files.length };
+  } catch (err) {
+    try { fs.rmSync(tmp, { recursive: true, force: true }); } catch (err2) { /* 删不掉也没别的办法 */ }
+    throw err;
+  }
 }
 
 // ------------------------------------------------------------
@@ -953,7 +1031,13 @@ function selfTestDeps() {
       secretClear: SECRET_CLEAR,
       resolveSecretPatch,
     },
-    models: { modelsDir: MODELS_DIR, charactersDir: CHARACTERS_DIR, scanModels },
+    models: {
+      modelsDir: MODELS_DIR,
+      charactersDir: CHARACTERS_DIR,
+      scanModels,
+      // 自检用：走和「从 ZIP 导入」按钮同一条安装路径（不弹对话框）
+      importZip: (p) => importModelZipFile(p),
+    },
     overlay: {
       getHit: () => overlayHit,
       getIgnoring: () => overlayIgnoring,
@@ -1110,8 +1194,7 @@ function registerIpc() {
   });
 
   // 从文件夹导入 Live2D 模型（复制到 models/）
-  validatedHandle('models:addFolder', async () => {
-    const win = BrowserWindow.getFocusedWindow() || BrowserWindow.getAllWindows()[0];
+  validatedHandle('models:addFolder', async () => {    const win = BrowserWindow.getFocusedWindow() || BrowserWindow.getAllWindows()[0];
     const result = await dialog.showOpenDialog(win, {
       title: '选择 Live2D 模型文件夹',
       properties: ['openDirectory'],
@@ -1135,6 +1218,23 @@ function registerIpc() {
     };
     copyRec(srcDir, destDir);
     return scanModels(MODELS_DIR, '');
+  });
+
+  // 从 ZIP 直接导入 Live2D 模型（下载到的模型通常就是 zip）
+  validatedHandle('models:importZip', async () => {
+    const win = BrowserWindow.getFocusedWindow() || mainWin || BrowserWindow.getAllWindows()[0];
+    const result = await dialog.showOpenDialog(win, {
+      title: '导入 Live2D 模型（ZIP）',
+      filters: [{ name: 'ZIP 压缩包', extensions: ['zip'] }],
+      properties: ['openFile'],
+    });
+    if (result.canceled || !result.filePaths[0]) return null;
+    const imported = importModelZipFile(result.filePaths[0]);
+    const local = scanModels(MODELS_DIR, '');
+    const extra = (readSettings().extraModels || []).map((m) => ({
+      name: m.name || 'URL 模型', file: m.url, url: m.url, source: 'url',
+    }));
+    return { name: imported.name, file: imported.file, files: imported.files, models: [...local, ...extra] };
   });
 
   // 通过 URL 添加 Live2D 模型

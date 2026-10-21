@@ -7,6 +7,8 @@ contextBridge.exposeInMainWorld('api', {
   setWindowChrome: (payload) => ipcRenderer.invoke('window:chrome', payload),
   listModels: () => ipcRenderer.invoke('models:list'),
   addModelFolder: () => ipcRenderer.invoke('models:addFolder'),
+  // 直接从 zip 导入模型（下载到的 Live2D 模型基本都是 zip）
+  importModelZip: () => ipcRenderer.invoke('models:importZip'),
   addModelUrl: (payload) => ipcRenderer.invoke('models:addUrl', payload),
   removeModelUrl: (url) => ipcRenderer.invoke('models:removeUrl', url),
   deleteModel: (target) => ipcRenderer.invoke('models:delete', target),

@@ -334,6 +334,21 @@ export async function addModelFromFolder() {
   }
 }
 
+/** 从 ZIP 直接导入（下载到的 Live2D 模型基本都是 zip，省掉手动解压那一步） */
+export async function addModelFromZip() {
+  try {
+    const res = await window.api.importModelZip();
+    if (!res) return; // 用户取消
+    await refreshModelsAfterAdd();
+    // 导入完直接选中它，省得用户再去下拉里找（下拉的 value 是下标，不是名字）
+    const idx = (state.models || []).findIndex((m) => m.name === res.name);
+    if (idx >= 0) setStageModelIndex(idx);
+    toast(t('model.importedZip', { name: res.name || '', n: res.files || 0 }));
+  } catch (err) {
+    toast(t('model.zipFailed', { msg: String((err && err.message) || err) }), true);
+  }
+}
+
 export function showUrlForm() {
   const form = $('m-url-form');
   if (form) form.classList.remove('hidden');
