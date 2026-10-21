@@ -135,6 +135,35 @@ async function run(target, noBuild) {
     fs.copyFileSync(newAsar, target.asar);
     log('  已替换:', target.asar, '(' + Math.round(fs.statSync(target.asar).size / 1024 / 1024) + ' MB)');
 
+    // 图标：exe 自己的资源改不了（那要重打安装包），但可以把 ico 放到安装目录，
+    // 并把桌面/开始菜单快捷方式的图标指向它 —— 用户看到的就是新图标。
+    try {
+      step('更新快捷方式图标');
+      const icoSrc = path.join(ROOT, 'build', 'icon.ico');
+      if (!fs.existsSync(icoSrc)) { log('  跳过：build/icon.ico 不存在'); }
+      else {
+        const exeDir = path.dirname(path.dirname(target.asar)); // resources -> 安装目录
+        const icoDst = path.join(exeDir, 'aileen.ico');
+        fs.copyFileSync(icoSrc, icoDst);
+        const links = [
+          path.join(os.homedir(), 'Desktop', 'AILEEN.lnk'),
+          path.join(process.env.APPDATA || '', 'Microsoft', 'Windows', 'Start Menu', 'Programs', 'AILEEN.lnk'),
+        ].filter((p) => p && fs.existsSync(p));
+        if (!links.length) { log('  没找到快捷方式（跳过）'); }
+        for (const lnk of links) {
+          const ps = [
+            "$s=(New-Object -ComObject WScript.Shell).CreateShortcut('" + lnk.replace(/'/g, "''") + "');",
+            "$s.IconLocation='" + icoDst.replace(/'/g, "''") + "';",
+            "$s.Save();",
+          ].join(' ');
+          execFileSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', ps], { stdio: 'ignore' });
+          log('  快捷方式图标已更新:', lnk);
+        }
+      }
+    } catch (err) {
+      log('  图标更新失败（不影响使用）:', (err && err.message) || err);
+    }
+
     step('完成');
     log('现在从桌面快捷方式打开就是最新版了。');
     log('不满意可以还原：把备份复制回 ' + target.asar);

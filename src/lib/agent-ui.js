@@ -30,6 +30,20 @@ let batch = null;
 let unbindStatus = null;
 /** 继续执行的回调（由 main.js 注入 chat.js 的 resumeWithAgent，避免模块循环依赖） */
 let resumeHandler = null;
+/** 抽屉的打开/关闭：由 initAgentUI 绑定（外壳的多个入口都调这两个函数） */
+let openDrawerUi = null;
+let closeDrawerUi = null;
+
+/** 外壳入口（对话顶栏、任务提示条、设置页）统一用这两个函数打开/收起抽屉 */
+export function openAgentDrawer() {
+  if (typeof openDrawerUi === 'function') openDrawerUi();
+  return true;
+}
+
+export function closeAgentDrawer() {
+  if (typeof closeDrawerUi === 'function') closeDrawerUi();
+  return true;
+}
 
 const MAX_LOG_LINES = 400;
 
@@ -454,6 +468,8 @@ export function initAgentUI() {
     applyAgentMode();
     pinDrawer(false);
   };
+  openDrawerUi = open;
+  closeDrawerUi = close;
   if ($('btn-agent')) $('btn-agent').addEventListener('click', open);
   if ($('ag-close')) $('ag-close').addEventListener('click', close);
 

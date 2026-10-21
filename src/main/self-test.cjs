@@ -343,6 +343,27 @@ win.webContents.on('did-finish-load', () => {
             && after.hiddenAfterReject === true
             && after.panelHiddenAfterClose === true && after.drawerClosedClass === true;
         } catch (err) { window.__AILEEN_ERRORS.push('agentTest: ' + String((err && err.message) || err)); }
+        // 行为断言：抽屉收起之后必须还能从外壳重新打开（曾经只剩任务运行时的提示条，收起就找不回来）
+        let drawerReopenOk = false;
+        let drawerReopenDetail = null;
+        try {
+          const topBtn = document.getElementById('btn-taskbar');
+          const drawer = document.getElementById('agent-drawer');
+          const closeBtn = document.getElementById('ag-close');
+          const waitMs = (ms) => new Promise((r) => setTimeout(r, ms));
+          topBtn.click();
+          await waitMs(140);
+          const opened = !drawer.classList.contains('hidden');
+          closeBtn.click();
+          await waitMs(260);
+          const closed = drawer.classList.contains('hidden');
+          topBtn.click();
+          await waitMs(140);
+          const reopened = !drawer.classList.contains('hidden') && drawer.classList.contains('open');
+          drawerReopenDetail = { opened, closed, reopened };
+          drawerReopenOk = opened && closed && reopened;
+          if (reopened) { closeBtn.click(); await waitMs(260); }
+        } catch (err) { window.__AILEEN_ERRORS.push('drawerReopen: ' + String((err && err.message) || err)); }
         // 行为断言⑫：人设生成室 —— 设置入口 / 原型选择 / 锁定真的改变提示词
         let studioOk = false;
         let studioDetail = null;
@@ -464,7 +485,7 @@ win.webContents.on('did-finish-load', () => {
         try {
           uiElementsOk = ['btn-send', 'btn-stop', 'btn-float-stage', 'btn-char-actions', 'btn-realtime', 'btn-screenshot', 'btn-mic',
             'char-search', 'drop-hint', 'input', 'composer-box', 'btn-settings-menu', 'btn-collapse-sidebar',
-            'agent-drawer', 'chat-taskbar', 'theme-mode-switch', 'settings-nav']
+            'agent-drawer', 'chat-taskbar', 'btn-taskbar', 'titlebar', 'titlebar-logo', 'theme-mode-switch', 'settings-nav']
             .every((id) => !!document.getElementById(id));
           const app = document.getElementById('app');
           const cs = document.getElementById('btn-collapse-sidebar');
@@ -651,6 +672,8 @@ win.webContents.on('did-finish-load', () => {
           studioDetail,
           agentOk,
           agentDetail,
+          drawerReopenOk,
+          drawerReopenDetail,
           dashOk,
           dashDetail,
           toggleOk,

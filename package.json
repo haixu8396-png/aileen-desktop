@@ -36,6 +36,7 @@
     "asar": true,
     "compression": "normal",
     "win": {
+      "icon": "build/icon.ico",
       "target": [
         {
           "target": "nsis",

@@ -110,6 +110,15 @@ export function applyAppearance(app = {}) {
   else root.style.removeProperty('--accent');
   if (useCustom && custom.secondary) root.style.setProperty('--accent-vivid', custom.secondary);
   else root.style.removeProperty('--accent-vivid');
+  // 自绘标题栏：把系统按钮区的底色/符号色也换成当前主题的（只对 Windows 生效）
+  try {
+    const cs = getComputedStyle(root);
+    const surface = cs.getPropertyValue('--surface').trim() || '#f6f3f0';
+    const text = cs.getPropertyValue('--text-primary').trim() || '#39333a';
+    if (window.api && typeof window.api.setWindowChrome === 'function') {
+      window.api.setWindowChrome({ color: surface, symbolColor: text });
+    }
+  } catch (err) { /* 老环境没有 titleBarOverlay，忽略 */ }
   return theme;
 }
 

@@ -62,7 +62,7 @@ import { createReplyPacer } from './lib/reply-pacer.js';
 import { parsePersonaResponse, buildPersonaMessages } from './lib/persona.js';
 import { openPersonaStudio, closePersonaStudio, bindPersonaStudio, studioFormOptions } from './lib/persona-studio.js';
 import { openChessModal, bindChess } from './lib/chess.js';
-import { initAgentUI, injectAgentEvent, setResumeHandler } from './lib/agent-ui.js';
+import { initAgentUI, injectAgentEvent, setResumeHandler, openAgentDrawer, closeAgentDrawer } from './lib/agent-ui.js';
 import { initAgentDashboard, onAgentEvent, dashboardState, resetDashboard } from './lib/agent-dashboard.js';
 import { createToolRegistry, TOOL_SPECS, withBaseExecutors } from './agent/tool-registry.js';
 import { buildPersonaSystemPrompt, personaPosition, assertPersonaPreserved } from './agent/context-engine.js';
@@ -639,34 +639,24 @@ function bindSettingsNav() {
 
 // ---------------- Agent 抽屉 ----------------
 function bindDrawer() {
-  // 打开/关闭按钮由 agent-ui.js 统一接管（它还要同步「钉住」状态），
-  // 这里只接外壳自己的两处入口：任务提示条与遮罩。
-  const btnAgent = $('btn-agent');
-  if (btnAgent) btnAgent.onclick = () => openDrawer();
+  // 打开/关闭的真实逻辑在 agent-ui.js（要同步「钉住」状态），
+  // 这里把外壳的入口都接到同一对函数上 —— 收起之后一定还有地方能再打开。
   const bar = $('chat-taskbar');
   if (bar) bar.onclick = () => openDrawer();
+  const topBtn = $('btn-taskbar');
+  if (topBtn) topBtn.onclick = () => openDrawer();
+  const settingsBtn = $('btn-open-agent-drawer');
+  if (settingsBtn) settingsBtn.onclick = () => openDrawer();
   const scrim = $('drawer-scrim');
-  if (scrim) scrim.onclick = () => { const d = $('agent-drawer'); if (d) { d.classList.remove('open'); } scrim.classList.remove('on'); setTimeout(() => $('agent-drawer') && $('agent-drawer').classList.add('hidden'), 180); };
+  if (scrim) scrim.onclick = () => closeDrawer();
 }
 
 export function openDrawer() {
-  const d = $('agent-drawer');
-  const scrim = $('drawer-scrim');
-  if (!d) return false;
-  d.classList.remove('hidden');
-  if (scrim) scrim.classList.add('on');
-  requestAnimationFrame(() => d.classList.add('open'));
-  return true;
+  return openAgentDrawer();
 }
 
 export function closeDrawer() {
-  const d = $('agent-drawer');
-  const scrim = $('drawer-scrim');
-  if (!d) return false;
-  d.classList.remove('open');
-  if (scrim) scrim.classList.remove('on');
-  setTimeout(() => { if (!d.classList.contains('open')) d.classList.add('hidden'); }, 180);
-  return true;
+  return closeAgentDrawer();
 }
 
 // ---------------- 原生应用菜单 ----------------

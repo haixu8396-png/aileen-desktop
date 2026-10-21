@@ -10,18 +10,21 @@
 <body>
 <div id="app">
 
+  <!-- 自绘标题栏：保留系统的最小化/最大化/关闭按钮，只换配色与内容。
+       整条是拖动区；按钮与右侧系统按钮区留空不拖。 -->
+  <header id="titlebar">
+    <img id="titlebar-logo" src="./app-icon.png" alt="" />
+    <span class="titlebar-name">AILEEN</span>
+    <button id="btn-collapse-sidebar" class="icon-btn tiny" data-i18n-title="sidebar.collapse" title="收起侧栏">
+      <span data-icon="panelLeft"></span>
+    </button>
+    <span class="titlebar-spacer"></span>
+  </header>
+
   <!-- ============================================================
-       左侧导航：品牌 / 新建对话 / 主导航 / 常用角色 / 状态与设置
+       左侧导航：新建对话 / 主导航 / 常用角色 / 状态与设置
        ============================================================ -->
   <nav id="sidebar" aria-label="主导航">
-    <div class="side-brand">
-      <span class="brand-mark" data-icon="mark" data-icon-size="20" aria-hidden="true"></span>
-      <span class="brand-name">AILEEN</span>
-      <button id="btn-collapse-sidebar" class="icon-btn tiny" data-i18n-title="sidebar.collapse" title="收起侧栏">
-        <span data-icon="panelLeft"></span>
-      </button>
-    </div>
-
     <button id="btn-new-chat" class="block" data-i18n-title="sidebar.newChatTip" title="清空当前对话并重新开始">
       <span data-icon="plus"></span><span data-i18n="nav.newChat">新建对话</span>
     </button>
@@ -68,6 +71,9 @@
           <span class="dot"></span><span id="chat-taskbar-text" data-i18n="tasks.running">任务进行中</span>
         </button>
         <div class="chat-actions">
+          <button id="btn-taskbar" class="icon-btn" data-i18n-title="tasks.openTip" title="任务详情">
+            <span data-icon="agent"></span>
+          </button>
           <button id="btn-float-stage" class="icon-btn" data-i18n-title="stage.floatTip" title="显示 / 隐藏桌面展台">
             <span data-icon="frame"></span>
           </button>

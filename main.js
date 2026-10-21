@@ -806,15 +806,31 @@ function createWindow() {
   // AILEEN_SELFTEST_QUIET=1：自检时**不要抢前台**（用户可能正在全屏干别的事）。
   // 仍然创建并显示窗口（capturePage 需要可见），但用 showInactive 显示，不激活。
   const quiet = !!process.env.AILEEN_SELFTEST_QUIET;
+  // 应用图标：优先用 dist 里的那份（打包后被塞进 asar），开发时退回 build/icon.png
+  const iconPath = (() => {
+    const inDist = path.join(APP_ROOT, 'dist', 'app-icon.png');
+    if (fs.existsSync(inDist)) return inDist;
+    const inBuild = path.join(APP_ROOT, 'build', 'icon.png');
+    return fs.existsSync(inBuild) ? inBuild : undefined;
+  })();
   const win = new BrowserWindow({
     width: 1480,
     height: 940,
     minWidth: 1080,
     minHeight: 700,
     title: 'AILEEN',
-    backgroundColor: '#14151a',
+    backgroundColor: '#f6f3f0',
     autoHideMenuBar: true,
     show: !quiet,
+    ...(iconPath ? { icon: iconPath } : {}),
+    // 自绘标题栏：保留系统的最小化/最大化/关闭按钮（titleBarOverlay），
+    // 只把那条灰色系统栏换成本应用的暖纸色，并把内容往上提。
+    ...(process.platform === 'win32'
+      ? {
+          titleBarStyle: 'hidden',
+          titleBarOverlay: { color: '#f6f3f0', symbolColor: '#39333a', height: 38 },
+        }
+      : {}),
     webPreferences: {
       preload: path.join(APP_ROOT, 'preload.js'),
       contextIsolation: true,
@@ -962,6 +978,22 @@ function registerIpc() {
     appRoot: APP_ROOT,
     version: app.getVersion(),
   }));
+
+  // 自绘标题栏：主题切换时把系统按钮区的颜色一起换掉（只影响 Windows）
+  validatedHandle('window:chrome', (_e, payload) => {
+    if (!mainWin || mainWin.isDestroyed()) return false;
+    const color = String((payload && payload.color) || '#f6f3f0');
+    const symbolColor = String((payload && payload.symbolColor) || '#39333a');
+    try {
+      if (process.platform === 'win32' && typeof mainWin.setTitleBarOverlay === 'function') {
+        mainWin.setTitleBarOverlay({ color, symbolColor, height: 38 });
+      }
+      mainWin.setBackgroundColor(color);
+      return true;
+    } catch (err) {
+      return false;
+    }
+  });
 
   validatedHandle('models:list', () => {
     const local = scanModels(MODELS_DIR, '');

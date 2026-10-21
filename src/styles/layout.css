@@ -6,14 +6,38 @@
 #app {
   display: grid;
   grid-template-columns: var(--sidebar-w) minmax(0, 1fr);
+  grid-template-rows: var(--titlebar-h) minmax(0, 1fr);
   height: 100vh;
   background: var(--app-bg);
   transition: grid-template-columns var(--dur-2) var(--ease);
 }
 #app.side-collapsed { grid-template-columns: var(--sidebar-w-collapsed) minmax(0, 1fr); }
 
+/* ---------- 自绘标题栏 ---------- */
+/* 系统的最小化/最大化/关闭按钮由 titleBarOverlay 画在右侧；
+   这里负责底色、图标、标题与拖动区：整条可拖，按钮不拖。 */
+#titlebar {
+  grid-column: 1 / -1;
+  grid-row: 1;
+  display: flex; align-items: center; gap: 8px;
+  height: var(--titlebar-h);
+  padding: 0 12px;
+  padding-right: 150px; /* 给系统按钮区留位 */
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  -webkit-app-region: drag;
+  user-select: none;
+}
+#titlebar > * { -webkit-app-region: no-drag; }
+#titlebar-logo { width: 18px; height: 18px; border-radius: 5px; object-fit: cover; flex: none; }
+.titlebar-name { font-size: var(--fs-xs); font-weight: 600; color: var(--text-secondary); letter-spacing: 0.02em; }
+#titlebar .icon-btn { width: 26px; height: 26px; margin-left: 4px; }
+#titlebar .icon-btn .ico { width: 14px; height: 14px; }
+.titlebar-spacer { flex: 1; height: 100%; -webkit-app-region: drag; }
+
 /* ---------- 左侧导航 ---------- */
 #sidebar {
+  grid-row: 2;
   display: flex; flex-direction: column;
   min-height: 0;
   padding: var(--sp-4) var(--sp-3);
@@ -111,22 +135,19 @@
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 
-/* 折叠态 */
+/* 折叠态：导航只剩图标；品牌与折叠按钮都在标题栏里，不受影响 */
 #app.side-collapsed #sidebar { padding: var(--sp-4) var(--sp-2); }
-#app.side-collapsed .brand-name,
 #app.side-collapsed .nav-item span,
 #app.side-collapsed .nav-item .nav-count,
 #app.side-collapsed .side-chars,
 #app.side-collapsed .side-status { display: none; }
-#app.side-collapsed .side-brand { justify-content: center; padding: 0; }
-#app.side-collapsed .side-brand .icon-btn { position: absolute; left: 50%; top: 58px; transform: translateX(-50%); margin: 0; }
-#app.side-collapsed #btn-new-chat { width: 40px; margin: 22px auto 0; padding: 0; }
+#app.side-collapsed #btn-new-chat { width: 40px; margin: 0 auto; padding: 0; }
 #app.side-collapsed #btn-new-chat span:not([data-icon]) { display: none; }
 #app.side-collapsed .nav-item { justify-content: center; padding: 0; }
 #app.side-collapsed .side-foot .nav-item { justify-content: center; }
 
 /* ---------- 主内容 ---------- */
-#content { position: relative; min-width: 0; min-height: 0; display: flex; flex-direction: column; background: var(--app-bg); transition: margin-right var(--dur-2) var(--ease); }
+#content { grid-row: 2; position: relative; min-width: 0; min-height: 0; display: flex; flex-direction: column; background: var(--app-bg); transition: margin-right var(--dur-2) var(--ease); }
 /* 任务抽屉打开时给正文让出宽度（临时，不是常驻列；窄窗口不挤） */
 body.agent-drawer-open #content { margin-right: min(var(--drawer-w), 40vw); }
 @media (max-width: 1180px) {

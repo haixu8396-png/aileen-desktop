@@ -76,6 +76,7 @@
   --ease: cubic-bezier(0.22, 0.61, 0.36, 1);
 
   /* ---- 布局尺寸 ---- */
+  --titlebar-h: 38px;
   --sidebar-w: 244px;
   --sidebar-w-collapsed: 72px;
   --topbar-h: 68px;

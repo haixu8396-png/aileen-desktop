@@ -89,6 +89,7 @@ jobs:
           if (-not $diag.sideCollapseOk) { throw '界面：侧栏折叠不可用' }
           if (-not $diag.searchFilterOk) { throw '界面：角色搜索没有真正过滤列表' }
           if (-not $diag.agentOk) { throw ('Agent 面板不可用（入口/控件/审批卡片）→ ' + ($diag.agentDetail | ConvertTo-Json -Compress)) }
+          if (-not $diag.drawerReopenOk) { throw ('任务抽屉收起后无法再打开 → ' + ($diag.drawerReopenDetail | ConvertTo-Json -Compress)) }
           if (-not $diag.dashOk) { throw ('Agent 任务抽屉或角色人格保留断言失败 → ' + ($diag.dashDetail | ConvertTo-Json -Compress)) }
           if (-not $diag.toggleOk) { throw ('电脑控制开关没有立刻生效 / 关掉后抽屉没收起 → ' + ($diag.toggleDetail | ConvertTo-Json -Compress)) }
           if (-not $diag.memoryOk) { throw ('记忆库真机往返失败（store:fs 写盘/读回/检索/删除）→ ' + ($diag.memoryProbe | ConvertTo-Json -Compress)) }
@@ -197,6 +198,7 @@ jobs:
           if (-not $diag.sideCollapseOk) { throw '界面：侧栏折叠不可用' }
           if (-not $diag.searchFilterOk) { throw '界面：角色搜索没有真正过滤列表' }
           if (-not $diag.agentOk) { throw ('Agent 面板不可用（入口/控件/审批卡片）→ ' + ($diag.agentDetail | ConvertTo-Json -Compress)) }
+          if (-not $diag.drawerReopenOk) { throw ('任务抽屉收起后无法再打开 → ' + ($diag.drawerReopenDetail | ConvertTo-Json -Compress)) }
           if (-not $diag.dashOk) { throw ('Agent 任务抽屉或角色人格保留断言失败 → ' + ($diag.dashDetail | ConvertTo-Json -Compress)) }
           if (-not $diag.toggleOk) { throw ('电脑控制开关没有立刻生效 / 关掉后抽屉没收起 → ' + ($diag.toggleDetail | ConvertTo-Json -Compress)) }
           if (-not $diag.memoryOk) { throw ('打包产物里记忆库真机往返失败 → ' + ($diag.memoryProbe | ConvertTo-Json -Compress)) }
