@@ -1145,13 +1145,17 @@ win.webContents.on('did-finish-load', () => {
             rep.overlaySizeOk = huge.width <= Math.round(area.width * 0.4) + 1
               && huge.height <= Math.round(area.height * 0.8) + 1
               && tinyFloored && fitsScreen;
-            // 「reset」的语义：大小也回到默认（400×640），不只是挪位置
-            await setOverlaySize(400, 640);
+            // 「reset」的语义：大小也回到默认（400×640），不只是挪位置。
+            // 注意默认值本身也要过 clamp：CI 的虚拟屏只有 1024×720，640 高会被钳到 576。
+            const resetWant = clampOverlaySizeFn(400, 640);
+            await setOverlaySize(resetWant.width, resetWant.height);
             await new Promise((r) => setTimeout(r, 220));
             const resetProbe = getOverlayBounds();
             rep.overlaySizeProbe.reset = resetProbe ? [resetProbe.width, resetProbe.height] : null;
+            rep.overlaySizeProbe.resetWant = [resetWant.width, resetWant.height];
             rep.overlaySizeResetOk = !!resetProbe
-              && Math.abs(resetProbe.width - 400) <= 6 && Math.abs(resetProbe.height - 640) <= 6;
+              && Math.abs(resetProbe.width - resetWant.width) <= 6
+              && Math.abs(resetProbe.height - resetWant.height) <= 6;
             if (beforeProbe) await applyOverlayBounds(beforeProbe);
           } catch (err) { rep.errors.push('overlaySize: ' + String((err && err.message) || err)); }
           // 模型连续性：改窗口尺寸（跨屏 DPI 也会触发 resize）不能把模型重建一遍，
