@@ -151,6 +151,9 @@ function stopFitPoll() {
   if (fitPollTimer) { clearInterval(fitPollTimer); fitPollTimer = null; }
 }
 
+// 自检用：真正「重建模型」的次数（模型连续性就靠它验证）
+let overlayRenderCount = 0;
+
 function destroyStage() {
   stopFitPoll();
   if (oml2d) {
@@ -252,10 +255,13 @@ const STAGE_STYLE = {
 function renderStage(model) {
   destroyStage();
   currentModel = model;
+  // 记下这次用的是哪套布局分支（手机 / 桌面）；只有分支真的变了才值得重建
+  try { stageLayoutBranch = window.matchMedia('(max-width: 768px)').matches ? 'mobile' : 'desktop'; } catch (err) { stageLayoutBranch = 'desktop'; }
   if (!model || !model.url) {
     stageBox.innerHTML = '<div class="ov-empty">' + t('overlay.empty') + '</div>';
     return;
   }
+  overlayRenderCount += 1;
   const W = window.innerWidth;
   const H = window.innerHeight;
   oml2d = loadOml2d({
@@ -631,9 +637,34 @@ window.__AILEEN_OVERLAY_PANEL = (name) => {
 };
 
 window.api.onOverlayModel((m) => renderStage(m));
+// 自检：模型被重建了几次 / 现在有没有模型（用来验证「改尺寸不重置模型」）
+window.__AILEEN_OVERLAY_STAGE_INFO = () => ({ renders: overlayRenderCount, hasModel: !!currentModel });
+
+// 窗口尺寸变了：**只重新对一次画布尺寸 + 模型位置/缩放，绝不重建模型**。
+// 以前这里是 `renderStage(currentModel)` —— 等于每改一次尺寸、每次跨屏 DPI 变化、
+// 甚至拖动结束的窗口重排，都把角色重新加载一遍：动作、表情、口型全断，
+// 用户看到的就是「每次移动位置模型都会重置」。
+// 只有「手机布局 ↔ 桌面布局」这种结构分支真的变了（库按 matchMedia 选了另一套 stageStyle）
+// 才必须重建。
+let stageLayoutBranch = null;
+function stageLayoutBranchName() {
+  try { return window.matchMedia('(max-width: 768px)').matches ? 'mobile' : 'desktop'; } catch (err) { return 'desktop'; }
+}
+let stageResizeTimer = null;
 window.addEventListener('resize', () => {
   reportHitArea();
-  if (currentModel) renderStage(currentModel);
+  if (!currentModel) return;
+  const branch = stageLayoutBranchName();
+  if (stageLayoutBranch && branch !== stageLayoutBranch) {
+    renderStage(currentModel);
+    return;
+  }
+  stageLayoutBranch = branch;
+  if (stageResizeTimer) clearTimeout(stageResizeTimer);
+  stageResizeTimer = setTimeout(() => {
+    stageResizeTimer = null;
+    syncStageSize(true);
+  }, 60);
 });
 window.addEventListener('load', reportHitArea);
 setTimeout(reportHitArea, 400);

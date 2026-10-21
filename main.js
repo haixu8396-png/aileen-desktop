@@ -699,13 +699,21 @@ function destroyOverlayGhost() {
 }
 
 /** 把目标位置钳进「离光标最近的那块屏幕」的工作区：绝不压到任务栏上 */
+/**
+ * 窗口离任务栏至少留这么多像素。
+ * 只钳到工作区边界是不够的：窗口底边正好贴着任务栏，角色的脚看起来就「站在任务栏上」。
+ */
+const OVERLAY_BOTTOM_GAP = 28;
+
+/** 把目标位置钳进「离光标最近的那块屏幕」的工作区：绝不压到任务栏，底部还留一条缝 */
 function clampOverlayPosition(x, y, width, height) {
   const probe = { x: Math.round(x + width / 2), y: Math.round(y + height / 2) };
   let area = null;
   try { area = screen.getDisplayNearestPoint(probe).workArea; } catch (err) { area = null; }
   if (!area) area = screen.getPrimaryDisplay().workArea;
   const maxX = area.x + area.width - width;
-  const maxY = area.y + area.height - height;
+  // 底部额外留缝：贴着工作区底边 = 脚踩在任务栏上
+  const maxY = area.y + area.height - height - OVERLAY_BOTTOM_GAP;
   return {
     x: Math.round(Math.min(Math.max(x, area.x), Math.max(area.x, maxX))),
     y: Math.round(Math.min(Math.max(y, area.y), Math.max(area.y, maxY))),

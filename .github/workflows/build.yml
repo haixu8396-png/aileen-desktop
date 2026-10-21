@@ -117,7 +117,9 @@ jobs:
           if (-not $ovr.snapBackOk) { throw '悬浮展台尺寸被系统意外放大后没有弹回（Aero Snap 防护失效）' }
           if (-not $ovr.ignoringAfterResize) { throw '悬浮展台改过尺寸后不再是鼠标穿透状态（会把桌面点击全吃掉）' }
           if (-not $ovr.ignoringAfterMove) { throw '悬浮展台移动后不再是鼠标穿透状态' }
+          if ($ovr.modelKeepsStateOk -eq $false) { throw ('改窗口尺寸后模型被重建了（动作/表情/口型会断）→ ' + ($ovr.modelKeepsStateProbe | ConvertTo-Json -Compress)) }
           if (-not $ovr.overlaySizeOk) { throw ('展台窗口尺寸没有被钳住（可能铺满屏幕）→ ' + ($ovr.overlaySizeProbe | ConvertTo-Json -Compress)) }
+          if (-not $ovr.overlayTaskbarGapOk) { throw ('展台底边贴着任务栏（角色的脚会踩在任务栏上）→ ' + ($ovr.overlayTaskbarGapProbe | ConvertTo-Json -Compress)) }
           if (-not $ovr.overlayInWorkAreaOk) { throw ('展台窗口露到工作区外（会挡住任务栏）→ ' + ($ovr.overlaySizeProbe | ConvertTo-Json -Compress)) }
           if (-not $ovr.overlaySizeResetOk) { throw ('展台大小复位失败（应回到 400×640）→ ' + ($ovr.overlaySizeProbe | ConvertTo-Json -Compress)) }
           if (-not $ovr.dragCoalesceOk) { throw ('拖动的高频移动没有被合并（IPC 会无上限积压）→ ' + ($ovr.dragProbe | ConvertTo-Json -Compress)) }
@@ -241,7 +243,9 @@ jobs:
           if (-not $ovr.snapBackOk) { throw '悬浮展台尺寸被系统意外放大后没有弹回（Aero Snap 防护失效）' }
           if (-not $ovr.ignoringAfterResize) { throw '悬浮展台改过尺寸后不再是鼠标穿透状态（会把桌面点击全吃掉）' }
           if (-not $ovr.ignoringAfterMove) { throw '悬浮展台移动后不再是鼠标穿透状态' }
+          if ($ovr.modelKeepsStateOk -eq $false) { throw ('改窗口尺寸后模型被重建了（动作/表情/口型会断）→ ' + ($ovr.modelKeepsStateProbe | ConvertTo-Json -Compress)) }
           if (-not $ovr.overlaySizeOk) { throw ('展台窗口尺寸没有被钳住（可能铺满屏幕）→ ' + ($ovr.overlaySizeProbe | ConvertTo-Json -Compress)) }
+          if (-not $ovr.overlayTaskbarGapOk) { throw ('展台底边贴着任务栏（角色的脚会踩在任务栏上）→ ' + ($ovr.overlayTaskbarGapProbe | ConvertTo-Json -Compress)) }
           if (-not $ovr.overlayInWorkAreaOk) { throw ('展台窗口露到工作区外（会挡住任务栏）→ ' + ($ovr.overlaySizeProbe | ConvertTo-Json -Compress)) }
           if (-not $ovr.overlaySizeResetOk) { throw ('展台大小复位失败（应回到 400×640）→ ' + ($ovr.overlaySizeProbe | ConvertTo-Json -Compress)) }
           if (-not $ovr.dragCoalesceOk) { throw ('拖动的高频移动没有被合并（IPC 会无上限积压）→ ' + ($ovr.dragProbe | ConvertTo-Json -Compress)) }

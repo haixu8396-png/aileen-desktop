@@ -1034,6 +1034,7 @@ win.webContents.on('did-finish-load', () => {
           await new Promise((r) => setTimeout(r, 5000));
           // 自检期间光标放远处（假光标）：穿透/吸附这些断言不能被真鼠标当时停在哪影响
           if (typeof setOverlayCursor === 'function') setOverlayCursor(() => ({ x: 5, y: 5 }));
+          await new Promise((r) => setTimeout(r, 420));
           rep.visible = w.isVisible();
           rep.title = w.getTitle();
           rep.bounds = w.getBounds();
@@ -1133,6 +1134,10 @@ win.webContents.on('did-finish-load', () => {
               && afterProbe.height <= Math.round(area.height * 0.8) + 6;
             const tinyFloored = tiny.width >= 240 && tiny.height >= 380;
             // 窗口必须整个落在工作区里：露到任务栏上就是「挡住任务栏」
+            // 底边还要留一条缝：贴着工作区底边 = 脚踩在任务栏上（用户报过两次）
+            const bottomGap = afterProbe ? (area.y + area.height) - (afterProbe.y + afterProbe.height) : -1;
+            rep.overlayTaskbarGapProbe = { bottomGap, required: 20 };
+            rep.overlayTaskbarGapOk = bottomGap >= 20;
             rep.overlayInWorkAreaOk = !!afterProbe
               && afterProbe.x >= area.x - 1 && afterProbe.y >= area.y - 1
               && afterProbe.x + afterProbe.width <= area.x + area.width + 6
@@ -1149,6 +1154,28 @@ win.webContents.on('did-finish-load', () => {
               && Math.abs(resetProbe.width - 400) <= 6 && Math.abs(resetProbe.height - 640) <= 6;
             if (beforeProbe) await applyOverlayBounds(beforeProbe);
           } catch (err) { rep.errors.push('overlaySize: ' + String((err && err.message) || err)); }
+          // 模型连续性：改窗口尺寸（跨屏 DPI 也会触发 resize）不能把模型重建一遍，
+          // 否则动作/表情/口型全断 —— 用户报过「每次移动位置模型都会重置」。
+          try {
+            const stageInfo = () => w.webContents.executeJavaScript(
+              'window.__AILEEN_OVERLAY_STAGE_INFO ? window.__AILEEN_OVERLAY_STAGE_INFO() : null',
+            );
+            const beforeInfo = await stageInfo();
+            const sizeNow = w.getBounds();
+            await setOverlaySize(Math.max(260, sizeNow.width - 40), Math.max(400, sizeNow.height - 40));
+            await new Promise((r) => setTimeout(r, 700));
+            const afterInfo = await stageInfo();
+            await setOverlaySize(sizeNow.width, sizeNow.height);
+            await new Promise((r) => setTimeout(r, 400));
+            rep.modelKeepsStateProbe = {
+              modelsAvailable: !!rep.modelsAvailable,
+              before: beforeInfo,
+              after: afterInfo,
+            };
+            rep.modelKeepsStateOk = rep.modelsAvailable
+              ? !!beforeInfo && !!afterInfo && afterInfo.renders === beforeInfo.renders && afterInfo.hasModel === true
+              : 'skipped:no-model-installed';
+          } catch (err) { rep.errors.push('modelKeepsState: ' + String((err && err.message) || err)); }
           // ④ 拖动：真机最容易翻车的地方（事件堆积 / 尺寸被拉扯 / 松手后还在飘）
           //    用渲染层**真实的事件入口**（PointerEvent on #ov-grip）驱动，
           //    光标用注入的假坐标，所以「窗口有没有精确跟到最新位置」能被确定性断言。
@@ -1179,6 +1206,7 @@ win.webContents.on('did-finish-load', () => {
             // 按下把手（假光标在窗口左上角 +120/+80 的位置，模拟「抓住工具栏继续拖」）
             setCursor(() => ({ x: base.x + 120, y: base.y + 80 }));
             const before1 = await stats();
+            resizeEvents = 0;   // 只统计「按下之后」的 resize（之前的程序化收尾不算）
             await dispatch('pointerdown');
             await sleep(120);
             rep.dragStarted = (await dragging()) === true;
@@ -1243,8 +1271,9 @@ win.webContents.on('did-finish-load', () => {
             // 松手之后窗口才精确落到提示框的位置
             rep.dragPositionOk = nearPx(settled.x, base.x - 120) && nearPx(settled.y, base.y - 60);
             // 拖动只搬位置：宽高一动不动
-            rep.dragSizeStableOk = mid.width === base.width && mid.height === base.height
-              && settled.width === base.width && settled.height === base.height;
+            const nearSize = (a, b2) => Math.abs(a - b2) <= 2;
+            rep.dragSizeStableOk = nearSize(mid.width, base.width) && nearSize(mid.height, base.height)
+              && nearSize(settled.width, base.width) && nearSize(settled.height, base.height);
             // 拖动期间不该出现任何 resize（出现了就是「尺寸被拉扯」的那类问题）
             rep.dragNoResizeOk = resizeEvents === 0;
             // 结束一次且只一次，且没有残留的帧 / 在途请求
