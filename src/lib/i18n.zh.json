@@ -826,5 +826,11 @@
   "chat.copyCode": "复制这段代码",
   "model.fromZip": "从 ZIP 导入",
   "model.importedZip": "已从 ZIP 导入「{name}」（{n} 个文件）",
-  "model.zipFailed": "ZIP 导入失败：{msg}"
+  "model.zipFailed": "ZIP 导入失败：{msg}",
+  "stage.windowSize": "展台大小",
+  "stage.windowSizeDesc": "窗口最大只占屏幕宽度的 40%、高度的 80%，不会铺满桌面；也可以点着工具条的 −/＋ 微调。",
+  "stage.sizeSmall": "小",
+  "stage.sizeMedium": "中",
+  "stage.sizeLarge": "大",
+  "stage.sizeApplied": "展台已调整为 {w}×{h}"
 }

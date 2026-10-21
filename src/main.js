@@ -25,7 +25,7 @@ import {
   initLive2D, updateStageModelName, populateStageModelSelect, setStageModelIndex, syncOverlayModel,
   currentStageModel, stageModelDisabled, openModelModal, addModelFromFolder, addModelFromZip, showUrlForm, submitUrlForm,
   refreshModelsAfterAdd, applyStageScale, toggleStage, resetStagePosition, renderLocalList, renderUrlList,
-  refreshStageCapabilities,
+  refreshStageCapabilities, applyStageSize, syncStageSizeSwitch,
 } from './lib/stage.js';
 import {
   send, renderMessages, setBusy, ttsSettingsForCharacter, clearMessages, regenerateLast, resumeWithAgent, copyText,
@@ -516,6 +516,14 @@ function bindStageSection() {
   if (floatBtn) floatBtn.onclick = () => toggleStage().then(updateShellStatus);
   const scale = $('stage-scale');
   if (scale) scale.addEventListener('input', () => applyStageScale(parseFloat(scale.value)));
+  // 「展台大小」三档：小 / 中 / 大（主进程还会按屏幕再钳一次）
+  const sizeSwitch = $('stage-size-switch');
+  if (sizeSwitch) {
+    sizeSwitch.querySelectorAll('button[data-size]').forEach((b) => {
+      b.onclick = () => applyStageSize(b.dataset.size);
+    });
+    syncStageSizeSwitch();
+  }
 }
 
 // ---------------- 页面导航与设备 ----------------

@@ -826,5 +826,11 @@
   "chat.copyCode": "このコードをコピー",
   "model.fromZip": "ZIP からインポート",
   "model.importedZip": "ZIP から「{name}」をインポートしました（{n} ファイル）",
-  "model.zipFailed": "ZIP のインポートに失敗しました：{msg}"
+  "model.zipFailed": "ZIP のインポートに失敗しました：{msg}",
+  "stage.windowSize": "ステージのサイズ",
+  "stage.windowSizeDesc": "ウィンドウは画面幅の 40%・高さの 80% を超えないので、デスクトップを覆いません。ツールバーの −/＋ で微調整もできます。",
+  "stage.sizeSmall": "小",
+  "stage.sizeMedium": "中",
+  "stage.sizeLarge": "大",
+  "stage.sizeApplied": "ステージを {w}×{h} に変更しました"
 }

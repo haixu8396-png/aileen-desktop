@@ -16,7 +16,7 @@ const grip = document.getElementById('ov-grip');
 const lockBtn = document.getElementById('ov-lock');
 
 let oml2d = null;
-let overlayCfg = { scale: 0.45, opacity: 1 };
+let overlayCfg = { scale: 0.15, opacity: 1 };
 let currentModel = null;
 let hovering = false;
 let hideTimer = null;
@@ -145,7 +145,14 @@ document.getElementById('ov-hide').onclick = () => window.api.overlayHide();
 document.addEventListener('keydown', (e) => { if (e.key === 'Escape') window.api.overlayHide(); });
 
 // ---------------- Live2D ----------------
+/** 模型挂上舞台的时机不固定（冷启动 / 大模型更慢），用轮询等它出现 */
+let fitPollTimer = null;
+function stopFitPoll() {
+  if (fitPollTimer) { clearInterval(fitPollTimer); fitPollTimer = null; }
+}
+
 function destroyStage() {
+  stopFitPoll();
   if (oml2d) {
     try { if (oml2d.pixiApp) oml2d.pixiApp.destroy(true); } catch (err) { /* ignore */ }
     oml2d = null;
@@ -166,11 +173,69 @@ function syncStageSize(adjustModel) {
     if (typeof app.resize === 'function') app.resize();
     if (adjustModel && oml2d.models && oml2d.models.model) {
       // 模型加载时舞台还是 0 尺寸，位置/缩放都是按那个算的 —— 必须重算一次
-      if (typeof oml2d.setModelScale === 'function') oml2d.setModelScale(overlayCfg.scale || 0.45);
+      applyModelSize(w, h);
       if (typeof oml2d.setModelPosition === 'function') oml2d.setModelPosition({ x: w / 2, y: h * 0.55 });
     }
     return true;
   } catch (err) { return false; }
+}
+
+/**
+ * 应用模型缩放，并且**保证模型装得进窗口**。
+ *
+ * 库里的 `scale` 是绝对的 PIXI 缩放（默认 0.1）；0.45 这种值会让模型比窗口大好几倍，
+ * 溢出窗口的部分直接被裁掉（用户看到的就是「模型占满整个屏幕、手出了边界看不见」）。
+ * 所以这里做两步：先用用户给的比例，再按模型**当前实际渲染尺寸**算一个「装得下」的上限，
+ * 取两者较小值 —— 只缩小、不放大，用户的偏好仍然优先。
+ *
+ * 注意：不能拿 `oml2d.models.model` 量尺寸（它是库里的 Model 包装，没有 getBounds）；
+ * 真正的显示对象挂在 `pixiApp.app.stage.children` 上，取其中面积最大的那个。
+ */
+function findModelDisplayObject() {
+  try {
+    const stage = oml2d && oml2d.pixiApp && oml2d.pixiApp.app && oml2d.pixiApp.app.stage;
+    const kids = stage && stage.children ? stage.children : null;
+    if (!kids || !kids.length) return null;
+    let best = null;
+    for (const k of kids) {
+      if (!k || typeof k.getBounds !== 'function' || k.visible === false) continue;
+      let b = null;
+      try { b = k.getBounds(); } catch (err) { b = null; }
+      if (!b || !(b.width > 0) || !(b.height > 0)) continue;
+      const area = b.width * b.height;
+      if (!best || area > best.area) best = { area, bounds: b };
+    }
+    return best ? best.bounds : null;
+  } catch (err) {
+    return null;
+  }
+}
+
+function applyModelSize(stageW, stageH) {
+  if (!oml2d || typeof oml2d.setModelScale !== 'function') return;
+  const want = Number(overlayCfg.scale) || 0.15;
+  let next = want;
+  try {
+    if (stageW > 0 && stageH > 0) {
+      oml2d.setModelScale(want);
+      const b = findModelDisplayObject();
+      if (b) {
+        // 留一点余量：模型边缘的头发/手别贴着窗口线
+        const fit = Math.min((stageW * 0.96) / b.width, (stageH * 0.96) / b.height);
+        if (Number.isFinite(fit) && fit > 0 && fit < 1) next = Math.max(0.02, want * fit);
+      }
+    }
+  } catch (err) { next = want; }
+  // 调试快照：自检要能看出「想用的比例 / 量到的尺寸 / 最终比例」
+  window.__AILEEN_FIT_DEBUG = {
+    want,
+    next,
+    stage: [stageW, stageH],
+    measured: (function () { try { const b = findModelDisplayObject(); return b ? [Math.round(b.width), Math.round(b.height)] : null; } catch (err) { return null; } })(),
+  };
+  oml2d.setModelScale(next);
+  const slider = document.getElementById('ov-scale');
+  if (slider && document.activeElement !== slider) slider.value = String(next.toFixed(2));
 }
 
 // 舞台样式：库默认是 position:fixed + 滑入动画，会盖住整屏；这里钉在容器内。
@@ -210,7 +275,7 @@ function renderStage(model) {
     models: [{
       name: model.name || 'model',
       path: model.url,
-      scale: overlayCfg.scale || 0.45,
+      scale: overlayCfg.scale || 0.15,
       anchor: [0.5, 0.5],
       position: [W / 2, H * 0.55],
       motionPreloadStrategy: 'IDLE',
@@ -227,6 +292,17 @@ function renderStage(model) {
   syncStageSize(false);
   setTimeout(() => syncStageSize(false), 120);
   setTimeout(() => syncStageSize(false), 520);
+  // onLoad 有时比「模型真的挂到舞台上」早一步（冷启动、大模型更明显），那时量不到对象，
+  // 缩放适配会落空 —— 表现为「模型比窗口大、手出了边界看不见」。所以轮询到量出来为止（最多 20 秒）。
+  stopFitPoll();
+  let fitTries = 0;
+  fitPollTimer = setInterval(() => {
+    fitTries += 1;
+    if (!oml2d || currentModel !== model) { stopFitPoll(); return; }
+    syncStageSize(true);
+    const dbg = window.__AILEEN_FIT_DEBUG;
+    if ((dbg && dbg.measured) || fitTries >= 50) stopFitPoll();
+  }, 400);
 }
 
 // ---------------- 启动 ----------------
@@ -295,6 +371,7 @@ window.__AILEEN_OVERLAY_PROBE = () => {
     screenSize: [window.screen.width, window.screen.height],
     innerSize: [window.innerWidth, window.innerHeight],
     modelUrl: currentModel ? currentModel.url : null,
+    fitDebug: window.__AILEEN_FIT_DEBUG || null,
     stageChildren: app && app.app && app.app.stage ? app.app.stage.children.length : null,
     renderedOk: (function () {
       try {
@@ -475,12 +552,12 @@ if (modelSelect) {
   modelSelect.onchange = () => window.api.overlayRequest({ type: 'model', index: Number(modelSelect.value) || 0 });
 }
 if (document.getElementById('ov-scale')) {
-  document.getElementById('ov-scale').value = String(overlayCfg.scale || 0.45);
+  document.getElementById('ov-scale').value = String(overlayCfg.scale || 0.15);
   document.getElementById('ov-scale').oninput = (e) => {
-    const v = Number(e.target.value) || 0.45;
+    const v = Number(e.target.value) || 0.15;
     overlayCfg.scale = v;
-    try { if (oml2d && typeof oml2d.setModelScale === 'function') oml2d.setModelScale(v); } catch (err) { /* 忽略 */ }
-    syncStageSize(false);
+    // 走同一个入口：用户在面板里拉大也会被「装得进窗口」的上限拦住
+    applyModelSize(stageBox.clientWidth, stageBox.clientHeight);
   };
 }
 
@@ -520,10 +597,10 @@ if (typeof window.api.onOverlaySession === 'function') {
       const v = Number(s.value);
       if (Number.isFinite(v)) {
         overlayCfg.scale = v;
-        try { if (oml2d && typeof oml2d.setModelScale === 'function') oml2d.setModelScale(v); } catch (err) { /* 忽略 */ }
+        applyModelSize(stageBox.clientWidth, stageBox.clientHeight);
         const sc = document.getElementById('ov-scale');
         if (sc) sc.value = String(v);
-        syncStageSize(false);
+        reportHitArea();
       }
     }
     reportHitArea();

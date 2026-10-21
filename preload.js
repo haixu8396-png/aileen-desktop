@@ -90,6 +90,8 @@ contextBridge.exposeInMainWorld('api', {
   // Agent 检查点（断点续跑）：{ op: 'save'|'load'|'clear', data? }
   agentCheckpoint: (payload) => ipcRenderer.invoke('agent:checkpoint', payload),
   overlayReset: () => ipcRenderer.invoke('overlay:reset'),
+  // 设置里的「展台大小」：{ width, height }（主进程还会再钳一次，撑不满屏幕）
+  overlaySetSize: (size) => ipcRenderer.invoke('overlay:setSize', size),
   onMenuAction: (cb) => ipcRenderer.on('menu:action', (_e, action) => cb(action)),
   // ---- Minecraft 伙伴 ----
   mcConnect: (opts) => ipcRenderer.invoke('mc:connect', opts),

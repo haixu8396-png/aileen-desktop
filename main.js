@@ -400,12 +400,39 @@ function overlaySettings() {
   return (s && s.overlay) || {};
 }
 
+/** 展台窗口的尺寸边界：默认多大、最大能多大（任何一个都不该「占领整个屏幕」） */
+const OVERLAY_SIZE = {
+  defaultWidth: 400,
+  defaultHeight: 640,
+  minWidth: 240,
+  minHeight: 380,
+  /** 屏幕的比例上限：宽度最多 40%，高度最多 80% */
+  maxWidthRatio: 0.4,
+  maxHeightRatio: 0.8,
+  /** 绝对上限（大屏上也不让它铺满） */
+  absMaxWidth: 720,
+  absMaxHeight: 900,
+};
+
+/** 把一组宽高钳进合法范围（设置里的旧值、＋/－ 按钮、自检都走它） */
+function clampOverlaySize(width, height) {
+  const area = screen.getPrimaryDisplay().workArea;
+  const maxW = Math.max(OVERLAY_SIZE.minWidth, Math.min(OVERLAY_SIZE.absMaxWidth, Math.round(area.width * OVERLAY_SIZE.maxWidthRatio)));
+  const maxH = Math.max(OVERLAY_SIZE.minHeight, Math.min(OVERLAY_SIZE.absMaxHeight, Math.round(area.height * OVERLAY_SIZE.maxHeightRatio)));
+  const w = Number(width);
+  const h = Number(height);
+  return {
+    width: Math.min(Math.max(Math.round(Number.isFinite(w) && w > 0 ? w : OVERLAY_SIZE.defaultWidth), OVERLAY_SIZE.minWidth), maxW),
+    height: Math.min(Math.max(Math.round(Number.isFinite(h) && h > 0 ? h : OVERLAY_SIZE.defaultHeight), OVERLAY_SIZE.minHeight), maxH),
+  };
+}
+
 function overlayBounds() {
   const o = overlaySettings();
   const area = screen.getPrimaryDisplay().workArea;
-  // 尺寸/坐标都要钳制：历史版本被拖大过，或换了更小的显示器，都不能让窗口跑到屏幕外或撑爆
-  const width = Math.min(Math.max(Math.round(o.width || 380), 220), Math.min(1400, area.width));
-  const height = Math.min(Math.max(Math.round(o.height || 640), 260), Math.min(1600, area.height));
+  // 尺寸/坐标都要钳制：历史版本被拖大过，或换了更小的显示器，都不能让窗口跑到屏幕外或铺满桌面
+  // （用户报过「直接占领了整个屏幕」—— 那时上限是 1400×1600，几乎等于整块屏）
+  const { width, height } = clampOverlaySize(o.width, o.height);
   const defX = area.x + area.width - width - 28;
   const defY = area.y + area.height - height - 28;
   const rawX = typeof o.x === 'number' ? o.x : defX;
@@ -435,18 +462,29 @@ async function applyOverlayBounds(next) {
   return overlayWin.getBounds();
 }
 
-/** 工具条 −/＋ 的入口：以右下角为锚点缩放 */
+/** 工具条 −/＋ 的入口：以右下角为锚点缩放（尺寸同样受 clampOverlaySize 约束） */
 async function resizeOverlayBy(dw, dh) {
   if (!overlayWin || overlayWin.isDestroyed()) return null;
   const b = overlayWin.getBounds();
-  const width = Math.min(1400, Math.max(220, b.width + dw));
-  const height = Math.min(1600, Math.max(260, b.height + dh));
+  const { width, height } = clampOverlaySize(b.width + dw, b.height + dh);
+  if (width === b.width && height === b.height) return b;
   const r = await applyOverlayBounds({
     x: b.x + (b.width - width),
     y: b.y + (b.height - height),
     width,
     height,
   });
+  persistOverlayBounds();
+  return r;
+}
+
+/** 绝对尺寸（设置里的「展台大小」用）：保持当前左上角，尺寸钳进合法范围 */
+async function setOverlaySize(width, height) {
+  if (!overlayWin || overlayWin.isDestroyed()) return null;
+  const b = overlayWin.getBounds();
+  const size = clampOverlaySize(width, height);
+  if (size.width === b.width && size.height === b.height) return b;
+  const r = await applyOverlayBounds({ x: b.x, y: b.y, width: size.width, height: size.height });
   persistOverlayBounds();
   return r;
 }
@@ -771,14 +809,19 @@ function registerOverlayIpc() {
   });
   handle('overlay:reset', async () => {
     if (!overlayWin || overlayWin.isDestroyed()) return null;
-    const width = 380;
-    const height = 640;
+    // 重置 = 回到默认大小 + 屏幕右下角（以前只挪位置，尺寸还留着上次的，容易「回不去」）
+    const { width, height } = clampOverlaySize(OVERLAY_SIZE.defaultWidth, OVERLAY_SIZE.defaultHeight);
     const area = screen.getPrimaryDisplay().workArea;
     const x = area.x + area.width - width - 28;
     const y = area.y + area.height - height - 28;
     writeSettings({ overlay: { x: null, y: null, width, height } });
     return await applyOverlayBounds({ x, y, width, height });
   });
+  // 设置里的「展台大小」：给绝对宽高（同样会被 clamp，不可能撑满屏幕）
+  handle('overlay:setSize', (_e, payload) => setOverlaySize(
+    payload && payload.width,
+    payload && payload.height,
+  ));
   handle('overlay:dragStart', () => {
     if (!overlayWin || overlayWin.isDestroyed()) return false;
     const pt = overlayCursorPoint();
@@ -1058,6 +1101,11 @@ function selfTestDeps() {
       setProgrammaticUntil: (v) => { overlayProgrammaticUntil = Number(v) || 0; },
       getIgnoreRequests: () => overlayIgnoreRequests,
       applyBounds: (next) => applyOverlayBounds(next),
+      // 尺寸边界自检用：设置里的「展台大小」走 setSize，clampSize 是纯函数
+      setSize: (w, h) => setOverlaySize(w, h),
+      clampSize: (w, h) => clampOverlaySize(w, h),
+      getBounds: () => (overlayWin && !overlayWin.isDestroyed() ? overlayWin.getBounds() : null),
+      getWorkArea: () => screen.getPrimaryDisplay().workArea,
       createWindow: () => createOverlayWindow(),
       destroyWindow: () => destroyOverlayWindow(),
     },

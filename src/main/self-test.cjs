@@ -66,6 +66,10 @@ const setOverlayDrag = overlay.setDrag;
 // 假光标：拖动回归用（真机没法托着鼠标跑脚本）
 const setOverlayCursor = overlay.setCursor;
 const applyOverlayBounds = overlay.applyBounds;
+const setOverlaySize = overlay.setSize;
+const clampOverlaySizeFn = overlay.clampSize;
+const getOverlayBounds = overlay.getBounds;
+const getWorkArea = overlay.getWorkArea;
 const createOverlayWindow = overlay.createWindow;
 const destroyOverlayWindow = overlay.destroyWindow;
 
@@ -1094,14 +1098,47 @@ win.webContents.on('did-finish-load', () => {
             rep.snapBackOk = near(afterGuard.width, beforeGuard.width, 10) && near(afterGuard.height, beforeGuard.height, 10);
             await applyOverlayBounds(b0);
           } catch (err) { rep.errors.push('resize: ' + String((err && err.message) || err)); }
+          // 先把光标挪到一个肯定不在窗口里的地方（假光标）：穿透判定不能依赖真鼠标当时停在哪
+          if (typeof setOverlayCursor === 'function') setOverlayCursor(() => ({ x: 5, y: 5 }));
           const before = w.getBounds();
-          if (typeof setOverlayDrag === 'function') setOverlayDrag({ dx: 10, dy: 10 });
           w.setPosition(before.x - 60, before.y - 40);
           const after = w.getBounds();
           rep.moved = after.x !== before.x || after.y !== before.y;
-          // 移动/拖拽之后也必须仍然是穿透的
+          // 等穿透监控那一拍（250ms）再断言：光标在窗口外 → 移动之后必须还是穿透的
+          await new Promise((r) => setTimeout(r, 320));
           rep.ignoringAfterMove = getOverlayIgnoring();
-          if (typeof setOverlayDrag === 'function') setOverlayDrag(null);
+          // 展台大小边界：用户报过「直接占领了整个屏幕」—— 任何来源的尺寸都必须被钳住
+          try {
+            const area = getWorkArea();
+            const huge = clampOverlaySizeFn(99999, 99999);
+            const tiny = clampOverlaySizeFn(1, 1);
+            const beforeProbe = getOverlayBounds();
+            await setOverlaySize(99999, 99999);
+            await new Promise((r) => setTimeout(r, 260));
+            const afterProbe = getOverlayBounds();
+            rep.overlaySizeProbe = {
+              area: [area.width, area.height],
+              huge: [huge.width, huge.height],
+              tiny: [tiny.width, tiny.height],
+              applied: afterProbe ? [afterProbe.width, afterProbe.height] : null,
+              maxRatioW: Math.round(area.width * 0.4),
+              maxRatioH: Math.round(area.height * 0.8),
+            };
+            const fitsScreen = !!afterProbe && afterProbe.width <= Math.round(area.width * 0.4) + 1
+              && afterProbe.height <= Math.round(area.height * 0.8) + 1;
+            const tinyFloored = tiny.width >= 240 && tiny.height >= 380;
+            rep.overlaySizeOk = huge.width <= Math.round(area.width * 0.4) + 1
+              && huge.height <= Math.round(area.height * 0.8) + 1
+              && tinyFloored && fitsScreen;
+            // 「reset」的语义：大小也回到默认（400×640），不只是挪位置
+            await setOverlaySize(400, 640);
+            await new Promise((r) => setTimeout(r, 220));
+            const resetProbe = getOverlayBounds();
+            rep.overlaySizeProbe.reset = resetProbe ? [resetProbe.width, resetProbe.height] : null;
+            rep.overlaySizeResetOk = !!resetProbe
+              && Math.abs(resetProbe.width - 400) <= 6 && Math.abs(resetProbe.height - 640) <= 6;
+            if (beforeProbe) await applyOverlayBounds(beforeProbe);
+          } catch (err) { rep.errors.push('overlaySize: ' + String((err && err.message) || err)); }
           // ④ 拖动：真机最容易翻车的地方（事件堆积 / 尺寸被拉扯 / 松手后还在飘）
           //    用渲染层**真实的事件入口**（PointerEvent on #ov-grip）驱动，
           //    光标用注入的假坐标，所以「窗口有没有精确跟到最新位置」能被确定性断言。

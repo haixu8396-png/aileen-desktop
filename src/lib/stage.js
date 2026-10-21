@@ -29,6 +29,10 @@ export function stageScale() {
 /** 启动：把设置页的模型控件填好，并把模型推给展台 */
 export function initLive2D() {
   populateStageModelSelect();
+  // 有模型就默认显示第一个：默认停在「不要使用模型」会让展台一片空白，
+  // 用户会以为「导入的模型没生效 / 展台坏了」。
+  const sel = $('m-model');
+  if (sel && sel.value === '-1' && (state.models || []).length) setStageModelIndex(0);
   renderLocalList();
   renderUrlList();
   bindStageScale();
@@ -321,6 +325,43 @@ export async function deleteLocalModel(m) {
     toast(t('model.deleted', { name: m.name }));
   } catch (err) {
     toast(t('model.deleteFailed', { msg: String((err && err.message) || err) }), true);
+  }
+}
+
+// ---------------- 展台窗口大小 ----------------
+// 窗口尺寸只有三个档位 + 工具条的 −/＋ 微调。主进程还会再钳一次
+// （最大 40% 屏宽 / 80% 屏高），所以任何一档都不会「占领整个屏幕」。
+const STAGE_WINDOW_SIZES = {
+  small: { width: 320, height: 520 },
+  medium: { width: 400, height: 640 },
+  large: { width: 520, height: 780 },
+};
+
+export async function applyStageSize(preset) {
+  const size = STAGE_WINDOW_SIZES[String(preset || '')] || STAGE_WINDOW_SIZES.medium;
+  try {
+    await window.api.overlaySetSize(size);
+    syncStageSizeSwitch();
+    toast(t('stage.sizeApplied', { w: size.width, h: size.height }));
+  } catch (err) {
+    toast(t('model.deleteFailed', { msg: String((err && err.message) || err) }), true);
+  }
+}
+
+/** 把当前窗口尺寸对应的档位点亮（没对上任何一档就都不亮） */
+export async function syncStageSizeSwitch() {
+  const box = $('stage-size-switch');
+  if (!box) return;
+  let current = null;
+  try {
+    const st = await window.api.overlayGetState();
+    if (st && st.overlay) current = { width: Number(st.overlay.width), height: Number(st.overlay.height) };
+  } catch (err) { current = null; }
+  const near = (a, b) => Math.abs(Number(a) - Number(b)) <= 16;
+  for (const btn of box.querySelectorAll('button[data-size]')) {
+    const size = STAGE_WINDOW_SIZES[btn.dataset.size];
+    const on = !!current && !!size && near(current.width, size.width) && near(current.height, size.height);
+    btn.classList.toggle('on', on);
   }
 }
 

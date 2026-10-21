@@ -117,6 +117,8 @@ jobs:
           if (-not $ovr.snapBackOk) { throw '悬浮展台尺寸被系统意外放大后没有弹回（Aero Snap 防护失效）' }
           if (-not $ovr.ignoringAfterResize) { throw '悬浮展台改过尺寸后不再是鼠标穿透状态（会把桌面点击全吃掉）' }
           if (-not $ovr.ignoringAfterMove) { throw '悬浮展台移动后不再是鼠标穿透状态' }
+          if (-not $ovr.overlaySizeOk) { throw ('展台窗口尺寸没有被钳住（可能铺满屏幕）→ ' + ($ovr.overlaySizeProbe | ConvertTo-Json -Compress)) }
+          if (-not $ovr.overlaySizeResetOk) { throw ('展台大小复位失败（应回到 400×640）→ ' + ($ovr.overlaySizeProbe | ConvertTo-Json -Compress)) }
           if (-not $ovr.dragCoalesceOk) { throw ('拖动的高频移动没有被合并（IPC 会无上限积压）→ ' + ($ovr.dragProbe | ConvertTo-Json -Compress)) }
           if (-not $ovr.dragPositionOk) { throw ('拖动后窗口位置没有跟到最新光标位置 → ' + ($ovr.dragProbe | ConvertTo-Json -Compress)) }
           if (-not $ovr.dragSizeStableOk) { throw ('拖动过程中窗口宽高变了（尺寸被拉扯）→ ' + ($ovr.dragProbe | ConvertTo-Json -Compress)) }
@@ -236,6 +238,8 @@ jobs:
           if (-not $ovr.snapBackOk) { throw '悬浮展台尺寸被系统意外放大后没有弹回（Aero Snap 防护失效）' }
           if (-not $ovr.ignoringAfterResize) { throw '悬浮展台改过尺寸后不再是鼠标穿透状态（会把桌面点击全吃掉）' }
           if (-not $ovr.ignoringAfterMove) { throw '悬浮展台移动后不再是鼠标穿透状态' }
+          if (-not $ovr.overlaySizeOk) { throw ('展台窗口尺寸没有被钳住（可能铺满屏幕）→ ' + ($ovr.overlaySizeProbe | ConvertTo-Json -Compress)) }
+          if (-not $ovr.overlaySizeResetOk) { throw ('展台大小复位失败（应回到 400×640）→ ' + ($ovr.overlaySizeProbe | ConvertTo-Json -Compress)) }
           if (-not $ovr.dragCoalesceOk) { throw ('拖动的高频移动没有被合并（IPC 会无上限积压）→ ' + ($ovr.dragProbe | ConvertTo-Json -Compress)) }
           if (-not $ovr.dragPositionOk) { throw ('拖动后窗口位置没有跟到最新光标位置 → ' + ($ovr.dragProbe | ConvertTo-Json -Compress)) }
           if (-not $ovr.dragSizeStableOk) { throw ('拖动过程中窗口宽高变了（尺寸被拉扯）→ ' + ($ovr.dragProbe | ConvertTo-Json -Compress)) }

@@ -93,6 +93,11 @@ const CHANNELS = {
     dh: v.optional(v.num({ min: -2000, max: 2000 })),
   }, { allowUnknown: true })),
   'overlay:reset': v.NO_ARGS,
+  // 设置里的「展台大小」：绝对宽高（主进程还会再钳一次）
+  'overlay:setSize': v.args(v.object({
+    width: v.num({ min: 1, max: 20000 }),
+    height: v.num({ min: 1, max: 20000 }),
+  })),
   'overlay:dragStart': v.NO_ARGS,
   'overlay:dragMove': v.NO_ARGS,
   'overlay:dragEnd': v.NO_ARGS,
