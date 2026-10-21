@@ -67,6 +67,7 @@ jobs:
           if (-not $diag.subModalReturnsToMenu) { throw '设置页：切换分类后没有停在设置页' }
           if (-not $diag.themeCancelRestores) { throw '外观：点取消后强调色预览没有还原' }
           if (-not $diag.themeModeOk) { throw '外观：浅色 / 暖暗色主题切换没有生效' }
+          if (-not $diag.colorInstantOk) { throw ('外观：强调色没有即时生效（慢一拍）→ ' + ($diag.colorInstantDetail | ConvertTo-Json -Compress)) }
           if (-not $diag.mcStatusOk) { throw 'Minecraft 伙伴：主进程 IPC 不可用' }
           if (-not $diag.mcModalOk) { throw '设备页：Minecraft 面板打不开' }
           if (-not $diag.chessModalOk) { throw '国际象棋：设备页里的棋盘没有渲染出 64 格' }
@@ -78,6 +79,7 @@ jobs:
           if (-not $diag.uiElementsOk) { throw '界面：外壳（侧栏/输入区/设置导航/抽屉）元素缺失' }
           if (-not $diag.pageNavOk) { throw '界面：主导航切换页面失败（一次只应显示一页）' }
           if (-not $diag.markerProbeOk) { throw ('对话内核：标记解析器在打包产物里不可用 → ' + ($diag.markerProbeDetail | ConvertTo-Json -Compress)) }
+          if (-not $diag.copyOk) { throw ('复制到剪贴板失败（应走主进程 clipboard）→ ' + ($diag.copyDetail | ConvertTo-Json -Compress)) }
           if (-not $diag.pacerProbeOk) { throw ('对话内核：回复节奏控制不可用 → ' + ($diag.pacerProbeDetail | ConvertTo-Json -Compress)) }
           if (-not $diag.performOk) { throw ('表演设置不可调（设置分类打不开或保存不生效）→ ' + ($diag.performDetail | ConvertTo-Json -Compress)) }
           if (@($diag.uiBlockedBy).Count -gt 0) { throw ('界面被隐形元素遮挡，鼠标点不动 → ' + ($diag.uiBlockedBy -join ', ')) }
@@ -176,6 +178,7 @@ jobs:
           if (-not $diag.subModalReturnsToMenu) { throw '设置页：切换分类后没有停在设置页' }
           if (-not $diag.themeCancelRestores) { throw '外观：点取消后强调色预览没有还原' }
           if (-not $diag.themeModeOk) { throw '外观：浅色 / 暖暗色主题切换没有生效' }
+          if (-not $diag.colorInstantOk) { throw ('外观：强调色没有即时生效（慢一拍）→ ' + ($diag.colorInstantDetail | ConvertTo-Json -Compress)) }
           if (-not $diag.mcStatusOk) { throw 'Minecraft 伙伴：主进程 IPC 不可用' }
           if (-not $diag.mcModalOk) { throw '设备页：Minecraft 面板打不开' }
           if (-not $diag.chessModalOk) { throw '国际象棋：设备页里的棋盘没有渲染出 64 格' }
@@ -187,6 +190,7 @@ jobs:
           if (-not $diag.uiElementsOk) { throw '界面：外壳（侧栏/输入区/设置导航/抽屉）元素缺失' }
           if (-not $diag.pageNavOk) { throw '界面：主导航切换页面失败（一次只应显示一页）' }
           if (-not $diag.markerProbeOk) { throw ('对话内核：标记解析器在打包产物里不可用 → ' + ($diag.markerProbeDetail | ConvertTo-Json -Compress)) }
+          if (-not $diag.copyOk) { throw ('复制到剪贴板失败（应走主进程 clipboard）→ ' + ($diag.copyDetail | ConvertTo-Json -Compress)) }
           if (-not $diag.pacerProbeOk) { throw ('对话内核：回复节奏控制不可用 → ' + ($diag.pacerProbeDetail | ConvertTo-Json -Compress)) }
           if (-not $diag.performOk) { throw ('表演设置不可调（设置分类打不开或保存不生效）→ ' + ($diag.performDetail | ConvertTo-Json -Compress)) }
           if (@($diag.uiBlockedBy).Count -gt 0) { throw ('界面被隐形元素遮挡，鼠标点不动 → ' + ($diag.uiBlockedBy -join ', ')) }

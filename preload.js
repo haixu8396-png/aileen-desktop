@@ -3,6 +3,7 @@ const { contextBridge, ipcRenderer } = require('electron');
 
 contextBridge.exposeInMainWorld('api', {
   appInfo: () => ipcRenderer.invoke('app:info'),
+  writeClipboard: (text) => ipcRenderer.invoke('clipboard:write', text),
   setWindowChrome: (payload) => ipcRenderer.invoke('window:chrome', payload),
   listModels: () => ipcRenderer.invoke('models:list'),
   addModelFolder: () => ipcRenderer.invoke('models:addFolder'),

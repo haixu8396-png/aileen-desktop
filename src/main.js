@@ -28,7 +28,7 @@ import {
   refreshStageCapabilities,
 } from './lib/stage.js';
 import {
-  send, renderMessages, setBusy, ttsSettingsForCharacter, clearMessages, regenerateLast, resumeWithAgent,
+  send, renderMessages, setBusy, ttsSettingsForCharacter, clearMessages, regenerateLast, resumeWithAgent, copyText,
 } from './lib/chat.js';
 import {
   renderCharList, renderEmptyState, selectCharacter, refreshCharacters, findChar,
@@ -62,7 +62,7 @@ import { createReplyPacer } from './lib/reply-pacer.js';
 import { parsePersonaResponse, buildPersonaMessages } from './lib/persona.js';
 import { openPersonaStudio, closePersonaStudio, bindPersonaStudio, studioFormOptions } from './lib/persona-studio.js';
 import { openChessModal, bindChess } from './lib/chess.js';
-import { initAgentUI, injectAgentEvent, setResumeHandler, openAgentDrawer, closeAgentDrawer } from './lib/agent-ui.js';
+import { initAgentUI, injectAgentEvent, setResumeHandler, openAgentDrawer, closeAgentDrawer, toggleComputerUse } from './lib/agent-ui.js';
 import { initAgentDashboard, onAgentEvent, dashboardState, resetDashboard } from './lib/agent-dashboard.js';
 import { createToolRegistry, TOOL_SPECS, withBaseExecutors } from './agent/tool-registry.js';
 import { buildPersonaSystemPrompt, personaPosition, assertPersonaPreserved } from './agent/context-engine.js';
@@ -291,12 +291,7 @@ function bindChatMenu() {
       closePopups();
       const text = (state.messages || []).map((m) => (m.role === 'user' ? '你：' : (state.current && state.current.data && state.current.data.name ? state.current.data.name + '：' : 'AILEEN：')) + String(m.content || '')).join('\n\n');
       if (!text) { toast(t('chat.nothingToCopy')); return; }
-      try {
-        await navigator.clipboard.writeText(text);
-        toast(t('chat.copied'));
-      } catch (err) {
-        toast(String((err && err.message) || err), true);
-      }
+      await copyText(text);
     };
   }
   const clear = $('btn-clear');
@@ -542,6 +537,8 @@ function bindPages() {
   on('btn-open-data-2', () => openDataDir());
   on('btn-open-about', () => openAboutModal());
   on('btn-open-agent-drawer', () => openDrawer());
+  // 对话输入区的「Agent」按钮：和设备页那个开关完全同一条路径
+  on('btn-agent-mode', () => toggleComputerUse());
   const search = $('char-search');
   if (search) search.addEventListener('input', (e) => setCharFilter(e.target.value));
 
@@ -665,6 +662,18 @@ function bindAppMenu() { /* 菜单动作在 boot 的 onMenuAction 里统一处�
 // ---------------- 自检辅助：让说话/朗读走同一套 ---------------- 
 window.__aileenSpeakLast = () => {
   import('./lib/chat.js').then(({ speakLast }) => { if (typeof speakLast === 'function') speakLast(); });
+};
+
+// 自检钩子：复制到剪贴板必须真的能写（渲染层 clipboard 在 file:// 下会失败）
+window.__AILEEN_PROBE_COPY = async () => {
+  const text = 'AILEEN-COPY-' + Date.now();
+  try {
+    if (!window.api || typeof window.api.writeClipboard !== 'function') return { ok: false, error: '没有 writeClipboard' };
+    await window.api.writeClipboard(text);
+    return { ok: true, len: text.length };
+  } catch (err) {
+    return { ok: false, error: String((err && err.message) || err) };
+  }
 };
 
 // 自检钩子：把标记解析器跑一遍，证明它在打包产物里真的可用
@@ -1026,6 +1035,9 @@ window.__AILEEN_PROBE_COMPUTER_TOGGLE = async () => {
   const out = {};
   const app = window.__AILEEN_AGENT_TEST;
   if (!app) { out.error = '测试接口未暴露'; return out; }
+  // 开关在设备页：先切过去，否则 getBoundingClientRect 全是 0
+  const devicesNav = document.querySelector('#side-nav .nav-item[data-page="devices"]');
+  if (devicesNav) devicesNav.click();
   const btn = document.getElementById('btn-computer');
   const dash = document.getElementById('agent-drawer');
   if (!btn || !dash) { out.error = '控件缺失'; return out; }
@@ -1048,6 +1060,10 @@ window.__AILEEN_PROBE_COMPUTER_TOGGLE = async () => {
   out.drawerOpenClass = dash.classList.contains('open');
   // 展台是**独立窗口**：主窗口里不能有任何 stage 容器
   out.mainWindowHasNoStage = !document.getElementById('stage-container');
+  // 抽屉打开后，设备页的开关必须**还点得到**（遮罩不能盖住它，否则看起来像关不掉）
+  const r = btn.getBoundingClientRect();
+  const top = document.elementFromPoint(Math.round(r.left + r.width / 2), Math.round(r.top + r.height / 2));
+  out.btnClickable = !!(top && (top === btn || btn.contains(top)));
   out.hintShown = (document.getElementById('dash-now') || {}).textContent || '';
 
   // 关掉 → 抽屉收回去（滑出动画 180ms，等它结束再断言）
@@ -1058,6 +1074,10 @@ window.__AILEEN_PROBE_COMPUTER_TOGGLE = async () => {
     dashboardHidden: dash.classList.contains('hidden'),
     stageAlwaysSeparate: !document.getElementById('stage-container'),
   };
+  // 对话输入区的 Agent 按钮也必须和这个开关同步
+  const chip = document.getElementById('btn-agent-mode');
+  out.chipExists = !!chip;
+  out.chipOff = !!chip && !chip.classList.contains('on');
 
   // 收尾：明确落到「关」的干净状态，不依赖探针开始时读到什么
   if (app.agentSettings().computerUse === true) { btn.click(); await new Promise((r) => setTimeout(r, 80)); }

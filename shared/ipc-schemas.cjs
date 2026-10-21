@@ -26,6 +26,8 @@ const OVERLAY_RECT = v.object({
 const CHANNELS = {
   // ---- 应用与信息 ----
   'app:info': v.NO_ARGS,
+  // 复制到剪贴板（渲染层 clipboard API 在 file:// 下会失败）
+  'clipboard:write': v.args(v.str({ max: 2 * 1024 * 1024, allowEmpty: true })),
   // 自绘标题栏：主题切换时同步系统按钮区的颜色（只对 Windows 生效）
   'window:chrome': v.args(v.object({
     color: v.hexColor(),

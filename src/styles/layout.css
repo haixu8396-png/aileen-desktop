@@ -363,6 +363,14 @@ html[data-theme='dark'] #composer { background: linear-gradient(to top, var(--ap
 .composer-tools .right { display: flex; align-items: center; gap: var(--sp-2); margin-left: auto; }
 .composer-tools .icon-btn { width: 32px; height: 32px; }
 .composer-tools .icon-btn .ico { width: 17px; height: 17px; }
+/* 输入区的 Agent 按钮：一眼看出「电脑控制」开没开 */
+button.agent-chip {
+  height: 30px; padding: 0 10px; margin-right: 2px;
+  display: inline-flex; align-items: center; gap: 5px;
+  font-size: var(--fs-xs); font-weight: 600;
+}
+button.agent-chip .ico { width: 14px; height: 14px; }
+button.agent-chip.on { background: var(--accent-soft); border-color: transparent; color: var(--accent-hover); }
 .composer-model { font-size: var(--fs-2xs); color: var(--text-tertiary); max-width: 22ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 button.send-btn {
@@ -502,5 +510,6 @@ button.send-btn .ico { width: 17px; height: 17px; }
 .status-cancelled { color: var(--text-tertiary); }
 
 /* 抽屉遮罩：窄窗口时把聊天压暗一点，宽时不需要 */
+/* 抽屉是覆盖式的「侧栏」，不是模态：这层遮罩只用来做视觉分隔，**绝不能拦截点击**。
+   （曾经它 display:block 盖住整页，导致设备页的「电脑控制」按钮点不动 —— 看起来像关不掉。） */
 .drawer-scrim { position: fixed; inset: 0; z-index: 45; background: transparent; display: none; }
-.drawer-scrim.on { display: block; }

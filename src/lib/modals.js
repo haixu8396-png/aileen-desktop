@@ -8,7 +8,7 @@
 //   · 取模型 / 测连接 / 屏幕截图这些短任务
 // 字段 id 全部沿用旧名，业务逻辑（payload 形状、密钥语义）没有改。
 // ============================================================
-import { getSettings, saveSettings, hasApiKey } from './settings.js';
+import { getSettings, saveSettings, hasApiKey, setSettingsCache } from './settings.js';
 import { state, presetLlmBase, presetEmbeddingBase, presetEmbeddingModel } from './state.js';
 import { $, toast } from './dom.js';
 import { escapeHtml } from './markdown.js';
@@ -433,6 +433,8 @@ export function renderThemePresets() {
       const next = { ...getSettings() };
       // 选预设 = 放弃之前的自定义颜色，否则行内 --accent 会一直压着预设
       next.appearance = Object.assign({}, next.appearance, { accent: a.id, custom: null });
+      // 先切缓存：否则 renderThemePresets 读到的还是上一档，看起来「慢一拍」
+      setSettingsCache(next);
       applyAppearance(next.appearance);
       renderThemePresets();
       await saveSettings(next);
@@ -478,8 +480,9 @@ export function saveThemeModal() {
     accent: 'custom',
     custom: { primary: next.theme.primary, secondary: next.theme.secondary },
   });
+  setSettingsCache(next);
+  applyAppearance(next.appearance);
   return saveSettings(next).then(() => {
-    applyAppearance(next.appearance);
     themeSnapshot = null;
     renderThemePresets();
     saved('t-save', 'theme.saved');
@@ -490,8 +493,9 @@ export function resetTheme() {
   const next = { ...getSettings() };
   next.theme = { primary: '#c87898', secondary: '#a99ac7' };
   next.appearance = Object.assign({}, next.appearance, { accent: 'rose', custom: null });
+  setSettingsCache(next);
+  applyAppearance(next.appearance);
   return saveSettings(next).then(() => {
-    applyAppearance(next.appearance);
     if ($('t-primary')) $('t-primary').value = next.theme.primary;
     if ($('t-secondary')) $('t-secondary').value = next.theme.secondary;
     renderThemePresets();

@@ -2,7 +2,7 @@
 // AILEEN — Electron 主进程
 // 职责: 窗口管理 / 本地静态文件服务(模型与头像) / 角色卡与设置持久化
 // ============================================================
-const { app, BrowserWindow, ipcMain, dialog, shell, desktopCapturer, screen, Menu, safeStorage } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, shell, desktopCapturer, screen, Menu, safeStorage, clipboard } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const http = require('http');
@@ -978,6 +978,13 @@ function registerIpc() {
     appRoot: APP_ROOT,
     version: app.getVersion(),
   }));
+
+  // 复制到剪贴板：渲染层的 navigator.clipboard 在 file:// / 无焦点时会失败，
+  // 这里用主进程的 Electron clipboard 兜底（用户点「复制」必须真的复制上）。
+  validatedHandle('clipboard:write', (_e, text) => {
+    clipboard.writeText(String(text == null ? '' : text));
+    return true;
+  });
 
   // 自绘标题栏：主题切换时把系统按钮区的颜色一起换掉（只影响 Windows）
   validatedHandle('window:chrome', (_e, payload) => {

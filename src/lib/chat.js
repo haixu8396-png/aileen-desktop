@@ -115,10 +115,43 @@ export function renderMessages() {
   try { broadcastSession('messages'); } catch (err) { /* 展台没开就算了 */ }
 }
 
-export function copyText(text) {
-  navigator.clipboard.writeText(String(text || ''))
-    .then(() => toast(t('chat.copied')))
-    .catch(() => toast(t('chat.copyFailed'), true));
+/**
+ * 复制到剪贴板。
+ *
+ * 为什么先走主进程：`navigator.clipboard` 在 file:// / 无焦点 / 缺权限时会
+ * 直接 reject（用户看到的就是「复制失败」）。主进程的 Electron clipboard
+ * 不受这些限制，所以先让它写，再退回浏览器 API，最后退回 execCommand。
+ */
+export async function copyText(text) {
+  const value = String(text || '');
+  if (!value) { toast(t('chat.copyFailed'), true); return false; }
+  const api = window.api || {};
+  if (typeof api.writeClipboard === 'function') {
+    try {
+      await api.writeClipboard(value);
+      toast(t('chat.copied'));
+      return true;
+    } catch (err) { /* 落到下面的兜底 */ }
+  }
+  try {
+    await navigator.clipboard.writeText(value);
+    toast(t('chat.copied'));
+    return true;
+  } catch (err) {
+    try {
+      const ta = document.createElement('textarea');
+      ta.value = value;
+      ta.setAttribute('readonly', '');
+      ta.style.cssText = 'position:fixed;opacity:0;pointer-events:none';
+      document.body.appendChild(ta);
+      ta.select();
+      const ok = document.execCommand('copy');
+      ta.remove();
+      if (ok) { toast(t('chat.copied')); return true; }
+    } catch (err2) { /* 最终失败 */ }
+    toast(t('chat.copyFailed'), true);
+    return false;
+  }
 }
 
 export function speakText(text) {

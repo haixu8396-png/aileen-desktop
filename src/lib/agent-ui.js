@@ -33,6 +33,8 @@ let resumeHandler = null;
 /** 抽屉的打开/关闭：由 initAgentUI 绑定（外壳的多个入口都调这两个函数） */
 let openDrawerUi = null;
 let closeDrawerUi = null;
+/** 电脑控制开关：设备页与对话输入区共用同一个切换函数 */
+let toggleComputerUseFn = null;
 
 /** 外壳入口（对话顶栏、任务提示条、设置页）统一用这两个函数打开/收起抽屉 */
 export function openAgentDrawer() {
@@ -42,6 +44,13 @@ export function openAgentDrawer() {
 
 export function closeAgentDrawer() {
   if (typeof closeDrawerUi === 'function') closeDrawerUi();
+  return true;
+}
+
+/** 对话输入区的「Agent」按钮：和设备页的开关完全同一条路径 */
+export function toggleComputerUse() {
+  if (typeof toggleComputerUseFn !== 'function') return false;
+  toggleComputerUseFn();
   return true;
 }
 
@@ -477,6 +486,15 @@ export function initAgentUI() {
   const syncComputerBtn = () => {
     const s = getSettings();
     const on = !!(s.agent && s.agent.computerUse);
+    // 两处入口共用同一份状态：设备页的开关 + 对话输入区的 Agent 按钮
+    const chip = $('btn-agent-mode');
+    if (chip) {
+      chip.classList.toggle('on', on);
+      chip.setAttribute('aria-pressed', on ? 'true' : 'false');
+      chip.title = on ? t('agent.computerOn') : t('agent.computerOff');
+      const label = chip.querySelector('.chip-label');
+      if (label) label.textContent = 'Agent';
+    }
     const btn = $('btn-computer');
     if (!btn) return;
     // 图标是内联 SVG（data-icon），这里只改文案，别把图标一起覆盖掉
@@ -487,32 +505,35 @@ export function initAgentUI() {
     btn.classList.toggle('computer-on', on);
     btn.setAttribute('aria-pressed', on ? 'true' : 'false');
   };
-  if ($('btn-computer')) {
-    $('btn-computer').addEventListener('click', async () => {
-      const s = getSettings();
-      const on = !(s.agent && s.agent.computerUse);
-      const next = Object.assign({}, s, {
-        agent: Object.assign({}, s.agent, { computerUse: on }),
-      });
-      // 先切缓存 + 界面，再落盘：开关必须「点下去就变」，不能等 IPC 往返。
-      // 落盘失败就回滚，别让界面停在没保存成功的状态上。
-      setSettingsCache(next);
-      syncComputerBtn();
-      // 点亮开关 = 打开抽屉（**展台不动**），让用户立刻看到任务入口
-      setAgentModeOn(on || !drawer.classList.contains('hidden'));
-      syncDashboardMode();
-      toast(on ? t('agent.computerOn') : t('agent.computerOff'));
-      try {
-        await saveSettings(next);
-      } catch (err) {
-        setSettingsCache(s);
-        syncComputerBtn();
-        setAgentModeOn(!!(s.agent && s.agent.computerUse));
-        syncDashboardMode();
-        toast(String((err && err.message) || err));
-      }
+
+  // 只做一次切换：两个入口（设备页开关 / 对话里的 Agent 按钮）都调它，
+  // 避免「点一下触发两次」导致看起来关不掉。
+  const toggleComputerUse = async () => {
+    const s = getSettings();
+    const on = !(s.agent && s.agent.computerUse);
+    const next = Object.assign({}, s, {
+      agent: Object.assign({}, s.agent, { computerUse: on }),
     });
-  }
+    // 先切缓存 + 界面，再落盘：开关必须「点下去就变」，不能等 IPC 往返。
+    // 落盘失败就回滚，别让界面停在没保存成功的状态上。
+    setSettingsCache(next);
+    syncComputerBtn();
+    // 点亮开关 = 打开抽屉（**展台不动**），让用户立刻看到任务入口
+    setAgentModeOn(on || !drawer.classList.contains('hidden'));
+    syncDashboardMode();
+    toast(on ? t('agent.computerOn') : t('agent.computerOff'));
+    try {
+      await saveSettings(next);
+    } catch (err) {
+      setSettingsCache(s);
+      syncComputerBtn();
+      setAgentModeOn(!!(s.agent && s.agent.computerUse));
+      syncDashboardMode();
+      toast(String((err && err.message) || err));
+    }
+  };
+  toggleComputerUseFn = toggleComputerUse;
+  if ($('btn-computer')) $('btn-computer').addEventListener('click', toggleComputerUse);
   syncComputerBtn();
   const initial = getSettings();
   if (initial && initial.agent && initial.agent.computerUse) {

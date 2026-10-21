@@ -172,6 +172,8 @@ win.webContents.on('did-finish-load', () => {
         let themeCancelRestores = false;
         let themeModeOk = false;
         let themeDetail = null;
+        let colorInstantOk = false;
+        let colorInstantDetail = null;
         try {
           pickSec('appearance');
           const root = document.documentElement;
@@ -198,6 +200,22 @@ win.webContents.on('did-finish-load', () => {
             themeModeOk = darkOk && root.getAttribute('data-theme') === (origMode === 'dark' ? 'dark' : 'light');
           }
         } catch (err) { window.__AILEEN_ERRORS.push('themeTest: ' + String((err && err.message) || err)); }
+        // 强调色必须**点下去当帧**就变，不能等 IPC 回来才刷新（否则看起来慢一拍）
+        try {
+          const sage = document.querySelector('#theme-presets .theme-swatch[data-accent="sage"]');
+          const rose = document.querySelector('#theme-presets .theme-swatch[data-accent="rose"]');
+          if (sage) {
+            const before = getComputedStyle(document.documentElement).getPropertyValue('--accent').trim();
+            sage.click();
+            await new Promise((r) => setTimeout(r, 60));
+            const after = getComputedStyle(document.documentElement).getPropertyValue('--accent').trim();
+            const onList = Array.from(document.querySelectorAll('#theme-presets .theme-swatch.on')).map((x) => x.dataset.accent);
+            colorInstantDetail = { before, after, onList, sageConnected: sage.isConnected };
+            colorInstantOk = after !== before && onList.length === 1 && onList[0] === 'sage';
+            if (rose) rose.click();
+            await new Promise((r) => setTimeout(r, 300));
+          }
+        } catch (err) { window.__AILEEN_ERRORS.push('colorInstant: ' + String((err && err.message) || err)); }
         // 行为断言③：Minecraft / 国际象棋都在「设备与扩展」页里，IPC 可用
         let mcStatusOk = false;
         let mcModalOk = false;
@@ -296,7 +314,10 @@ win.webContents.on('did-finish-load', () => {
             && !!toggleDetail.afterOff
             && toggleDetail.afterOff.settingOff === true
             && toggleDetail.afterOff.dashboardHidden === true
-            && toggleDetail.afterOff.stageAlwaysSeparate === true;
+            && toggleDetail.afterOff.stageAlwaysSeparate === true
+            && toggleDetail.btnClickable === true
+            && toggleDetail.chipExists === true
+            && toggleDetail.chipOff === true;
         } catch (err) { window.__AILEEN_ERRORS.push('toggleTest: ' + String((err && err.message) || err)); }
 
         // 行为断言⑭：Agent Control Dashboard + 角色人格保留
@@ -479,13 +500,20 @@ win.webContents.on('did-finish-load', () => {
             markerProbeOk = pr.text === 'ABC' && pr.kinds.join(',') === 'motion,expr';
           }
         } catch (err) { window.__AILEEN_ERRORS.push('markerProbe: ' + String((err && err.message) || err)); }
+        // 复制到剪贴板：渲染层 clipboard 在 file:// 下会失败，必须走主进程那条路
+        let copyOk = false;
+        let copyDetail = null;
+        try {
+          copyDetail = typeof window.__AILEEN_PROBE_COPY === 'function' ? await window.__AILEEN_PROBE_COPY() : null;
+          copyOk = !!(copyDetail && copyDetail.ok === true);
+        } catch (err) { window.__AILEEN_ERRORS.push('copyProbe: ' + String((err && err.message) || err)); }
         let uiElementsOk = false;
         let sideCollapseOk = false;
         let searchFilterOk = false;
         try {
           uiElementsOk = ['btn-send', 'btn-stop', 'btn-float-stage', 'btn-char-actions', 'btn-realtime', 'btn-screenshot', 'btn-mic',
             'char-search', 'drop-hint', 'input', 'composer-box', 'btn-settings-menu', 'btn-collapse-sidebar',
-            'agent-drawer', 'chat-taskbar', 'btn-taskbar', 'titlebar', 'titlebar-logo', 'theme-mode-switch', 'settings-nav']
+            'agent-drawer', 'chat-taskbar', 'btn-taskbar', 'btn-agent-mode', 'titlebar', 'titlebar-logo', 'theme-mode-switch', 'settings-nav']
             .every((id) => !!document.getElementById(id));
           const app = document.getElementById('app');
           const cs = document.getElementById('btn-collapse-sidebar');
@@ -647,6 +675,8 @@ win.webContents.on('did-finish-load', () => {
           themeCancelRestores,
           themeModeOk,
           themeDetail,
+          colorInstantOk,
+          colorInstantDetail,
           pageNavOk,
           mcStatusOk,
           mcModalOk,
@@ -662,6 +692,8 @@ win.webContents.on('did-finish-load', () => {
           uiElementsOk,
           markerProbeOk,
           markerProbeDetail,
+          copyOk,
+          copyDetail,
           pacerProbeOk,
           pacerProbeDetail,
           performOk,

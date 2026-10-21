@@ -4,7 +4,7 @@
 // 这一层只做「界面骨架」的事，不碰业务：不读设置里的业务字段，
 // 不直接调 IPC（除了外壳自己的显示偏好），业务由 main.js / pages.js 装配。
 // ============================================================
-import { getSettings, saveSettings } from './settings.js';
+import { getSettings, saveSettings, setSettingsCache } from './settings.js';
 import { $ } from './dom.js';
 import { applyIcons } from './icons.js';
 import { t } from './i18n.js';
@@ -136,6 +136,8 @@ export function bindAppearanceControls() {
         const next = Object.assign({}, s, {
           appearance: Object.assign({}, s.appearance, { mode: b.dataset.mode }),
         });
+        // 先切缓存再落盘：颜色/模式这类「点一下就该变」的东西不能等 IPC
+        setSettingsCache(next);
         applyAppearance(next.appearance);
         syncMode();
         await saveSettings(next);
@@ -150,6 +152,7 @@ export function bindAppearanceControls() {
       const next = Object.assign({}, s, {
         appearance: Object.assign({}, s.appearance, { reduceMotion: !!rm.checked }),
       });
+      setSettingsCache(next);
       applyAppearance(next.appearance);
       await saveSettings(next);
     };
