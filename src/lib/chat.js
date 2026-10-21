@@ -19,7 +19,7 @@ import { startRun } from '../agent/run.js';
 import { createToolRegistry, TOOL_SPECS, withBaseExecutors } from '../agent/tool-registry.js';
 import { buildPersonaSystemPrompt, buildTaskMessage, buildToolContext, assertPersonaPreserved } from '../agent/context-engine.js';
 import { createAgentBridge, createAgentLlm, isSensitivePath } from './agent-bridge.js';
-import { onAgentEvent, bindAgentRun, initAgentDashboard } from './agent-dashboard.js';
+import { beginAgentTurn, attachAgentController } from './agent-ui.js';
 import { normalizeAuthorization } from '../agent/authorization.js';
 import { broadcastSession } from './session-coordinator.js';
 import { createContextEngine, DEFAULT_BUDGET } from '../context/engine.js';
@@ -600,7 +600,7 @@ export async function sendWithAgent(userContent, opts = {}) {
     return '';
   }
   const resume = opts && opts.checkpoint ? opts.checkpoint : null;
-  // 续跑不新增用户气泡（任务还是同一个任务），只在抽屉日志里体现
+  // 续跑不新增用户气泡（任务还是同一个任务），进度写在新的活动卡里
   if (!resume) pushMsg('user', userContent);
 
   const s = getSettings();
@@ -656,6 +656,9 @@ export async function sendWithAgent(userContent, opts = {}) {
 
   setBusy(true);
   state.abortCtrl = new AbortController();
+  // 这一轮的活动卡先挂进对话里：Agent 干活的每一步都长在这条消息上，
+  // 不另开侧边控制台（用户明确要求过）。
+  beginAgentTurn(userContent);
 
   const started = startRun({
     task: userContent,
@@ -684,13 +687,14 @@ export async function sendWithAgent(userContent, opts = {}) {
     },
     signal: state.abortCtrl.signal,
     onEvent: (type, payload) => {
-      // 事件同时喂给抽屉与 Live2D（各自订阅，runtime 不认识它们）
+      // 事件交给界面层（对话内的活动卡 + 任务页），runtime 不认识它们
       if (typeof hooks.agentEvent === 'function') hooks.agentEvent(type, payload);
     },
   });
 
-  // 把控制器交给 Dashboard：它才有 Pause / Resume / Cancel / Approve 的入口
-  bindAgentRun(started.controller);
+  // 控制器与状态总线交给对话内活动卡：暂停/继续/取消/审批都要它，
+  // Live2D 的动作表情也由它订阅（角色边干边演）。
+  attachAgentController(started.controller, started.bus);
 
   let answer = '';
   let failure = '';
@@ -698,7 +702,7 @@ export async function sendWithAgent(userContent, opts = {}) {
     const api = await started.done;
     answer = String((api.run && api.run.answer) || '').trim();
     if (api.run && api.run.error) failure = String(api.run.error);
-    // 预算用尽：把检查点存起来，抽屉上的「继续」用它断点续跑
+    // 预算用尽：把检查点存起来，活动卡上的「继续执行」用它断点续跑
     if (api.budget && api.budget.canContinue) {
       state.pendingCheckpoint = api.checkpoint('budget');
       state.pendingCheckpointTask = userContent;
@@ -711,7 +715,7 @@ export async function sendWithAgent(userContent, opts = {}) {
     state.abortCtrl = null;
   }
 
-  // 角色自己的汇报回到对话框；工具日志**不进**聊天气泡（那是抽屉的事）
+  // 角色自己的汇报回到对话框；工具日志留在**同一轮的活动卡**里（不另开控制台）
   if (answer) {
     await revealReply(answer);
   } else if (failure) {

@@ -1,5 +1,5 @@
 /* ============================================================
-   布局层：应用外壳（侧栏 + 内容）、对话页、输入区、Agent 抽屉
+   布局层：应用外壳（侧栏 + 内容）、对话页、输入区
    ============================================================ */
 
 /* ---------- 外壳 ---------- */
@@ -147,12 +147,7 @@
 #app.side-collapsed .side-foot .nav-item { justify-content: center; }
 
 /* ---------- 主内容 ---------- */
-#content { grid-row: 2; position: relative; min-width: 0; min-height: 0; display: flex; flex-direction: column; background: var(--app-bg); transition: margin-right var(--dur-2) var(--ease); }
-/* 任务抽屉打开时给正文让出宽度（临时，不是常驻列；窄窗口不挤） */
-body.agent-drawer-open #content { margin-right: min(var(--drawer-w), 40vw); }
-@media (max-width: 1180px) {
-  body.agent-drawer-open #content { margin-right: 0; }
-}
+#content { grid-row: 2; position: relative; min-width: 0; min-height: 0; display: flex; flex-direction: column; background: var(--app-bg); }
 .page { display: none; flex-direction: column; min-height: 0; height: 100%; }
 .page.on { display: flex; }
 
@@ -166,7 +161,7 @@ body.agent-drawer-open #content { margin-right: min(var(--drawer-w), 40vw); }
 .page-head h1 { font-size: var(--fs-3xl); font-weight: 600; letter-spacing: -0.01em; }
 .page-head .ph-desc { font-size: var(--fs-sm); color: var(--text-secondary); }
 .page-head .ph-actions { margin-left: auto; display: flex; align-items: center; gap: var(--sp-2); }
-.page-body { flex: 1; min-height: 0; overflow-y: auto; padding: var(--sp-5) var(--sp-8) var(--sp-8); }
+.page-body { flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; padding: var(--sp-5) var(--sp-8) var(--sp-8); }
 .page-body.narrow > * { max-width: 900px; }
 
 /* ---------- 对话页 ---------- */
@@ -186,7 +181,7 @@ body.agent-drawer-open #content { margin-right: min(var(--drawer-w), 40vw); }
 .chat-actions { margin-left: auto; display: flex; align-items: center; gap: var(--sp-1); }
 .chat-actions .icon-btn .ico { width: 18px; height: 18px; }
 
-/* 任务提示：正在执行时顶栏低调的一行，点击打开抽屉 */
+/* 任务提示：正在执行时顶栏低调的一行，点击去任务页看记录 */
 .chat-taskbar {
   display: none; align-items: center; gap: var(--sp-2);
   margin-left: var(--sp-3); padding: 4px 10px;
@@ -414,92 +409,6 @@ button.send-btn .ico { width: 17px; height: 17px; }
 }
 .drop-hint.hidden { display: none; }
 
-/* ---------- Agent 任务抽屉（覆盖式，不挤压对话） ---------- */
-.agent-drawer {
-  position: fixed; top: 0; right: 0; bottom: 0; z-index: 50;
-  width: min(var(--drawer-w), 92vw);
-  display: flex; flex-direction: column;
-  background: var(--surface);
-  border-left: 1px solid var(--border);
-  box-shadow: var(--shadow-3);
-  transform: translateX(100%);
-  transition: transform var(--dur-2) var(--ease);
-}
-.agent-drawer.hidden { display: none; }
-.agent-drawer.open { transform: translateX(0); }
-.drawer-head {
-  display: flex; align-items: center; gap: var(--sp-2);
-  height: 56px; padding: 0 var(--sp-4);
-  border-bottom: 1px solid var(--border); flex: none;
-}
-.drawer-title { font-size: var(--fs-lg); font-weight: 600; }
-.drawer-head .icon-btn { margin-left: auto; }
-.drawer-body { flex: 1; min-height: 0; overflow-y: auto; padding: var(--sp-4); display: flex; flex-direction: column; gap: var(--sp-4); }
-.drawer-sec { display: flex; flex-direction: column; gap: var(--sp-2); }
-.drawer-label { font-size: var(--fs-2xs); font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-tertiary); display: flex; align-items: center; gap: var(--sp-2); }
-.drawer-label .auth-badge { margin-left: auto; text-transform: none; letter-spacing: 0; }
-#ag-task { min-height: 64px; font-size: var(--fs-sm); }
-.agent-line { display: flex; align-items: center; gap: var(--sp-2); font-size: var(--fs-xs); color: var(--text-secondary); }
-.agent-label { color: var(--text-tertiary); flex: none; }
-.agent-workspace { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; direction: rtl; text-align: left; flex: 1; }
-.agent-actions { display: flex; flex-wrap: wrap; gap: var(--sp-2); align-items: center; }
-.agent-actions .primary { margin-left: 0; }
-.agent-statusline { display: flex; align-items: center; gap: var(--sp-2); }
-.agent-status { font-size: var(--fs-xs); color: var(--text-secondary); }
-.auth-badge {
-  padding: 2px 8px; border-radius: var(--r-pill);
-  font-size: var(--fs-2xs); font-weight: 600;
-  background: var(--surface-soft); color: var(--text-secondary);
-}
-.auth-badge.trust { background: rgba(184, 141, 78, 0.16); color: var(--warning); }
-.auth-badge.batch { background: var(--accent-soft); color: var(--accent-hover); }
-
-/* 审批卡片 */
-.agent-approval {
-  display: flex; flex-direction: column; gap: var(--sp-2);
-  padding: var(--sp-3);
-  background: var(--surface-raised);
-  border: 1px solid var(--border);
-  border-left: 3px solid var(--warning);
-  border-radius: var(--r-md);
-}
-.agent-approval.hidden { display: none; }
-.agent-approval-head { display: flex; align-items: center; gap: var(--sp-2); font-size: var(--fs-xs); color: var(--text-secondary); }
-.agent-risk {
-  padding: 1px 7px; border-radius: var(--r-pill);
-  font-size: var(--fs-2xs); font-weight: 700;
-  background: var(--accent-soft); color: var(--accent-hover);
-}
-.agent-risk.HIGH, .agent-risk.high { background: rgba(188, 98, 104, 0.14); color: var(--danger); }
-.agent-approval-text { font-size: var(--fs-sm); line-height: 1.65; color: var(--text-primary); word-break: break-word; }
-.batch-list { display: flex; flex-direction: column; gap: 6px; max-height: 220px; overflow-y: auto; }
-.batch-item { display: flex; align-items: flex-start; gap: var(--sp-2); padding: 6px 8px; border-radius: var(--r-sm); background: var(--surface-soft); font-size: var(--fs-xs); }
-.batch-item input { margin-top: 3px; }
-.batch-item-text { min-width: 0; word-break: break-word; color: var(--text-secondary); }
-.batch-item-text b { color: var(--text-primary); font-weight: 600; }
-
-/* 执行详情 */
-.agent-dash { display: flex; flex-direction: column; gap: var(--sp-3); }
-.agent-dash-sec { display: flex; flex-direction: column; gap: 4px; }
-.agent-dash-label { font-size: var(--fs-2xs); text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-tertiary); }
-.agent-dash-task, .agent-dash-now { font-size: var(--fs-sm); color: var(--text-primary); line-height: 1.6; word-break: break-word; }
-.agent-dash-tools { display: flex; flex-direction: column; gap: 2px; }
-.agent-tool-row { font-size: var(--fs-xs); color: var(--text-secondary); }
-.agent-tool-row.ok { color: var(--sage); }
-.agent-tool-row.err { color: var(--danger); }
-.agent-dash-screen { font-size: var(--fs-xs); color: var(--text-secondary); background: var(--surface-soft); border-radius: var(--r-sm); padding: 8px; min-height: 40px; }
-.agent-dash-screen-meta { margin-bottom: 6px; color: var(--text-secondary); }
-.agent-dash-shot { width: 100%; border-radius: var(--r-sm); border: 1px solid var(--border); display: block; }
-
-/* 操作日志：时间线 */
-.agent-log { display: flex; flex-direction: column; gap: 2px; font-size: var(--fs-xs); }
-.agent-log-line { display: flex; gap: var(--sp-2); padding: 3px 0; color: var(--text-secondary); }
-.agent-log-line .ts { color: var(--text-tertiary); flex: none; font-variant-numeric: tabular-nums; }
-.agent-log-line.ok { color: var(--sage); }
-.agent-log-line.err { color: var(--danger); }
-.agent-log-line.warn { color: var(--warning); }
-.agent-log-line.info { color: var(--text-secondary); }
-
 /* 状态色（Agent 状态类名由 JS 直接拼 status-*） */
 .status-thinking, .status-planning { color: var(--lavender); }
 .status-working, .status-using_tool { color: var(--accent); }
@@ -509,7 +418,3 @@ button.send-btn .ico { width: 17px; height: 17px; }
 .status-failed, .status-error { color: var(--danger); }
 .status-cancelled { color: var(--text-tertiary); }
 
-/* 抽屉遮罩：窄窗口时把聊天压暗一点，宽时不需要 */
-/* 抽屉是覆盖式的「侧栏」，不是模态：这层遮罩只用来做视觉分隔，**绝不能拦截点击**。
-   （曾经它 display:block 盖住整页，导致设备页的「电脑控制」按钮点不动 —— 看起来像关不掉。） */
-.drawer-scrim { position: fixed; inset: 0; z-index: 45; background: transparent; display: none; }

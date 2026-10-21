@@ -67,11 +67,11 @@
           <span id="chat-desc">选择角色开始对话</span>
         </div>
         <span id="chat-status" class="status-dot off" data-i18n-title="chat.statusNoKey"></span>
-        <button class="chat-taskbar" id="chat-taskbar" data-i18n-title="tasks.openTip" title="打开任务详情">
+        <button class="chat-taskbar" id="chat-taskbar" data-i18n-title="tasks.openTip" title="打开任务记录">
           <span class="dot"></span><span id="chat-taskbar-text" data-i18n="tasks.running">任务进行中</span>
         </button>
         <div class="chat-actions">
-          <button id="btn-taskbar" class="icon-btn" data-i18n-title="tasks.openTip" title="任务详情">
+          <button id="btn-taskbar" class="icon-btn" data-i18n-title="tasks.openTip" title="任务记录">
             <span data-icon="agent"></span>
           </button>
           <button id="btn-float-stage" class="icon-btn" data-i18n-title="stage.floatTip" title="显示 / 隐藏桌面展台">
@@ -101,12 +101,66 @@
       </div>
 
       <footer id="composer">
+        <!-- Agent 权限：从输入区的 Agent 按钮弹出，贴在输入框上方 —— 不再占一列侧边控制台 -->
+        <div id="agent-panel" class="agent-panel hidden" role="dialog" aria-label="Agent 权限">
+          <div class="ap-head">
+            <span class="ap-title"><span data-icon="agent"></span><span data-i18n="agent.panelTitle">Agent 权限</span></span>
+            <label class="switch" data-i18n-title="agent.enableTip" title="打开后角色可以真的操作电脑">
+              <input id="ap-enabled" type="checkbox" />
+              <span class="switch-track" aria-hidden="true"></span>
+            </label>
+          </div>
+          <p class="ap-desc" data-i18n="agent.enableDesc">允许 AILEEN 调用工具（读写文件、运行命令、看屏幕、动鼠标键盘）。关掉就只做纯聊天，不会请求任何确认。</p>
+
+          <div class="ap-sec">
+            <div class="ap-label" data-i18n="agent.workspaceLabel">Agent 工作目录</div>
+            <p class="ap-hint" data-i18n="agent.workspaceShort">Agent 只能读写这一个目录，所有文件路径都会被限制在它里面。</p>
+            <code class="ap-path" id="ap-workspace-path">—</code>
+            <div class="ap-actions">
+              <button id="btn-ap-pick" class="ghost small-btn"><span data-icon="folder"></span><span data-i18n="agent.pickFolder">选择文件夹</span></button>
+              <button id="btn-ap-open" class="ghost small-btn"><span data-icon="folder"></span><span data-i18n="agent.openFolder">打开文件夹</span></button>
+            </div>
+          </div>
+
+          <div class="ap-note">
+            <div class="ap-note-title" data-i18n="agent.stepConfirmTitle">风险操作逐个确认</div>
+            <div class="ap-note-desc" data-i18n="agent.stepConfirmDesc">选择哪些工具调用不需要确认就直接执行。</div>
+          </div>
+
+          <div class="ap-row">
+            <div class="ap-row-text">
+              <span class="ap-row-title" data-i18n="agent.fullAccess">完整权限</span>
+              <span class="ap-row-desc" data-i18n="agent.fullAccessDesc">所有工具调用都不再询问，包括执行命令和改动文件。</span>
+            </div>
+            <label class="switch">
+              <input id="ap-full" type="checkbox" />
+              <span class="switch-track" aria-hidden="true"></span>
+            </label>
+          </div>
+          <div class="ap-row">
+            <div class="ap-row-text">
+              <span class="ap-row-title" data-i18n="agent.skipWrite">跳过写入确认</span>
+              <span class="ap-row-desc" data-i18n="agent.skipWriteDesc">改动文件或发送命令的工具调用直接执行，不再询问。</span>
+            </div>
+            <label class="switch">
+              <input id="ap-skipwrite" type="checkbox" />
+              <span class="switch-track" aria-hidden="true"></span>
+            </label>
+          </div>
+          <p class="ap-hint warn" data-i18n="agent.alwaysConfirm">不可逆操作（删除、推送、装包、shell）无论上面怎么设置都会单独确认。</p>
+
+          <div class="ap-sec">
+            <div class="ap-label" data-i18n="agent.recentTitle">最近的决定</div>
+            <div id="ap-recent" class="ap-recent"></div>
+          </div>
+        </div>
+
         <div class="composer-box" id="composer-box">
           <textarea id="input" rows="1" data-i18n-ph="chat.inputPlaceholder" placeholder="说点什么…（Enter 发送，Shift+Enter 换行）"></textarea>
           <div class="composer-tools">
             <div class="left">
               <input id="file-input" type="file" accept="image/*" class="hidden" />
-              <button id="btn-agent-mode" class="chip agent-chip" data-i18n-title="agent.computerTip" title="让角色真的操作电脑">
+              <button id="btn-agent-mode" class="chip agent-chip" aria-expanded="false" aria-haspopup="dialog" data-i18n-title="agent.computerTip" title="让角色真的操作电脑">
                 <span data-icon="agent"></span><span class="chip-label">Agent</span>
               </button>
               <button id="btn-attach" class="icon-btn" data-i18n-title="composer.attach" title="添加图片">
@@ -378,7 +432,7 @@
           <span class="ph-desc" data-i18n="tasks.desc">Agent 用工具替你做事时的完整记录：目标、步骤、审批与产物。</span>
         </div>
         <div class="ph-actions">
-          <button id="btn-agent" class="ghost"><span data-icon="agent"></span><span data-i18n="tasks.openDrawer">任务抽屉</span></button>
+          <button id="btn-tasks-to-chat" class="ghost"><span data-icon="agent"></span><span data-i18n="tasks.backToChat">去对话里用 Agent</span></button>
         </div>
       </header>
       <div class="page-body">
@@ -939,7 +993,7 @@
               <div class="set-actions">
                 <span class="hint" id="ag-budget"></span>
                 <span class="spacer"></span>
-                <button id="btn-open-agent-drawer" class="ghost"><span data-icon="agent"></span><span data-i18n="tasks.openDrawer">任务抽屉</span></button>
+                <button id="btn-agent-to-chat" class="ghost"><span data-icon="agent"></span><span data-i18n="tasks.backToChat">去对话里用 Agent</span></button>
               </div>
             </div>
           </section>
@@ -990,78 +1044,6 @@
 
   </main>
 </div>
-
-<!-- ============================================================
-     Agent 任务抽屉（覆盖式，不挤压对话，也不碰展台）
-     ============================================================ -->
-<div class="drawer-scrim" id="drawer-scrim"></div>
-<aside id="agent-drawer" class="agent-drawer hidden" aria-label="任务详情">
-  <div class="drawer-head">
-    <span class="drawer-title" data-i18n="agent.title">Agent 任务</span>
-    <span id="dash-status" class="badge" data-i18n="dash.idle">空闲</span>
-    <button id="ag-close" class="icon-btn tiny" data-i18n-title="menu.close" title="关闭"><span data-icon="close"></span></button>
-  </div>
-  <div class="drawer-body">
-    <section class="drawer-sec">
-      <textarea id="ag-task" rows="2" data-i18n-ph="agent.taskPh" placeholder="例如：找出测试为什么失败并修好"></textarea>
-      <div class="agent-actions">
-        <button id="ag-start" class="primary"><span data-icon="play"></span><span data-i18n="agent.start">开始</span></button>
-        <button id="ag-pause" class="ghost" disabled><span data-icon="pause"></span><span data-i18n="agent.pause">暂停</span></button>
-        <button id="ag-resume" class="ghost" disabled><span data-icon="play"></span><span data-i18n="agent.resume">继续</span></button>
-        <button id="ag-continue" class="ghost small-btn hidden"><span data-icon="skip"></span><span data-i18n="agent.continue">断点续跑</span></button>
-        <button id="ag-cancel" class="danger" disabled><span data-icon="stop"></span><span data-i18n="agent.cancel">取消</span></button>
-      </div>
-      <div class="agent-statusline">
-        <span id="ag-status" class="agent-status" data-i18n="agent.stateIdle">空闲</span>
-        <span id="ag-round" class="hint"></span>
-      </div>
-    </section>
-
-    <div id="ag-approval" class="agent-approval hidden">
-      <div class="agent-approval-head">
-        <span id="ag-approval-risk" class="agent-risk">HIGH</span>
-        <span data-i18n="agent.waitingApproval">等待你确认</span>
-      </div>
-      <p id="ag-approval-text" class="agent-approval-text"></p>
-      <div class="agent-actions">
-        <button id="ag-approve" class="primary small-btn" data-i18n="agent.approve">允许这一次</button>
-        <button id="ag-approve-always" class="ghost small-btn" data-i18n="agent.approveAlways">本任务内同类都允许</button>
-        <button id="ag-reject" class="danger small-btn" data-i18n="agent.reject">拒绝</button>
-      </div>
-    </div>
-
-    <div id="ag-batch" class="agent-approval hidden">
-      <div class="agent-approval-head">
-        <span id="ag-batch-risk" class="agent-risk">HIGH</span>
-        <span id="ag-batch-title" data-i18n="agent.batchTitle">待确认的操作</span>
-      </div>
-      <div id="ag-batch-list" class="batch-list"></div>
-      <div class="agent-actions">
-        <button id="ag-batch-approve" class="primary small-btn" data-i18n="agent.approveAll">全部允许</button>
-        <button id="ag-batch-reject" class="danger small-btn" data-i18n="agent.rejectAll">全部拒绝</button>
-      </div>
-    </div>
-
-    <div id="agent-dashboard" class="agent-dash">
-      <div class="agent-dash-sec">
-        <div class="agent-dash-label" data-i18n="dash.task">任务</div>
-        <div id="dash-task" class="agent-dash-task">—</div>
-      </div>
-      <div class="agent-dash-sec">
-        <div class="agent-dash-label" data-i18n="dash.now">当前操作</div>
-        <div id="dash-now" class="agent-dash-now">—</div>
-      </div>
-      <div class="agent-dash-sec">
-        <div class="agent-dash-label" data-i18n="dash.tools">工具调用</div>
-        <div id="dash-tools" class="agent-dash-tools">—</div>
-      </div>
-      <div class="agent-dash-sec">
-        <div class="agent-dash-label" data-i18n="dash.log">执行日志</div>
-        <div id="ag-log" class="agent-log"></div>
-      </div>
-    </div>
-  </div>
-</aside>
 
 <!-- 角色卡右键菜单 -->
 <div id="char-menu" class="pop-menu hidden">

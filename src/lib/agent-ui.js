@@ -1,404 +1,666 @@
 // ============================================================
-// Agent 任务抽屉（主窗口内，可收起）
+// Agent 的界面（对话内活动卡 + 输入区权限弹层）
 //
-// 面板只做三件事：把任务交给 run.js、把事件画成人能看的东西、
-// 把用户的操作（暂停/继续/取消/批准/驳回/改授权模式）送回 runtime。
+// 设计原则（用户明确要求过）：
+//   · **不要一侧控制台**。Agent 在干什么，就直接长在对话里那条消息上；
+//     任务做完的记录去「任务」页看，不再单开一列常驻面板。
+//   · 入口只有一个：输入框左边的 Agent 按钮（弹层里有主开关）。
+//     主开关与设备页的「电脑控制」是**同一个函数**，点一下只切一次。
+//   · 审批卡片贴在活动卡里，风险等级、要做什么、允许/拒绝都在原地。
+//   · 不替换展台：Live2D 表现由 agent-stage.js 订阅状态总线，这里不碰它。
 //
-// 刻意不做的事：
-//   · 不 direct 调 executor —— 执行永远走 runtime 的权限闸门；
-//   · 不自己维护一份任务状态 —— 状态以 runtime 的 run 快照为准；
-//   · 不 import Live2D —— 状态事件的订阅者在 agent-stage.js 那边；
-//   · **不替换 Live2D 展台** —— 抽屉只是主窗口里的一列。
+// 状态全在 agent-state.js 里，这里只做「事件 → 状态 → DOM」。
 // ============================================================
 import { getSettings, saveSettings, setSettingsCache } from './settings.js';
 import { state } from './state.js';
 import { $, toast } from './dom.js';
 import { t } from './i18n.js';
-import { startRun } from '../agent/run.js';
+import { iconSvg } from './icons.js';
 import { AGENT_EVENT, AGENT_STATUS, RUN_STATUS } from '../agent/events.js';
-import { AUTH_MODE, AUTH_SCOPE, authSummary, normalizeAuthorization } from '../agent/authorization.js';
-import { createAgentBridge, createAgentLlm, isSensitivePath } from './agent-bridge.js';
+import { AUTH_MODE, authSummary, normalizeAuthorization } from '../agent/authorization.js';
 import { subscribeAgentStatus } from './agent-stage.js';
-import { syncDashboardMode, pinDrawer } from './agent-dashboard.js';
+import {
+  agentUiState, subscribeAgentUi, patchAgentUi, resetAgentUi,
+  addAgentStep, noteAgentDecision, setAgentApproval, finishAgentUi,
+} from './agent-state.js';
+import { fillAvatar } from './shell.js';
 
 let controller = null;
-let logEl = null;
-let approval = null;
-/** 批量审批：{ id, items: [{ id, name, preview, riskLevel, irreversible, decision }] } */
-let batch = null;
+/** 当前这一轮的活动卡 DOM（渲染直接写进去，不靠 querySelector 找「最新的」） */
+let card = null;
 /** 状态总线的订阅（Live2D 表现）——每次开始任务前重订，避免越订越多 */
 let unbindStatus = null;
 /** 继续执行的回调（由 main.js 注入 chat.js 的 resumeWithAgent，避免模块循环依赖） */
 let resumeHandler = null;
-/** 抽屉的打开/关闭：由 initAgentUI 绑定（外壳的多个入口都调这两个函数） */
-let openDrawerUi = null;
-let closeDrawerUi = null;
-/** 电脑控制开关：设备页与对话输入区共用同一个切换函数 */
-let toggleComputerUseFn = null;
+/** 弹层是否展开 */
+let panelOpen = false;
+/** 最近的步骤在 DOM 里的条数（超过上限删最早的） */
+let cardStepCount = 0;
 
-/** 外壳入口（对话顶栏、任务提示条、设置页）统一用这两个函数打开/收起抽屉 */
-export function openAgentDrawer() {
-  if (typeof openDrawerUi === 'function') openDrawerUi();
-  return true;
+const MIN_CARD_STEPS = 3;
+
+// ---------------- 一、事件进来 ----------------
+
+const STATUS_KEYS = {
+  [AGENT_STATUS.IDLE]: 'agent.stateIdle',
+  [AGENT_STATUS.THINKING]: 'agent.stateThinking',
+  [AGENT_STATUS.PLANNING]: 'agent.statePlanning',
+  [AGENT_STATUS.USING_TOOL]: 'agent.stateTool',
+  [AGENT_STATUS.WORKING]: 'agent.stateWorking',
+  [AGENT_STATUS.WAITING_APPROVAL]: 'agent.stateWaiting',
+  [AGENT_STATUS.PAUSED]: 'agent.statePaused',
+  [AGENT_STATUS.SUCCESS]: 'agent.stateDone',
+  [AGENT_STATUS.COMPLETED]: 'agent.stateDone',
+  [AGENT_STATUS.ERROR]: 'agent.stateError',
+  [AGENT_STATUS.FAILED]: 'agent.stateError',
+  [AGENT_STATUS.CANCELLED]: 'agent.stateCancelled',
+};
+
+export function statusText(status) {
+  return t(STATUS_KEYS[status] || 'agent.stateIdle');
 }
 
-export function closeAgentDrawer() {
-  if (typeof closeDrawerUi === 'function') closeDrawerUi();
-  return true;
+function step(kind, text, ok) {
+  addAgentStep({ kind, text, ok });
+  // 状态变化后卡片由订阅统一重画（见 initAgentUI 里的 subscribe）
 }
 
-/** 对话输入区的「Agent」按钮：和设备页的开关完全同一条路径 */
-export function toggleComputerUse() {
-  if (typeof toggleComputerUseFn !== 'function') return false;
-  toggleComputerUseFn();
-  return true;
-}
-
-const MAX_LOG_LINES = 400;
-
-function lines() {
-  if (!logEl) logEl = $('ag-log');
-  return logEl;
-}
-
-/** 往面板里追加一行（自动滚到底，最多留 400 行） */
-function logLine(kind, text) {
-  const box = lines();
-  if (!box) return;
-  const row = document.createElement('div');
-  row.className = 'agent-log-line agent-log-' + kind;
-  row.textContent = text;
-  box.appendChild(row);
-  while (box.childElementCount > MAX_LOG_LINES) box.removeChild(box.firstChild);
-  box.scrollTop = box.scrollHeight;
-}
-
-function clearLog() {
-  const box = lines();
-  if (box) box.innerHTML = '';
-}
-
-function setStatus(text) {
-  const el = $('ag-status');
-  if (el) el.textContent = text;
-}
-
-function setControls() {
-  const status = controller ? controller.run.status : null;
-  const busy = !!status && !['completed', 'failed', 'cancelled'].includes(status);
-  const paused = status === RUN_STATUS.PAUSED;
-  // 「继续」有两种来源：本轮预算用尽（controller 里有检查点），或者上次没跑完
-  // 的检查点已经从磁盘恢复（state.pendingCheckpoint）。
-  const canContinue = !!(controller && controller.budget && controller.budget.canContinue)
-    || !!state.pendingCheckpoint;
-  if ($('ag-start')) $('ag-start').disabled = busy;
-  if ($('ag-pause')) $('ag-pause').disabled = !busy || paused;
-  if ($('ag-resume')) $('ag-resume').disabled = !paused;
-  if ($('ag-continue')) $('ag-continue').classList.toggle('hidden', !canContinue);
-  if ($('ag-cancel')) $('ag-cancel').disabled = !busy;
-}
-
-/** 授权状态 → 顶部的徽章（把「现在是哪种模式」一直显示出来） */
-function renderAuthBadge() {
-  const el = $('ag-auth-badge');
-  if (!el) return;
-  const s = getSettings();
-  const auth = normalizeAuthorization((s.agent || {}).authorization || {}, { now: Date.now() });
-  const sum = authSummary(auth, Date.now());
-  let label = t('agent.authManualTag');
-  let cls = 'auth-manual';
-  if (sum.mode === AUTH_MODE.BATCH) { label = t('agent.authBatchTag'); cls = 'auth-batch'; }
-  if (sum.mode === AUTH_MODE.TRUST) {
-    cls = sum.active ? 'auth-trust' : 'auth-trust-off';
-    label = sum.active
-      ? t('agent.authTrustTag', { scope: sum.scope === AUTH_SCOPE.PERSISTENT ? t('agent.scopePersistent') : t('agent.scopeTask') })
-      : t(sum.revoked ? 'agent.authRevokedTag' : 'agent.authExpiredTag');
-  }
-  el.textContent = label;
-  el.className = 'auth-badge ' + cls;
-  if ($('ag-trust-warn')) $('ag-trust-warn').classList.toggle('hidden', sum.mode !== AUTH_MODE.TRUST || !sum.active);
-  if ($('ag-auth-revoke')) $('ag-auth-revoke').classList.toggle('hidden', sum.mode === AUTH_MODE.MANUAL);
-}
-
-/** 预算/轮数显示：让用户知道「这一段还剩多少」 */
-function renderBudget(run) {
-  const el = $('ag-round');
-  if (!el) return;
-  if (!run) { el.textContent = ''; return; }
-  el.textContent = t('agent.budget', {
-    n: run.rounds || 0,
-    max: run.roundBudget || run.maxRounds || 0,
-    seg: run.segments || 1,
-  });
-}
-
-function showApproval(req) {
-  approval = req;
-  const box = $('ag-approval');
-  if (!box) return;
-  $('ag-approval-risk').textContent = String(req.riskLevel || 'HIGH');
-  $('ag-approval-risk').className = 'agent-risk risk-' + String(req.riskLevel || 'HIGH').toLowerCase();
-  const text = req.preview || req.name;
-  $('ag-approval-text').textContent = req.irreversible ? text + '  ' + t('agent.irreversible') : text;
-  box.classList.remove('hidden');
-}
-
-function hideApproval() {
-  approval = null;
-  const box = $('ag-approval');
-  if (box) box.classList.add('hidden');
-}
-
-/** 批量审批清单：每项都能单独勾，也能整批批准/拒绝 */
-function showBatch(req) {
-  batch = { id: req.id, items: (req.items || []).map((it) => Object.assign({ decision: true }, it)) };
-  const box = $('ag-batch');
-  const list = $('ag-batch-list');
-  if (!box || !list) return;
-  if ($('ag-batch-risk')) {
-    $('ag-batch-risk').textContent = String(req.highestRisk || 'HIGH');
-    $('ag-batch-risk').className = 'agent-risk risk-' + String(req.highestRisk || 'HIGH').toLowerCase();
-  }
-  if ($('ag-batch-title')) {
-    $('ag-batch-title').textContent = t('agent.batchCount', { n: batch.items.length });
-  }
-  list.innerHTML = '';
-  batch.items.forEach((item, i) => {
-    const row = document.createElement('label');
-    row.className = 'batch-item';
-    const cb = document.createElement('input');
-    cb.type = 'checkbox';
-    cb.checked = true;
-    cb.dataset.idx = String(i);
-    cb.addEventListener('change', () => {
-      if (batch && batch.items[i]) batch.items[i].decision = cb.checked;
-    });
-    const risk = document.createElement('span');
-    risk.className = 'agent-risk risk-' + String(item.riskLevel || 'HIGH').toLowerCase();
-    risk.textContent = String(item.riskLevel || 'HIGH');
-    const text = document.createElement('span');
-    text.className = 'batch-item-text';
-    text.textContent = (item.irreversible ? t('agent.irreversibleTag') : '') + (item.preview || item.name);
-    row.appendChild(cb);
-    row.appendChild(risk);
-    row.appendChild(text);
-    list.appendChild(row);
-  });
-  box.classList.remove('hidden');
-}
-
-function hideBatch() {
-  batch = null;
-  const box = $('ag-batch');
-  if (box) box.classList.add('hidden');
-}
-
-/** 状态事件 → 界面文案（键都在 i18n 里，三语同键） */
-function statusLabel(status) {
-  const map = {
-    [AGENT_STATUS.IDLE]: 'agent.stateIdle',
-    [AGENT_STATUS.THINKING]: 'agent.stateThinking',
-    [AGENT_STATUS.USING_TOOL]: 'agent.stateTool',
-    [AGENT_STATUS.WORKING]: 'agent.stateWorking',
-    [AGENT_STATUS.WAITING_APPROVAL]: 'agent.stateWaiting',
-    [AGENT_STATUS.SUCCESS]: 'agent.stateSuccess',
-    [AGENT_STATUS.ERROR]: 'agent.stateError',
-  };
-  return t(map[status] || 'agent.stateIdle');
-}
-
-function onEvent(type, payload) {
+/**
+ * runtime 事件的总入口。
+ * **对话路径和自检注入走的是同一条路**，所以自检验的就是真实行为。
+ */
+export function handleAgentEvent(type, payload) {
   switch (type) {
     case AGENT_EVENT.RUN_CREATED:
-      logLine('info', t('agent.logStarted', { id: String((payload && payload.run_id) || '').slice(0, 12) }));
+      patchAgentUi({
+        running: true, finished: false, status: AGENT_STATUS.PLANNING,
+        task: String((payload && (payload.task || payload.goal)) || ''),
+        round: 0, error: '',
+      });
+      step('info', t('agent.logStarted', { id: String((payload && payload.run_id) || '—').slice(0, 12) }));
       if (payload && payload.authorization) {
-        // 任务开始时把这一轮用的授权模式写进日志（审计要能看到）
-        logLine('info', t('agent.logAuthMode', { mode: String(payload.authorization.mode || 'manual') }));
+        step('info', t('agent.logAuthMode', { mode: String(payload.authorization.mode || 'manual') }));
       }
       break;
     case AGENT_EVENT.STEP:
-      if (payload && payload.phase === 'llm') logLine('step', t('agent.logThinking', { n: payload.step }));
-      else if (payload && payload.tool) logLine('step', t('agent.logTool', { name: payload.tool }));
+      // 只有「开始思考」值得单独一行；工具调用紧跟着 TOOL_CALL，重复写会显得很吵
+      if (payload && payload.phase === 'llm') step('step', t('agent.logThinking', { n: payload.step }));
       break;
     case AGENT_EVENT.TEXT:
       break;
     case AGENT_EVENT.TOOL_CALL:
-      logLine('tool', t('agent.logCalling', { name: payload.name }) + (payload.riskLevel ? ' [' + payload.riskLevel + ']' : '')
+      step('tool', t('agent.logCalling', { name: payload.name })
+        + (payload.riskLevel ? ' [' + payload.riskLevel + ']' : '')
         + (payload.reason ? ' · ' + payload.reason : ''));
       break;
     case AGENT_EVENT.TOOL_RETRY:
-      logLine('warn', t('agent.logRetry', { name: payload.name, n: payload.attempt }) + ' · ' + String(payload.error || ''));
+      step('warn', t('agent.logRetry', { name: payload.name, n: payload.attempt }) + ' · ' + String(payload.error || ''));
       break;
     case AGENT_EVENT.TOOL_RESULT:
-      logLine(payload.ok ? 'ok' : 'err', (payload.ok ? '✓ ' : '✗ ') + String(payload.summary || '').slice(0, 400));
+      step(payload.ok ? 'ok' : 'err', (payload.ok ? '✓ ' : '✗ ') + String(payload.summary || '').slice(0, 400), !!payload.ok);
       break;
     case AGENT_EVENT.APPROVAL_REQUEST:
-      if (payload && payload.batch) {
-        showBatch(payload);
-        logLine('warn', t('agent.logBatch', { n: (payload.items || []).length }));
-      } else {
-        showApproval(payload);
-        logLine('warn', t('agent.logApproval', { name: payload.name }));
-      }
+      setAgentApproval(payload || {});
+      patchAgentUi({ status: AGENT_STATUS.WAITING_APPROVAL });
+      step('warn', payload && payload.batch
+        ? t('agent.logBatch', { n: (payload.items || []).length })
+        : t('agent.logApproval', { name: payload && payload.name }));
       break;
-    case AGENT_EVENT.APPROVAL_DECIDED:
-      hideApproval();
-      hideBatch();
-      logLine('info', payload.approved ? t('agent.logApproved') : t('agent.logRejected'));
+    case AGENT_EVENT.APPROVAL_DECIDED: {
+      const req = agentUiState().approval || {};
+      noteAgentDecision({
+        name: req.name || req.batchName || '',
+        riskLevel: req.riskLevel || req.highestRisk || 'HIGH',
+        approved: !!payload.approved,
+        remember: !!payload.remember,
+      });
+      setAgentApproval(null);
+      step('info', payload.approved ? t('agent.logApproved') : t('agent.logRejected'));
       break;
+    }
     case AGENT_EVENT.AUTH_UPDATED:
-      renderAuthBadge();
+      renderPanel();
       break;
     case AGENT_EVENT.CHECKPOINT:
-      logLine('info', t('agent.logCheckpoint'));
+      patchAgentUi({ checkpoint: true });
+      step('info', t('agent.logCheckpoint'));
       break;
     case AGENT_EVENT.NOTICE:
-      if (payload && payload.level === 'error') logLine('err', String(payload.message || ''));
-      else logLine('warn', String((payload && payload.message) || ''));
+      step(payload && payload.level === 'error' ? 'err' : 'warn', String((payload && payload.message) || ''));
       break;
     case AGENT_EVENT.STATUS:
-      setStatus(statusLabel(payload && payload.status));
+      patchAgentUi({ status: (payload && payload.status) || AGENT_STATUS.IDLE });
       break;
     case AGENT_EVENT.RUN_UPDATED:
-      if (payload) renderBudget(payload);
-      setControls();
+      if (payload) {
+        patchAgentUi({
+          round: payload.rounds || 0,
+          roundBudget: payload.roundBudget || payload.maxRounds || 0,
+          segments: payload.segments || 1,
+        });
+      }
       break;
     case AGENT_EVENT.FINISHED: {
-      hideApproval();
-      hideBatch();
       const failed = payload && payload.status === RUN_STATUS.FAILED;
       const cancelled = payload && payload.status === RUN_STATUS.CANCELLED;
       const pausedBudget = !!(payload && payload.canContinue);
-      if (payload && payload.answer) logLine('answer', payload.answer);
-      if (payload && payload.error && !cancelled) logLine('err', payload.error);
-      setStatus(cancelled
-        ? t('agent.stateCancelled')
-        : (pausedBudget ? t('agent.stateBudgetPaused') : (failed ? t('agent.stateError') : t('agent.stateDone'))));
+      if (payload && payload.answer) step('answer', payload.answer);
+      if (payload && payload.error && !cancelled) step('err', payload.error);
+      finishAgentUi({
+        status: cancelled ? RUN_STATUS.CANCELLED : (failed ? RUN_STATUS.FAILED : RUN_STATUS.COMPLETED),
+        error: (payload && payload.error) || '',
+        checkpoint: pausedBudget,
+      });
+      patchAgentUi({ status: cancelled
+        ? AGENT_STATUS.CANCELLED
+        : (pausedBudget ? AGENT_STATUS.PAUSED : (failed ? AGENT_STATUS.ERROR : AGENT_STATUS.SUCCESS)) });
       if (pausedBudget) {
-        logLine('warn', t('agent.logBudgetPaused'));
-        // 把检查点落盘：关掉应用之后还能续跑
+        step('warn', t('agent.logBudgetPaused'));
         persistCheckpoint();
       } else if (!cancelled && !failed) {
-        // 正常跑完 → 检查点没用了，清掉（避免下次误续一个已完成的任务）
         clearPersistedCheckpoint();
       }
-      setControls();
+      // 这一轮结束了：Live2D 的表现订阅可以摘掉（下一轮再重订，避免越订越多）
+      if (unbindStatus) { unbindStatus(); unbindStatus = null; }
       break;
     }
     default:
       break;
   }
+  updateControls();
 }
 
-/** 把设置里的 agent 段同步到界面 */
-function syncSettingsToForm() {
-  const s = getSettings();
-  const agent = (s && s.agent) || {};
-  const auth = normalizeAuthorization(agent.authorization || {}, { now: Date.now() });
-  if ($('ag-require-medium')) $('ag-require-medium').checked = agent.requireMedium !== false;
-  if ($('ag-workspace-input')) $('ag-workspace-input').value = agent.workspace || '';
-  if ($('ag-auth-mode')) $('ag-auth-mode').value = auth.mode;
-  if ($('ag-auth-persist')) $('ag-auth-persist').checked = auth.scope === AUTH_SCOPE.PERSISTENT;
-  if ($('ag-allow-high')) $('ag-allow-high').checked = auth.allowHighRisk === true;
-  renderAuthBadge();
-  refreshWorkspaceLabel();
+// ---------------- 二、对话里的活动卡 ----------------
+
+function currentTaskLabel() {
+  const s = agentUiState();
+  return s.task || t('agent.cardTitle');
 }
 
-async function refreshWorkspaceLabel() {
-  const el = $('ag-workspace');
-  if (!el) return;
+function mountCard(task) {
+  const box = $('messages');
+  if (!box) return null;
+  // 上一张卡收成「已结束」的样子：去掉动作区与待确认卡片，保留过程
+  document.querySelectorAll('.agent-card .agc-actions').forEach((el) => { el.innerHTML = ''; });
+  document.querySelectorAll('.agent-card .agent-approval').forEach((el) => el.classList.add('hidden'));
+  document.querySelectorAll('.agent-card.is-running').forEach((el) => el.classList.remove('is-running'));
+
+  const wrap = document.createElement('div');
+  wrap.className = 'msg agent';
+  const av = document.createElement('span');
+  av.className = 'msg-avatar';
+  const cur = state.current;
+  fillAvatar(av, (cur && cur.data && cur.data.name) || 'AILEEN', (cur && cur.data && cur.data.avatar) || '');
+  wrap.appendChild(av);
+
+  const cardEl = document.createElement('div');
+  cardEl.className = 'agent-card is-running';
+  cardEl.innerHTML = ''
+    + '<div class="agc-head">'
+    + '  <span class="agc-ico">' + iconSvg('agent', 15) + '</span>'
+    + '  <span class="agc-title"></span>'
+    + '  <span class="agc-badge"></span>'
+    + '  <span class="agc-spacer"></span>'
+    + '  <span class="agc-round"></span>'
+    + '  <button class="icon-btn tiny agc-collapse" data-i18n-title="agent.collapseTip" title="收起 / 展开">' + iconSvg('chevronDown', 14) + '</button>'
+    + '</div>'
+    + '<ul class="agc-steps"></ul>'
+    + '<div class="agent-approval hidden">'
+    + '  <div class="agent-approval-head"><span class="agent-risk">HIGH</span><span class="aa-label"></span></div>'
+    + '  <p class="agent-approval-text"></p>'
+    + '  <div class="batch-list hidden"></div>'
+    + '  <div class="agc-actions">'
+    + '    <button class="primary small-btn aa-approve">' + t('agent.approve') + '</button>'
+    + '    <button class="ghost small-btn aa-always">' + t('agent.approveAlways') + '</button>'
+    + '    <button class="danger small-btn aa-reject">' + t('agent.reject') + '</button>'
+    + '    <button class="primary small-btn aa-batch-approve">' + t('agent.approveAll') + '</button>'
+    + '    <button class="danger small-btn aa-batch-reject">' + t('agent.rejectAll') + '</button>'
+    + '  </div>'
+    + '</div>'
+    + '<div class="agc-actions agc-controls"></div>';
+  wrap.appendChild(cardEl);
+  box.appendChild(wrap);
+
+  cardEl.querySelector('.aa-approve').onclick = () => decideApproval(true, false);
+  cardEl.querySelector('.aa-always').onclick = () => decideApproval(true, true);
+  cardEl.querySelector('.aa-reject').onclick = () => decideApproval(false, false);
+  cardEl.querySelector('.aa-batch-approve').onclick = () => decideBatch(true);
+  cardEl.querySelector('.aa-batch-reject').onclick = () => decideBatch(false);
+  cardEl.querySelector('.agc-collapse').onclick = () => {
+    cardEl.querySelector('.agc-steps').classList.toggle('collapsed');
+  };
+
+  card = cardEl;
+  cardStepCount = 0;
+  cardEl.querySelector('.agc-title').textContent = task || t('agent.cardTitle');
+  scrollChatToBottom();
+  return cardEl;
+}
+
+function scrollChatToBottom() {
+  const box = $('messages');
+  if (box) box.scrollTop = box.scrollHeight;
+}
+
+function renderSteps() {
+  if (!card) return;
+  const list = card.querySelector('.agc-steps');
+  if (!list) return;
+  list.innerHTML = '';
+  for (const s of agentUiState().steps) {
+    const li = document.createElement('li');
+    li.className = 'agc-step' + (s.ok === true ? ' ok' : (s.ok === false ? ' err' : ''))
+      + (s.kind === 'warn' ? ' warn' : '') + (s.kind === 'answer' ? ' answer' : '');
+    const dot = document.createElement('span');
+    dot.className = 'agc-dot';
+    dot.textContent = s.ok === true ? '✓' : (s.ok === false ? '✗' : '·');
+    const text = document.createElement('span');
+    text.className = 'agc-text';
+    text.textContent = s.text;
+    li.appendChild(dot);
+    li.appendChild(text);
+    list.appendChild(li);
+  }
+  cardStepCount = list.childElementCount;
+  list.scrollTop = list.scrollHeight;
+}
+
+function renderApproval() {
+  if (!card) return;
+  const box = card.querySelector('.agent-approval');
+  if (!box) return;
+  const req = agentUiState().approval;
+  if (!req) { box.classList.add('hidden'); return; }
+  const risk = String(req.highestRisk || req.riskLevel || 'HIGH').toUpperCase();
+  const riskEl = box.querySelector('.agent-risk');
+  riskEl.textContent = risk;
+  riskEl.className = 'agent-risk risk-' + risk.toLowerCase() + ' ' + risk;
+  box.querySelector('.aa-label').textContent = req.batch
+    ? t('agent.batchTitle')
+    : t('agent.waitingApproval');
+  box.querySelector('.agent-approval-text').textContent = req.batch
+    ? t('agent.batchCount', { n: (req.items || []).length })
+    : String(req.preview || req.name || '');
+  // 单条 / 批量按钮互斥出现
+  box.querySelector('.aa-approve').classList.toggle('hidden', !!req.batch);
+  box.querySelector('.aa-always').classList.toggle('hidden', !!req.batch || !!req.irreversible);
+  box.querySelector('.aa-reject').classList.toggle('hidden', !!req.batch);
+  box.querySelector('.aa-batch-approve').classList.toggle('hidden', !req.batch);
+  box.querySelector('.aa-batch-reject').classList.toggle('hidden', !req.batch);
+  const listBox = box.querySelector('.batch-list');
+  listBox.classList.toggle('hidden', !req.batch);
+  if (req.batch) {
+    listBox.innerHTML = '';
+    (req.items || []).forEach((item, i) => {
+      const row = document.createElement('label');
+      row.className = 'batch-item';
+      const cb = document.createElement('input');
+      cb.type = 'checkbox';
+      cb.checked = true;
+      cb.dataset.idx = String(i);
+      cb.addEventListener('change', () => { batchDecisions[i] = cb.checked; });
+      const badge = document.createElement('span');
+      badge.className = 'agent-risk risk-' + String(item.riskLevel || 'HIGH').toLowerCase();
+      badge.textContent = String(item.riskLevel || 'HIGH');
+      const text = document.createElement('span');
+      text.className = 'batch-item-text';
+      text.textContent = item.preview || item.name || '';
+      row.appendChild(cb);
+      row.appendChild(badge);
+      row.appendChild(text);
+      listBox.appendChild(row);
+    });
+    batchDecisions = (req.items || []).map(() => true);
+  }
+  box.classList.remove('hidden');
+  scrollChatToBottom();
+}
+
+let batchDecisions = [];
+
+function renderControls() {
+  if (!card) return;
+  const box = card.querySelector('.agc-controls');
+  if (!box) return;
+  const s = agentUiState();
+  box.innerHTML = '';
+  const make = (label, cls, onClick) => {
+    const b = document.createElement('button');
+    b.className = cls;
+    b.textContent = label;
+    b.onclick = onClick;
+    box.appendChild(b);
+  };
+  if (s.running) {
+    const st = s.status;
+    if (st === AGENT_STATUS.PAUSED) make(t('agent.resume'), 'ghost small-btn', () => { if (controller) { controller.resume(); } });
+    else make(t('agent.pause'), 'ghost small-btn', () => { if (controller) { controller.pause(); } });
+    make(t('agent.cancel'), 'danger small-btn', () => { if (controller) { controller.cancel(); } });
+  } else if (s.checkpoint) {
+    make(t('agent.continue'), 'primary small-btn', () => resumeAgentTask());
+  }
+  // 卡片头部的状态与轮数
+  const badge = card.querySelector('.agc-badge');
+  if (badge) {
+    badge.textContent = statusText(s.status);
+    badge.className = 'agc-badge status-' + String(s.status || 'idle');
+  }
+  const round = card.querySelector('.agc-round');
+  if (round) {
+    round.textContent = s.round || s.roundBudget
+      ? t('agent.budget', { n: s.round, max: s.roundBudget, seg: s.segments })
+      : '';
+  }
+  const title = card.querySelector('.agc-title');
+  if (title && s.task) title.textContent = s.task;
+  card.classList.toggle('is-running', !!s.running);
+  card.classList.toggle('is-done', !s.running && s.status === AGENT_STATUS.SUCCESS);
+  card.classList.toggle('is-failed', !s.running && (s.status === AGENT_STATUS.ERROR || s.status === AGENT_STATUS.CANCELLED));
+  // 跑完之后过程自动收起来，只留一句结果 —— 聊天不该被一屏日志占满
+  const steps = card.querySelector('.agc-steps');
+  if (steps && !s.running && cardStepCount > MIN_CARD_STEPS) steps.classList.add('collapsed');
+}
+
+function updateControls() {
+  renderSteps();
+  renderApproval();
+  renderControls();
+}
+
+/** 对话开始时由 chat.js 调：挂上这一轮的活动卡 */
+export function beginAgentTurn(task) {
+  resetAgentUi();
+  patchAgentUi({ running: true, status: AGENT_STATUS.PLANNING, task: String(task || '') });
+  mountCard(task);
+  return card;
+}
+
+/** chat.js 把这次 run 的控制器与状态总线交进来（暂停 / 继续 / 取消 / 审批 + Live2D 表现都要它们） */
+export function attachAgentController(runController, bus) {
+  controller = runController;
+  if (bus) {
+    if (unbindStatus) unbindStatus();
+    unbindStatus = subscribeAgentStatus(bus);
+  }
+  updateControls();
+}
+
+/** 自检 / 外部需要拿到控制器时用 */
+export function getAgentController() {
+  return controller;
+}
+
+export function setAgentUiState(patch) {
+  return patchAgentUi(patch);
+}
+
+/**
+ * 复位成「没在跑」（换角色 / 自检 / 任务结束后收尾都走它）。
+ * 还会把当前那张活动卡从对话里摘掉 —— 「复位」意味着连痕迹都不该留下，
+ * 否则自检的「跑之前不该有卡片」会读到上一轮的残留。
+ */
+export function resetAgentRun() {
+  if (unbindStatus) { unbindStatus(); unbindStatus = null; }
+  controller = null;
+  resetAgentUi();
+  if (card) {
+    const wrap = card.closest('.msg.agent');
+    if (wrap && wrap.parentNode) wrap.parentNode.removeChild(wrap);
+    card = null;
+    cardStepCount = 0;
+  }
+  return agentUiSnapshot();
+}
+
+// ---------------- 三、审批 ----------------
+
+function decideApproval(approved, remember) {
+  const req = agentUiState().approval;
+  if (!req) return false;
+  // 先收卡片：卡片是「等一个决定」，决定做完就不该再挂着
+  setAgentApproval(null);
+  if (controller) controller.resolveApproval(req.id, approved, remember);
+  updateControls();
+  return true;
+}
+
+function decideBatch(allApproved) {
+  const req = agentUiState().approval;
+  if (!req) return false;
+  const decisions = {};
+  (req.items || []).forEach((item, i) => {
+    decisions[item.id] = allApproved ? true : (batchDecisions[i] === true);
+  });
+  setAgentApproval(null);
+  if (controller) controller.resolveApproval(req.id, { decisions, remember: false });
+  updateControls();
+  return true;
+}
+
+// ---------------- 四、输入区的 Agent 权限弹层 ----------------
+
+function panelEl() {
+  return $('agent-panel');
+}
+
+export function openAgentPanel() {
+  const el = panelEl();
+  if (!el) return false;
+  renderPanel();
+  el.classList.remove('hidden');
+  panelOpen = true;
+  const chip = $('btn-agent-mode');
+  if (chip) chip.setAttribute('aria-expanded', 'true');
+  return true;
+}
+
+export function closeAgentPanel() {
+  const el = panelEl();
+  if (!el) return false;
+  el.classList.add('hidden');
+  panelOpen = false;
+  const chip = $('btn-agent-mode');
+  if (chip) chip.setAttribute('aria-expanded', 'false');
+  return true;
+}
+
+export function toggleAgentPanel() {
+  return panelOpen ? closeAgentPanel() : openAgentPanel();
+}
+
+export function isAgentPanelOpen() {
+  return panelOpen;
+}
+
+async function refreshWorkspacePath() {
+  const el = $('ap-workspace-path');
+  if (!el) return '';
   try {
     const res = await window.api.agentWorkspace();
-    el.textContent = (res && res.workspace) || '—';
-    el.title = (res && res.workspace) || '';
+    const ws = (res && res.workspace) || '';
+    el.textContent = ws || '—';
+    el.title = ws;
+    // 设置页里那一行也显示同一个路径（两处入口，一份数据）
+    const settingsEl = $('ag-workspace');
+    if (settingsEl) {
+      settingsEl.textContent = ws || '—';
+      settingsEl.title = ws;
+    }
+    return ws;
   } catch (err) {
     el.textContent = '—';
+    return '';
   }
 }
 
-/** 保存授权配置（模式 / 范围 / 是否允许 HIGH） */
+function renderRecent() {
+  const box = $('ap-recent');
+  if (!box) return;
+  box.innerHTML = '';
+  const items = agentUiState().recent;
+  if (!items.length) {
+    const empty = document.createElement('div');
+    empty.className = 'ap-hint';
+    empty.textContent = t('agent.recentEmpty');
+    box.appendChild(empty);
+    return;
+  }
+  for (const it of items) {
+    const row = document.createElement('div');
+    row.className = 'ap-recent-row';
+    const mark = document.createElement('span');
+    mark.className = it.approved ? 'yes' : 'no';
+    mark.textContent = it.approved ? '✓' : '✗';
+    const name = document.createElement('span');
+    name.className = 'rp-name';
+    name.textContent = it.name || '—';
+    const risk = document.createElement('span');
+    risk.className = 'agent-risk risk-' + String(it.riskLevel || 'high').toLowerCase();
+    risk.textContent = it.riskLevel || 'HIGH';
+    row.appendChild(mark);
+    row.appendChild(name);
+    row.appendChild(risk);
+    box.appendChild(row);
+  }
+}
+
+/** 把设置里的 agent 段同步到弹层控件（不传值：从 settings 读取） */
+export function renderPanel() {
+  const s = getSettings();
+  const agent = (s && s.agent) || {};
+  const auth = normalizeAuthorization(agent.authorization || {}, { now: Date.now() });
+  const sum = authSummary(auth, Date.now());
+  const enabled = agent.computerUse === true;
+  const full = sum.mode === AUTH_MODE.TRUST && sum.allowHighRisk === true;
+  if ($('ap-enabled')) $('ap-enabled').checked = enabled;
+  if ($('ap-full')) $('ap-full').checked = full;
+  if ($('ap-skipwrite')) $('ap-skipwrite').checked = agent.requireMedium === false;
+  renderRecent();
+  refreshWorkspacePath();
+  // 设置页里的那几项也一起刷新（两处共用同一份设置）
+  if ($('ag-workspace')) { /* 设置页自己的路径文本由 fillAllSettings 负责 */ }
+  if ($('ag-auth-mode')) $('ag-auth-mode').value = auth.mode;
+  if ($('ag-auth-persist')) $('ag-auth-persist').checked = auth.scope === 'persistent';
+  if ($('ag-allow-high')) $('ag-allow-high').checked = auth.allowHighRisk === true;
+  if ($('ag-require-medium')) $('ag-require-medium').checked = agent.requireMedium !== false;
+  if ($('ag-auth-badge')) {
+    const label = sum.mode === AUTH_MODE.TRUST
+      ? t('agent.authTrustTag', { scope: sum.scope === 'persistent' ? t('agent.scopePersistent') : t('agent.scopeTask') })
+      : (sum.mode === AUTH_MODE.BATCH ? t('agent.authBatchTag') : t('agent.authManualTag'));
+    $('ag-auth-badge').textContent = label;
+  }
+  syncChip();
+}
+
+/** 输入区的 Agent 按钮：亮着 = 电脑控制开着；文案永远只是「Agent」 */
+function syncChip() {
+  const s = getSettings();
+  const on = !!(s.agent && s.agent.computerUse);
+  const chip = $('btn-agent-mode');
+  if (chip) {
+    chip.classList.toggle('on', on);
+    chip.setAttribute('aria-pressed', on ? 'true' : 'false');
+    chip.title = on ? t('agent.computerOn') : t('agent.computerOff');
+  }
+  const btn = $('btn-computer');
+  if (btn) {
+    const label = $('btn-computer-label');
+    const text = on ? t('agent.computerOn') : t('agent.computerOff');
+    if (label) label.textContent = text;
+    else btn.textContent = text;
+    btn.classList.toggle('computer-on', on);
+    btn.setAttribute('aria-pressed', on ? 'true' : 'false');
+  }
+}
+
+/**
+ * 电脑控制的总开关。
+ * 设备页的按钮、弹层里的主开关**都调这一个函数**：
+ * 两个入口各自再绑一个 handler 就变成「点一下切两次」，看起来像关不掉。
+ */
+export async function toggleComputerUse() {
+  const s = getSettings();
+  const on = !(s.agent && s.agent.computerUse);
+  const next = Object.assign({}, s, {
+    agent: Object.assign({}, s.agent, { computerUse: on }),
+  });
+  // 先切缓存 + 界面，再落盘：开关必须「点下去就变」，不能等 IPC 往返。
+  setSettingsCache(next);
+  syncChip();
+  renderPanel();
+  toast(on ? t('agent.computerOn') : t('agent.computerOff'));
+  try {
+    await saveSettings(next);
+  } catch (err) {
+    setSettingsCache(s);
+    syncChip();
+    renderPanel();
+    toast(String((err && err.message) || err));
+  }
+  return on;
+}
+
+/** 完整权限 / 跳过写入确认 / 授权模式：都落进同一份 agent.authorization */
 async function saveAuth(patch) {
   const s = getSettings();
   const agent = s.agent || {};
   const current = normalizeAuthorization(agent.authorization || {}, { now: Date.now() });
   const nextAuth = normalizeAuthorization(Object.assign({}, current, patch, {
-    // 换模式就是一次新的授权：清掉上一次的撤销/授权时间
     revokedAt: null,
     grantedAt: Date.now(),
   }), { now: Date.now() });
   const next = Object.assign({}, s, { agent: Object.assign({}, agent, { authorization: nextAuth }) });
-  await saveSettings(next);
-  if (controller && typeof controller.setAuthorization === 'function') {
-    controller.setAuthorization(nextAuth);
+  setSettingsCache(next);
+  renderPanel();
+  if (controller && typeof controller.setAuthorization === 'function') controller.setAuthorization(nextAuth);
+  try {
+    await saveSettings(next);
+  } catch (err) {
+    setSettingsCache(s);
+    renderPanel();
+    toast(String((err && err.message) || err));
   }
-  renderAuthBadge();
 }
 
-async function readTaskAndStart() {
-  const task = (($('ag-task') && $('ag-task').value) || '').trim();
-  if (!task) {
-    toast(t('agent.needTask'));
+async function saveAgentField(patch) {
+  const s = getSettings();
+  const next = Object.assign({}, s, { agent: Object.assign({}, s.agent, patch) });
+  setSettingsCache(next);
+  renderPanel();
+  try {
+    await saveSettings(next);
+  } catch (err) {
+    setSettingsCache(s);
+    renderPanel();
+    toast(String((err && err.message) || err));
+  }
+}
+
+async function pickWorkspace() {
+  if (!window.api || typeof window.api.agentChooseWorkspace !== 'function') {
+    toast(t('agent.pickUnsupported'), true);
     return;
   }
-  if (controller && !['completed', 'failed', 'cancelled'].includes(controller.run.status)) {
-    toast(t('agent.busy'));
-    return;
+  try {
+    const res = await window.api.agentChooseWorkspace();
+    if (!res || !res.workspace) return;
+    await saveAgentField({ workspace: res.workspace });
+    toast(t('agent.workspaceSaved'));
+  } catch (err) {
+    toast(String((err && err.message) || err), true);
   }
-  const settings = getSettings();
-  const agent = (settings && settings.agent) || {};
-  let workspace = '';
+}
+
+async function openWorkspace() {
   try {
     const res = await window.api.agentWorkspace();
-    workspace = (res && res.workspace) || '';
-  } catch (err) {
-    toast(String((err && err.message) || err));
-    return;
-  }
-
-  clearLog();
-  hideApproval();
-  hideBatch();
-  const started = startRun({
-    task,
-    workspace,
-    llm: createAgentLlm(getSettings),
-    bridge: createAgentBridge(),
-    isSensitive: isSensitivePath,
-    permissionConfig: { requireMedium: agent.requireMedium !== false },
-    authorization: normalizeAuthorization(agent.authorization || {}, { now: Date.now() }),
-    maxRounds: agent.maxRounds,
-    roundBudget: agent.roundBudget,
-    maxRetries: agent.maxRetries,
-    parallelReadOnly: agent.readOnlyParallel !== false,
-    onEvent,
-  });
-  controller = started.controller;
-  // Live2D 表现：Agent 只管 emit，翻译成动作/表情是这边的责任
-  if (unbindStatus) unbindStatus();
-  unbindStatus = subscribeAgentStatus(started.bus);
-  logLine('info', t('agent.logWorkspace', { path: workspace }));
-  renderBudget(started.controller.run);
-  setControls();
-  started.done.catch((err) => {
-    logLine('err', String((err && err.message) || err));
-    setStatus(t('agent.stateError'));
-    setControls();
-  });
+    const ws = (res && res.workspace) || '';
+    if (ws) await window.api.openPath(ws);
+  } catch (err) { /* 打不开就算了，不值得打断 */ }
 }
 
-/** 把「Agent 模式」（界面转蓝）挂到 <html> 上或摘掉 */
-export function setAgentModeOn(on) {
-  const root = document.documentElement;
-  if (root && root.classList) root.classList.toggle('agent-mode', !!on);
-}
+// ---------------- 五、检查点 ----------------
 
-/** 把「继续执行」的实现（main.js 里接 chat.js 的 resumeWithAgent） */
-export function setResumeHandler(fn) {
-  resumeHandler = typeof fn === 'function' ? fn : null;
-}
-
-// ---------------- 检查点落盘（跨重启续跑） ----------------
-/** 把当前的检查点写进 <userData>/agent/checkpoint.json（主进程负责落盘） */
 async function persistCheckpoint() {
   const api = window.api || {};
   if (typeof api.agentCheckpoint !== 'function') return false;
@@ -410,7 +672,6 @@ async function persistCheckpoint() {
     const res = await api.agentCheckpoint({ op: 'save', data: cp });
     return !!(res && res.ok);
   } catch (err) {
-    logLine('warn', '检查点保存失败：' + String((err && err.message) || err));
     return false;
   }
 }
@@ -426,7 +687,6 @@ async function clearPersistedCheckpoint() {
   } catch (err) { return false; }
 }
 
-/** 启动时读一次：上次没跑完的任务，抽屉里直接给「继续」 */
 async function restoreCheckpoint() {
   const api = window.api || {};
   if (typeof api.agentCheckpoint !== 'function') return false;
@@ -436,221 +696,136 @@ async function restoreCheckpoint() {
     if (!data || !data.task || !data.checkpoint) return false;
     state.pendingCheckpoint = data;
     state.pendingCheckpointTask = String(data.task || '');
-    logLine('info', t('agent.logRestored', { task: String(data.task || '').slice(0, 60) }));
-    setControls();
+    patchAgentUi({ checkpoint: true, task: '' });
     return true;
   } catch (err) { return false; }
 }
 
-/** 当前这轮 run 的控制器（chat.js 用：它在对话里起的 run 要交给抽屉来管按钮） */
-export function getAgentController() {
-  return controller;
+/** 断点续跑：用检查点重开一次任务（活动卡里那个「继续执行」按钮） */
+export function resumeAgentTask() {
+  if (!resumeHandler) return false;
+  const cp = (controller && typeof controller.checkpoint === 'function' ? controller.checkpoint('budget') : null)
+    || state.pendingCheckpoint;
+  if (!cp) { toast(t('agent.noCheckpoint')); return false; }
+  resumeHandler(cp);
+  return true;
 }
 
-/** 面板的初始化（在 src/main.js 启动时调一次） */
+/** 注入「继续执行」的实现（main.js 里接 chat.js 的 resumeWithAgent） */
+export function setResumeHandler(fn) {
+  resumeHandler = typeof fn === 'function' ? fn : null;
+}
+
+// ---------------- 六、初始化 ----------------
+
+/** 自检用：把当前界面状态说清楚（不返回 DOM 节点） */
+export function agentUiSnapshot() {
+  const s = agentUiState();
+  const panel = panelEl();
+  const steps = card ? card.querySelectorAll('.agc-step') : [];
+  const approval = card ? card.querySelector('.agent-approval') : null;
+  return {
+    panelOpen: panelOpen && !!panel && !panel.classList.contains('hidden'),
+    panelExists: !!panel,
+    cardVisible: !!card && !!card.isConnected,
+    cardRunning: !!card && card.classList.contains('is-running'),
+    cardStatus: card ? String((card.querySelector('.agc-badge') || {}).textContent || '') : '',
+    cardTask: card ? String((card.querySelector('.agc-title') || {}).textContent || '') : '',
+    stepLines: steps.length,
+    approvalVisible: !!approval && !approval.classList.contains('hidden'),
+    approvalRisk: approval ? String((approval.querySelector('.agent-risk') || {}).textContent || '') : '',
+    approvalText: approval ? String((approval.querySelector('.agent-approval-text') || {}).textContent || '') : '',
+    chipOn: !!$('btn-agent-mode') && $('btn-agent-mode').classList.contains('on'),
+    running: s.running,
+    status: s.status,
+    recent: s.recent.length,
+  };
+}
+
+/** 自检专用：走**和真实事件同一条路**注入一个事件（不经过 LLM，不花额度） */
+export function injectAgentEvent(type, payload) {
+  handleAgentEvent(type, payload);
+}
+
 export function initAgentUI() {
-  logEl = $('ag-log');
-  const drawer = $('agent-drawer');
-  if (!drawer) return;
+  if (!$('agent-panel')) return;
 
-  // 「Agent 模式」= 界面主色转蓝。挂在 <html> 上（不是 #app）：
-  // Agent 抽屉和一堆弹窗都在 #app 之外，挂 #app 的话它们继承不到新变量。
-  const applyAgentMode = () => setAgentModeOn(!drawer.classList.contains('hidden'));
-  new MutationObserver(applyAgentMode).observe(drawer, { attributes: true, attributeFilter: ['class'] });
-  applyAgentMode();
+  // 状态 → 界面：任何一处改了状态，活动卡与任务页都会跟着重画
+  subscribeAgentUi(() => {
+    if (card) updateControls();
+  });
 
-  const open = () => {
-    syncSettingsToForm();
-    // 先钉住再可见：否则 syncDashboardMode 会在「开关关着 + 没在跑」时又收回去
-    pinDrawer(true);
-    drawer.classList.remove('hidden');
-    const scrim = $('drawer-scrim');
-    if (scrim) scrim.classList.add('on');
-    requestAnimationFrame(() => drawer.classList.add('open'));
-    applyAgentMode();
-  };
-  const close = () => {
-    drawer.classList.remove('open');
-    const scrim = $('drawer-scrim');
-    if (scrim) scrim.classList.remove('on');
-    setTimeout(() => { if (!drawer.classList.contains('open')) drawer.classList.add('hidden'); }, 180);
-    applyAgentMode();
-    pinDrawer(false);
-  };
-  openDrawerUi = open;
-  closeDrawerUi = close;
-  if ($('btn-agent')) $('btn-agent').addEventListener('click', open);
-  if ($('ag-close')) $('ag-close').addEventListener('click', close);
+  const chip = $('btn-agent-mode');
+  if (chip) chip.addEventListener('click', () => toggleAgentPanel());
+  // 点空白处 / Esc 收起弹层（不拦点击：只用捕获阶段判断是否点在弹层或按钮里）
+  document.addEventListener('mousedown', (e) => {
+    if (!panelOpen) return;
+    const el = panelEl();
+    const target = e.target;
+    if (!el || !target) return;
+    if (el.contains(target) || (chip && chip.contains(target))) return;
+    closeAgentPanel();
+  }, true);
+  document.addEventListener('keydown', (e) => {
+    if (panelOpen && e.key === 'Escape') { closeAgentPanel(); }
+  });
 
-  // 电脑控制开关：开 = 之后每条对话都走 Agent（Chat 是入口，Agent 是能力）
-  const syncComputerBtn = () => {
-    const s = getSettings();
-    const on = !!(s.agent && s.agent.computerUse);
-    // 两处入口共用同一份状态：设备页的开关 + 对话输入区的 Agent 按钮
-    const chip = $('btn-agent-mode');
-    if (chip) {
-      chip.classList.toggle('on', on);
-      chip.setAttribute('aria-pressed', on ? 'true' : 'false');
-      chip.title = on ? t('agent.computerOn') : t('agent.computerOff');
-      const label = chip.querySelector('.chip-label');
-      if (label) label.textContent = 'Agent';
-    }
-    const btn = $('btn-computer');
-    if (!btn) return;
-    // 图标是内联 SVG（data-icon），这里只改文案，别把图标一起覆盖掉
-    const label = $('btn-computer-label');
-    const text = on ? t('agent.computerOn') : t('agent.computerOff');
-    if (label) label.textContent = text;
-    else btn.textContent = text;
-    btn.classList.toggle('computer-on', on);
-    btn.setAttribute('aria-pressed', on ? 'true' : 'false');
-  };
-
-  // 只做一次切换：两个入口（设备页开关 / 对话里的 Agent 按钮）都调它，
-  // 避免「点一下触发两次」导致看起来关不掉。
-  const toggleComputerUse = async () => {
-    const s = getSettings();
-    const on = !(s.agent && s.agent.computerUse);
-    const next = Object.assign({}, s, {
-      agent: Object.assign({}, s.agent, { computerUse: on }),
-    });
-    // 先切缓存 + 界面，再落盘：开关必须「点下去就变」，不能等 IPC 往返。
-    // 落盘失败就回滚，别让界面停在没保存成功的状态上。
-    setSettingsCache(next);
-    syncComputerBtn();
-    // 点亮开关 = 打开抽屉（**展台不动**），让用户立刻看到任务入口
-    setAgentModeOn(on || !drawer.classList.contains('hidden'));
-    syncDashboardMode();
-    toast(on ? t('agent.computerOn') : t('agent.computerOff'));
-    try {
-      await saveSettings(next);
-    } catch (err) {
-      setSettingsCache(s);
-      syncComputerBtn();
-      setAgentModeOn(!!(s.agent && s.agent.computerUse));
-      syncDashboardMode();
-      toast(String((err && err.message) || err));
-    }
-  };
-  toggleComputerUseFn = toggleComputerUse;
-  if ($('btn-computer')) $('btn-computer').addEventListener('click', toggleComputerUse);
-  syncComputerBtn();
-  const initial = getSettings();
-  if (initial && initial.agent && initial.agent.computerUse) {
-    setAgentModeOn(true);
-    syncDashboardMode();
-  }
-  if ($('ag-start')) $('ag-start').addEventListener('click', readTaskAndStart);
-  if ($('ag-pause')) $('ag-pause').addEventListener('click', () => { if (controller) { logLine('info', t('agent.logPaused')); controller.pause(); setControls(); } });
-  if ($('ag-resume')) $('ag-resume').addEventListener('click', () => { if (controller) { logLine('info', t('agent.logResumed')); controller.resume(); setControls(); } });
-  if ($('ag-cancel')) $('ag-cancel').addEventListener('click', () => { if (controller) { logLine('warn', t('agent.logCancelled')); controller.cancel(); setControls(); } });
-  if ($('ag-continue')) {
-    $('ag-continue').addEventListener('click', () => {
-      // 预算用尽后的「继续」= 用检查点重开一次任务（断点续跑）
-      if (!resumeHandler) return;
-      const cp = (controller && typeof controller.checkpoint === 'function' ? controller.checkpoint('budget') : null)
-        || state.pendingCheckpoint;
-      if (!cp) { toast(t('agent.noCheckpoint')); return; }
-      logLine('info', t('agent.logResuming'));
-      resumeHandler(cp);
+  if ($('ap-enabled')) $('ap-enabled').addEventListener('change', () => toggleComputerUse());
+  if ($('ap-full')) {
+    $('ap-full').addEventListener('change', () => {
+      const on = !!$('ap-full').checked;
+      saveAuth(on
+        ? { mode: AUTH_MODE.TRUST, scope: 'task', allowHighRisk: true }
+        : { mode: AUTH_MODE.MANUAL, scope: 'task', allowHighRisk: false });
     });
   }
+  if ($('ap-skipwrite')) {
+    $('ap-skipwrite').addEventListener('change', () => {
+      saveAgentField({ requireMedium: !$('ap-skipwrite').checked });
+    });
+  }
+  if ($('btn-ap-pick')) $('btn-ap-pick').addEventListener('click', () => pickWorkspace());
+  if ($('btn-ap-open')) $('btn-ap-open').addEventListener('click', () => openWorkspace());
 
-  if ($('ag-approve')) $('ag-approve').addEventListener('click', () => decide(true, false));
-  if ($('ag-approve-always')) $('ag-approve-always').addEventListener('click', () => decide(true, true));
-  if ($('ag-reject')) $('ag-reject').addEventListener('click', () => decide(false, false));
-  if ($('ag-batch-approve')) $('ag-batch-approve').addEventListener('click', () => decideBatch(true));
-  if ($('ag-batch-reject')) $('ag-batch-reject').addEventListener('click', () => decideBatch(false));
-
-  // 授权模式控件
+  // 设备页的开关：和弹层主开关同一条路径
+  if ($('btn-computer')) $('btn-computer').addEventListener('click', () => toggleComputerUse());
+  // 设置页里的授权控件（和弹层共用同一份设置）
   if ($('ag-auth-mode')) {
     $('ag-auth-mode').addEventListener('change', () => {
       const mode = $('ag-auth-mode').value;
-      saveAuth({ mode, scope: $('ag-auth-persist').checked ? AUTH_SCOPE.PERSISTENT : AUTH_SCOPE.TASK });
+      saveAuth({ mode, scope: $('ag-auth-persist') && $('ag-auth-persist').checked ? 'persistent' : 'task' });
     });
   }
   if ($('ag-auth-persist')) {
     $('ag-auth-persist').addEventListener('change', () => {
-      saveAuth({ scope: $('ag-auth-persist').checked ? AUTH_SCOPE.PERSISTENT : AUTH_SCOPE.TASK });
+      saveAuth({ scope: $('ag-auth-persist').checked ? 'persistent' : 'task' });
     });
   }
   if ($('ag-allow-high')) {
     $('ag-allow-high').addEventListener('change', () => saveAuth({ allowHighRisk: !!$('ag-allow-high').checked }));
   }
+  if ($('ag-require-medium')) {
+    $('ag-require-medium').addEventListener('change', () => saveAgentField({ requireMedium: !!$('ag-require-medium').checked }));
+  }
   if ($('ag-auth-revoke')) {
     $('ag-auth-revoke').addEventListener('click', async () => {
-      await saveAuth({ mode: AUTH_MODE.MANUAL, scope: AUTH_SCOPE.TASK, allowHighRisk: false, revokedAt: Date.now() });
-      if ($('ag-auth-mode')) $('ag-auth-mode').value = AUTH_MODE.MANUAL;
-      if ($('ag-auth-persist')) $('ag-auth-persist').checked = false;
-      if ($('ag-allow-high')) $('ag-allow-high').checked = false;
+      await saveAuth({ mode: AUTH_MODE.MANUAL, scope: 'task', allowHighRisk: false, revokedAt: Date.now() });
       toast(t('agent.revoked'));
     });
   }
-
   if ($('ag-workspace-edit')) {
     $('ag-workspace-edit').addEventListener('click', () => $('ag-workspace-box').classList.toggle('hidden'));
   }
   if ($('ag-workspace-save')) {
     $('ag-workspace-save').addEventListener('click', async () => {
       const value = ($('ag-workspace-input').value || '').trim();
-      const s = getSettings();
-      const next = Object.assign({}, s, { agent: Object.assign({}, s.agent, { workspace: value }) });
-      await saveSettings(next);
+      await saveAgentField({ workspace: value });
       $('ag-workspace-box').classList.add('hidden');
-      await refreshWorkspaceLabel();
       toast(t('char.saved'));
     });
   }
-  if ($('ag-require-medium')) {
-    $('ag-require-medium').addEventListener('change', async () => {
-      const s = getSettings();
-      const next = Object.assign({}, s, {
-        agent: Object.assign({}, s.agent, { requireMedium: !!$('ag-require-medium').checked }),
-      });
-      await saveSettings(next);
-    });
-  }
-  syncSettingsToForm();
-  // 启动时把上次没跑完的检查点读回来（跨重启续跑）
+
+  syncChip();
+  renderPanel();
   restoreCheckpoint();
-}
-
-function decide(approved, remember) {
-  if (!approval) return;
-  const req = approval;
-  // 先收起卡片：卡片是「等一个决定」，决定做完就不该再挂着
-  hideApproval();
-  if (controller) controller.resolveApproval(req.id, approved, remember);
-}
-
-/** 批量：整批批准/拒绝；逐项则用每行的勾选状态（未勾 = 拒绝） */
-function decideBatch(allApproved) {
-  if (!batch) return;
-  const req = batch;
-  const decisions = {};
-  for (const item of req.items) {
-    decisions[item.id] = allApproved ? true : false;
-  }
-  hideBatch();
-  if (controller) controller.resolveApproval(req.id, { decisions, remember: false });
-}
-
-/**
- * 自检专用：走**和真实事件同一条路**注入一个事件（不经过 LLM，不花额度）。
- * 只被 __AILEEN_PROBE_AGENT 使用。
- */
-export function injectAgentEvent(type, payload) {
-  onEvent(type, payload);
-}
-
-/** 自检用：抽屉里当前显示什么 */
-export function agentUiState() {
-  return {
-    drawerVisible: !!$('agent-drawer') && !$('agent-drawer').classList.contains('hidden'),
-    approvalVisible: !!$('ag-approval') && !$('ag-approval').classList.contains('hidden'),
-    batchVisible: !!$('ag-batch') && !$('ag-batch').classList.contains('hidden'),
-    batchCount: batch ? batch.items.length : 0,
-    authBadge: ($('ag-auth-badge') || {}).textContent || '',
-    logLines: (($('ag-log') || {}).childElementCount) || 0,
-  };
 }

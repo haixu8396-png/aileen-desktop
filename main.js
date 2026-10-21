@@ -1002,6 +1002,27 @@ function registerIpc() {
     }
   });
 
+  // Agent 工作目录：用户点「选择文件夹」时弹系统对话框。
+  // 渲染层没有 fs/dialog，选择只能在这里做；存进设置还是渲染层的事。
+  validatedHandle('agent:chooseWorkspace', async () => {
+    const win = BrowserWindow.getFocusedWindow() || mainWin || BrowserWindow.getAllWindows()[0];
+    let fallback = DATA_DIR;
+    try { fallback = (readSettings().agent || {}).workspace || DATA_DIR; } catch (err) { /* 用数据目录 */ }
+    const result = await dialog.showOpenDialog(win, {
+      title: '选择 Agent 工作目录',
+      defaultPath: fallback,
+      properties: ['openDirectory', 'createDirectory'],
+    });
+    if (result.canceled || !result.filePaths[0]) return null;
+    const dir = path.resolve(result.filePaths[0]);
+    try {
+      if (!fs.statSync(dir).isDirectory()) return null;
+    } catch (err) {
+      return null;
+    }
+    return { workspace: dir };
+  });
+
   validatedHandle('models:list', () => {
     const local = scanModels(MODELS_DIR, '');
     const extra = (readSettings().extraModels || []).map((m) => ({
@@ -1137,8 +1158,7 @@ function registerIpc() {
     return true;
   });
 
-  validatedHandle('characters:chooseAvatar', async () => {
-    const win = BrowserWindow.getFocusedWindow() || BrowserWindow.getAllWindows()[0];
+  validatedHandle('characters:chooseAvatar', async () => {    const win = BrowserWindow.getFocusedWindow() || BrowserWindow.getAllWindows()[0];
     const result = await dialog.showOpenDialog(win, {
       title: '选择角色头像',
       filters: [{ name: '图片', extensions: ['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg'] }],

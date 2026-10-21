@@ -12,7 +12,8 @@ import { fillAvatar, setNavTaskCount } from './shell.js';
 import { ensureEngines, lastError } from './memory-host.js';
 import { parsePdf } from '../knowledge/parser.js';
 import { getSettings } from './settings.js';
-import { dashboardState } from './agent-dashboard.js';
+import { agentUiState, subscribeAgentUi } from './agent-state.js';
+import { statusText } from './agent-ui.js';
 
 // ---------------- 角色库 ----------------
 let charFilter = '';
@@ -322,49 +323,88 @@ function esc(s) {
 }
 
 // ---------------- 任务页 ----------------
-/** 本次运行期间的任务历史（还没有落盘的任务历史，所以只记内存） */
+/**
+ * 任务记录：Agent 干过的每一件事都在这里留一条。
+ * 数据来自共享的 agent-state（对话里的活动卡和这一页是同一份状态），
+ * 不再去读某个面板的 DOM —— 面板已经不存在了。
+ */
 const taskHistory = [];
 const MAX_HISTORY = 30;
+let liveEntry = null;
+let workspaceCache = '';
+let tasksBound = false;
 
-export function noteTaskStart(goal) {
-  taskHistory.unshift({
-    id: 'task-' + Date.now(),
-    goal: String(goal || ''),
-    startedAt: Date.now(),
-    status: 'running',
-  });
-  if (taskHistory.length > MAX_HISTORY) taskHistory.length = MAX_HISTORY;
-  renderTasksPage();
-}
-
-export function noteTaskEnd(status) {
-  const cur = taskHistory.find((x) => x.status === 'running');
-  if (cur) {
-    cur.status = status || 'completed';
-    cur.endedAt = Date.now();
+function recordProgress(st) {
+  if (st.running) {
+    if (!liveEntry) {
+      liveEntry = { goal: st.task || '', startedAt: Date.now(), status: 'running', steps: st.steps.length };
+      taskHistory.unshift(liveEntry);
+      if (taskHistory.length > MAX_HISTORY) taskHistory.length = MAX_HISTORY;
+    } else {
+      if (st.task) liveEntry.goal = st.task;
+      liveEntry.steps = Math.max(liveEntry.steps || 0, st.steps.length);
+    }
+  } else if (liveEntry) {
+    liveEntry.status = st.status || 'completed';
+    liveEntry.endedAt = Date.now();
+    liveEntry.steps = Math.max(liveEntry.steps || 0, st.steps.length);
+    liveEntry = null;
   }
   renderTasksPage();
 }
 
+/** 任务页初始化（启动时调一次）：之后状态一变就自己重画 */
+export function initTasksPage() {
+  if (tasksBound) return;
+  tasksBound = true;
+  subscribeAgentUi(recordProgress);
+  renderTasksPage();
+}
+
 export function renderTasksPage() {
-  const st = dashboardState();
+  const st = agentUiState();
   const badge = $('task-state-badge');
   const title = $('task-title');
   const goal = $('task-goal');
   const round = $('task-round');
   const ws = $('task-workspace');
   const dot = $('task-dot');
-  const running = taskHistory.find((x) => x.status === 'running');
-  if (badge) badge.textContent = st.status || t('dash.idle');
-  if (title) title.textContent = running ? running.goal || '—' : t('tasks.none');
-  if (goal) goal.textContent = st.task && st.task !== '—' ? st.task : (running ? running.goal : '');
-  if (round) round.textContent = $('ag-round') && $('ag-round').textContent ? $('ag-round').textContent : '';
-  if (ws) {
-    const w = $('ag-workspace');
-    ws.textContent = w && w.textContent ? w.textContent : '';
+  const stepsBox = $('task-steps');
+  if (badge) badge.textContent = statusText(st.status);
+  if (title) title.textContent = st.task || t('tasks.none');
+  if (goal) goal.textContent = (st.running || st.finished) ? (st.task || '') : '';
+  if (round) {
+    round.textContent = (st.round || st.roundBudget)
+      ? t('agent.budget', { n: st.round, max: st.roundBudget, seg: st.segments })
+      : '';
   }
-  if (dot) dot.className = 'status-dot' + (running ? ' warn' : ' off');
-  setNavTaskCount(taskHistory.filter((x) => x.status === 'running').length);
+  if (ws) ws.textContent = workspaceCache;
+  if (dot) dot.className = 'status-dot' + (st.running ? ' warn' : ' off');
+  setNavTaskCount(st.running ? 1 : 0);
+
+  if (!workspaceCache) {
+    try {
+      const api = window.api || {};
+      if (typeof api.agentWorkspace === 'function') {
+        api.agentWorkspace().then((res) => {
+          workspaceCache = (res && res.workspace) || '';
+          const el = $('task-workspace');
+          if (el) el.textContent = workspaceCache;
+        }).catch(() => {});
+      }
+    } catch (err) { /* 没有就算了 */ }
+  }
+
+  if (stepsBox) {
+    stepsBox.innerHTML = '';
+    for (const item of st.steps.slice(-8)) {
+      const row = document.createElement('div');
+      row.className = 'task-step' + (item.ok === true ? ' ok' : (item.ok === false ? ' err' : ''));
+      row.textContent = (item.ok === true ? '\u2713 ' : (item.ok === false ? '\u2717 ' : '\u00b7 ')) + item.text;
+      stepsBox.appendChild(row);
+    }
+  }
+
   const box = $('task-list');
   if (!box) return;
   box.innerHTML = '';
@@ -378,10 +418,11 @@ export function renderTasksPage() {
     row.className = 'task-row';
     const main = document.createElement('span');
     main.className = 'tr-main';
-    main.textContent = item.goal || '—';
+    main.textContent = item.goal || '\u2014';
     const meta = document.createElement('span');
     meta.className = 'tr-meta';
-    meta.textContent = [String(item.status || ''), fmtTime(item.startedAt)].filter(Boolean).join(' · ');
+    meta.textContent = [statusText(item.status), (item.steps || 0) + ' ' + t('tasks.steps'), fmtTime(item.startedAt)]
+      .filter(Boolean).join(' \u00b7 ');
     row.appendChild(main);
     row.appendChild(meta);
     box.appendChild(row);

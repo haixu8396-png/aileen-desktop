@@ -49,7 +49,7 @@ import {
 } from './lib/shell.js';
 import {
   initCharactersPage, initMemoryPage, renderCharactersPage, renderMemoryPage, renderTasksPage,
-  syncDevicesPage, noteTaskStart, noteTaskEnd,
+  syncDevicesPage, initTasksPage,
 } from './lib/pages.js';
 import { startVoiceLoop, stopVoiceLoop, syncRealtimeUI } from './lib/voice.js';
 import { initSessionCoordinator, broadcastSession } from './lib/session-coordinator.js';
@@ -62,8 +62,7 @@ import { createReplyPacer } from './lib/reply-pacer.js';
 import { parsePersonaResponse, buildPersonaMessages } from './lib/persona.js';
 import { openPersonaStudio, closePersonaStudio, bindPersonaStudio, studioFormOptions } from './lib/persona-studio.js';
 import { openChessModal, bindChess } from './lib/chess.js';
-import { initAgentUI, injectAgentEvent, setResumeHandler, openAgentDrawer, closeAgentDrawer, toggleComputerUse } from './lib/agent-ui.js';
-import { initAgentDashboard, onAgentEvent, dashboardState, resetDashboard } from './lib/agent-dashboard.js';
+import { initAgentUI, injectAgentEvent, setResumeHandler, handleAgentEvent, agentUiSnapshot, toggleAgentPanel, closeAgentPanel, beginAgentTurn, resetAgentRun } from './lib/agent-ui.js';
 import { createToolRegistry, TOOL_SPECS, withBaseExecutors } from './agent/tool-registry.js';
 import { buildPersonaSystemPrompt, personaPosition, assertPersonaPreserved } from './agent/context-engine.js';
 import { t, setLang, getLang, applyI18n, LANGS } from './lib/i18n.js';
@@ -167,21 +166,19 @@ async function boot() {
     onModelList: () => { broadcastSession('models'); },
   });
 
-  // Agent 事件的总出口：抽屉负责画，chat.js 只负责发
+  // Agent 事件的总出口：对话里的活动卡负责画，chat.js 只负责发
   hooks.agentEvent = (type, payload) => {
-    try { onAgentEvent(type, payload); } catch (err) { console.warn('[agent] 事件处理失败', err && err.message); }
+    try { handleAgentEvent(type, payload); } catch (err) { console.warn('[agent] 事件处理失败', err && err.message); }
     if (type === 'status' && payload && payload.status) {
       state.agentStatus = String(payload.status);
       updateTaskBar();
       try { broadcastSession('status'); } catch (err2) { /* 忽略 */ }
     }
-    if (type === 'run_created') noteTaskStart((payload && (payload.task || payload.goal)) || '');
-    if (type === 'finished') noteTaskEnd((payload && payload.status) || 'completed');
     renderTasksPage();
     syncDevicesPage();
   };
-  initAgentDashboard();
-  bindDrawer();
+  initTasksPage();
+  bindAgentEntries();
 
   buildLangSwitch();
   refreshChatStatus();
@@ -235,8 +232,7 @@ function updateTaskBar() {
   const active = st && st !== 'idle' && st !== 'success' && st !== 'completed' && st !== 'error' && st !== 'failed' && st !== 'cancelled';
   if (bar) bar.classList.toggle('on', !!active);
   if (text) text.textContent = t('agent.state' + ({ waiting_approval: 'Waiting', using_tool: 'Tool', thinking: 'Thinking', planning: 'Thinking', working: 'Working' }[st] || 'Idle'));
-  const badge = $('task-state-badge');
-  if (badge) badge.textContent = st === 'idle' ? t('dash.idle') : String(st);
+  // 任务页的徽章由 renderTasksPage 统一负责（这里再写一遍会出现「原始状态名」）
   renderTasksPage();
 }
 
@@ -536,9 +532,7 @@ function bindPages() {
   on('btn-open-data', () => openDataDir());
   on('btn-open-data-2', () => openDataDir());
   on('btn-open-about', () => openAboutModal());
-  on('btn-open-agent-drawer', () => openDrawer());
-  // 对话输入区的「Agent」按钮：和设备页那个开关完全同一条路径
-  on('btn-agent-mode', () => toggleComputerUse());
+  // 对话输入区的「Agent」按钮：弹层由 agent-ui.js 自己绑（主开关在弹层里）
   const search = $('char-search');
   if (search) search.addEventListener('input', (e) => setCharFilter(e.target.value));
 
@@ -634,26 +628,20 @@ function bindSettingsNav() {
   });
 }
 
-// ---------------- Agent 抽屉 ----------------
-function bindDrawer() {
-  // 打开/关闭的真实逻辑在 agent-ui.js（要同步「钉住」状态），
-  // 这里把外壳的入口都接到同一对函数上 —— 收起之后一定还有地方能再打开。
+// ---------------- Agent 入口 ----------------
+// 只有两处入口，而且都不再是「侧边控制台」：
+//   · 对话输入区的 Agent 按钮 → 弹出权限面板（主开关、工作目录、最近的决定）
+//   · 顶栏那个 Agent 图标 / 「任务进行中」提示条 → 任务页（任务记录就在这里）
+function bindAgentEntries() {
+  const toTasks = () => { gotoPage('tasks'); renderTasksPage(); };
   const bar = $('chat-taskbar');
-  if (bar) bar.onclick = () => openDrawer();
+  if (bar) bar.onclick = toTasks;
   const topBtn = $('btn-taskbar');
-  if (topBtn) topBtn.onclick = () => openDrawer();
-  const settingsBtn = $('btn-open-agent-drawer');
-  if (settingsBtn) settingsBtn.onclick = () => openDrawer();
-  const scrim = $('drawer-scrim');
-  if (scrim) scrim.onclick = () => closeDrawer();
-}
-
-export function openDrawer() {
-  return openAgentDrawer();
-}
-
-export function closeDrawer() {
-  return closeAgentDrawer();
+  if (topBtn) topBtn.onclick = toTasks;
+  const tasksToChat = $('btn-tasks-to-chat');
+  if (tasksToChat) tasksToChat.onclick = () => { gotoPage('chat'); toggleAgentPanel(); };
+  const settingsToChat = $('btn-agent-to-chat');
+  if (settingsToChat) settingsToChat.onclick = () => { gotoPage('chat'); toggleAgentPanel(); };
 }
 
 // ---------------- 原生应用菜单 ----------------
@@ -925,13 +913,16 @@ window.__AILEEN_OPEN = (name) => {
     theme: openThemeModal,
     menu: () => { gotoSettings('appearance'); return true; },
     settings: () => { gotoSettings(); return true; },
+    'agent-settings': () => { gotoSettings('agent'); return true; },
     characters: () => { gotoPage('characters'); return true; },
     memory: () => { gotoPage('memory'); return true; },
     tasks: () => { gotoPage('tasks'); return true; },
     devices: () => { gotoPage('devices'); return true; },
-    agent: () => { const b = $('btn-agent'); if (b) b.click(); return true; },
-    // 任务详情不是弹窗，它是覆盖式抽屉；这里把它摆成「正在执行 + 等确认」
+    agent: () => { gotoPage('chat'); return true; },
+    // 截图用：把「Agent 已经在对话里干活 + 等确认」的样子摆出来
     dashboard: () => (typeof window.__AILEEN_PREVIEW_DASHBOARD === 'function' ? window.__AILEEN_PREVIEW_DASHBOARD() : false),
+    // 截图用：只把权限弹层打开
+    'agent-panel': () => { gotoPage('chat'); toggleAgentPanel(); return true; },
   };
   const fn = table[name];
   if (fn) { fn(); return true; }
@@ -972,10 +963,10 @@ window.__AILEEN_AGENT_TEST = {
     };
   },
   dashboard: {
-    init: () => initAgentDashboard(),
-    state: () => dashboardState(),
-    event: (type, payload) => onAgentEvent(type, payload),
-    reset: () => resetDashboard(),
+    init: () => initAgentUI(),
+    state: () => agentUiSnapshot(),
+    event: (type, payload) => handleAgentEvent(type, payload),
+    reset: () => resetAgentRun(),
   },
   /** 自检用：读当前 agent 设置（开关状态） */
   agentSettings() {
@@ -984,34 +975,61 @@ window.__AILEEN_AGENT_TEST = {
 };
 
 /**
- * 自检钩子：Agent 面板。
+ * 自检钩子：Agent 权限弹层（输入区那个按钮弹出来的东西）。
  * 刻意**不真跑 LLM**（那要花用户的额度），只插一条审批请求，
- * 检查：面板能开、控件在、审批卡片能画出来、按钮点得动。
+ * 检查：弹层能开能关能再开、控件齐、活动卡画得出来、审批按钮点得动。
  */
 window.__AILEEN_PROBE_AGENT = async () => {
   const out = {};
-  // 0.8：Agent 面板 = 主窗口右侧抽屉（#agent-drawer）
-  const panel = document.getElementById('agent-drawer');
-  window.__AILEEN_OPEN('agent');
-  // 抽屉是「滑入」的：open 类在下一帧加，这里等一帧再断言
+  const chip = document.getElementById('btn-agent-mode');
+  const panel = document.getElementById('agent-panel');
+  if (!chip || !panel) { out.error = 'Agent 入口缺失'; return out; }
+  // 从「关着」的基线开始：否则 chip.click() 会把已经开着的弹层关掉
+  closeAgentPanel();
+  // 用「点按钮」的方式打开（和用户手动操作同一条路），不是直接调函数
+  chip.click();
   await new Promise((r) => setTimeout(r, 80));
-  out.panelOpen = !!panel && !panel.classList.contains('hidden');
-  for (const id of ['ag-task', 'ag-start', 'ag-pause', 'ag-resume', 'ag-cancel', 'ag-approval', 'ag-log', 'ag-status', 'ag-workspace']) {
+  out.panelOpen = !panel.classList.contains('hidden');
+  out.chipExpanded = chip.getAttribute('aria-expanded') === 'true';
+  out.panelInComposer = !!panel.closest('#composer');
+  out.noSideConsole = !document.getElementById('agent-drawer');
+  for (const id of ['ap-enabled', 'ap-workspace-path', 'btn-ap-pick', 'btn-ap-open', 'ap-full', 'ap-skipwrite', 'ap-recent']) {
     out[id] = !!document.getElementById(id);
   }
-  out.workspaceLabel = (document.getElementById('ag-workspace') || {}).textContent || '';
-  // 走和真实事件同一条路注入一条 HIGH 风险审批，看卡片与按钮
+  out.workspaceLabel = (document.getElementById('ap-workspace-path') || {}).textContent || '';
+  // 再点一次收起；第三次再打开 —— 「收起之后还能再开」是硬要求
+  chip.click();
+  await new Promise((r) => setTimeout(r, 60));
+  out.closedByChip = panel.classList.contains('hidden');
+  out.chipCollapsed = chip.getAttribute('aria-expanded') === 'false';
+  chip.click();
+  await new Promise((r) => setTimeout(r, 60));
+  out.reopened = !panel.classList.contains('hidden');
+  window.__AILEEN_OPEN('chat');
+
+  // 对话里的活动卡：挂一张卡，然后按真实事件流注入
+  const app = window.__AILEEN_AGENT_TEST;
+  app.dashboard.reset();
+  beginAgentTurn('整理下载目录');
+  injectAgentEvent('run_created', { run_id: 'probe-card', task: '整理下载目录' });
+  injectAgentEvent('step', { step: 1, phase: 'llm' });
+  injectAgentEvent('tool_call', { name: 'list_files', riskLevel: 'LOW' });
+  injectAgentEvent('tool_result', { name: 'list_files', ok: true, summary: '3 个文件夹 / 12 个文件' });
   injectAgentEvent('approval_request', { id: 'probe-1', name: 'run_command', riskLevel: 'HIGH', preview: '要执行命令：npm run build', args: {} });
-  out.approvalVisible = !document.getElementById('ag-approval').classList.contains('hidden');
-  out.approvalText = (document.getElementById('ag-approval-text') || {}).textContent || '';
-  out.approvalRisk = (document.getElementById('ag-approval-risk') || {}).textContent || '';
-  out.logLines = document.getElementById('ag-log').childElementCount;
-  // 抽屉必须是「滑入」的可见态：hidden 去掉 + open 类在
-  out.drawerOpenClass = panel ? panel.classList.contains('open') : false;
-  // 主色在 Agent 模式下不再切换成霓虹蓝（新设计没有第二套主色），
-  // 这里只确认 accent 令牌解析出了真值，避免「改了 CSS 变量却没生效」
-  const rootStyle = document.documentElement ? getComputedStyle(document.documentElement) : null;
-  out.accentResolved = !!(rootStyle && rootStyle.getPropertyValue('--accent').trim());
+  const st = app.dashboard.state();
+  out.cardVisible = st.cardVisible === true;
+  out.cardRunning = st.cardRunning === true;
+  out.cardTask = st.cardTask || '';
+  out.stepLines = st.stepLines;
+  out.approvalVisible = st.approvalVisible === true;
+  out.approvalText = st.approvalText || '';
+  out.approvalRisk = st.approvalRisk || '';
+  out.hasApprove = !!document.querySelector('.agent-card .aa-approve');
+  out.hasReject = !!document.querySelector('.agent-card .aa-reject');
+  out.accentResolved = (() => {
+    const rootStyle = document.documentElement ? getComputedStyle(document.documentElement) : null;
+    return !!(rootStyle && rootStyle.getPropertyValue('--accent').trim());
+  })();
   out.theme = document.documentElement.getAttribute('data-theme') || '';
   // 审批卡片故意留着不收：自检截图要看到它。
   // 截图之后由下面的 _AFTER 再点「拒绝」并断言卡片真的消失。
@@ -1020,7 +1038,13 @@ window.__AILEEN_PROBE_AGENT = async () => {
 
 // 截图前的视觉准备：把审批卡片摆出来（只为截图，不影响断言）
 window.__AILEEN_PREVIEW_APPROVAL = () => {
-  window.__AILEEN_OPEN('agent');
+  const app = window.__AILEEN_AGENT_TEST;
+  window.__AILEEN_OPEN('chat');
+  app.dashboard.reset();
+  beginAgentTurn('整理下载目录');
+  injectAgentEvent('run_created', { run_id: 'preview-card', task: '整理下载目录' });
+  injectAgentEvent('tool_call', { name: 'list_files', riskLevel: 'LOW' });
+  injectAgentEvent('tool_result', { name: 'list_files', ok: true, summary: '3 个文件夹 / 12 个文件' });
   injectAgentEvent('approval_request', {
     id: 'preview-1', name: 'run_command', riskLevel: 'HIGH', preview: '要执行命令：npm run build', args: {},
   });
@@ -1029,7 +1053,7 @@ window.__AILEEN_PREVIEW_APPROVAL = () => {
 
 // 自检钩子：点亮「电脑控制」开关要**立刻**发生两件事
 //   1) 开关本身立刻变（文案 + 高亮）
-//   2) Agent 抽屉打开（不用等发消息）—— **但桌面展台不受影响**
+//   2) 输入区的 Agent 按钮跟着亮（同一个状态，不另开控制台）—— **但桌面展台不受影响**
 // 验完把设置还原，避免影响后面的断言。
 window.__AILEEN_PROBE_COMPUTER_TOGGLE = async () => {
   const out = {};
@@ -1039,13 +1063,17 @@ window.__AILEEN_PROBE_COMPUTER_TOGGLE = async () => {
   const devicesNav = document.querySelector('#side-nav .nav-item[data-page="devices"]');
   if (devicesNav) devicesNav.click();
   const btn = document.getElementById('btn-computer');
-  const dash = document.getElementById('agent-drawer');
-  if (!btn || !dash) { out.error = '控件缺失'; return out; }
+  const chip = document.getElementById('btn-agent-mode');
+  const panel = document.getElementById('agent-panel');
+  if (!btn || !chip || !panel) { out.error = '控件缺失'; return out; }
+  // 弹层必须是「关着」的基线：否则下面点 chip 会把它关掉，断言就成了看运气
+  closeAgentPanel();
 
   // 基线：确保「开关关掉 + 没有任务在跑」——否则开关的语义测不准
   app.dashboard.reset();
   if (app.agentSettings().computerUse === true) { btn.click(); await new Promise((r) => setTimeout(r, 80)); }
-  out.baselineDashboardHidden = dash.classList.contains('hidden');
+  out.baselineChipOff = !chip.classList.contains('on');
+  out.noSideConsole = !document.getElementById('agent-drawer');
   let baselineOverlay = null;
   try { baselineOverlay = await window.api.overlayStatus(); } catch (err) { baselineOverlay = null; }
   out.baselineOverlayVisible = !!(baselineOverlay && baselineOverlay.visible);
@@ -1056,38 +1084,37 @@ window.__AILEEN_PROBE_COMPUTER_TOGGLE = async () => {
   out.settingOn = app.agentSettings().computerUse === true;
   out.btnText = (document.getElementById('btn-computer-label') || {}).textContent || btn.textContent;
   out.btnHighlighted = btn.classList.contains('computer-on');
-  out.dashboardShown = !dash.classList.contains('hidden');
-  out.drawerOpenClass = dash.classList.contains('open');
+  out.chipOn = chip.classList.contains('on');
   // 展台是**独立窗口**：主窗口里不能有任何 stage 容器
   out.mainWindowHasNoStage = !document.getElementById('stage-container');
-  // 抽屉打开后，设备页的开关必须**还点得到**（遮罩不能盖住它，否则看起来像关不掉）
+
+  // 弹层打开时，设备页的开关必须**还点得到**（不能有透明遮罩盖住它）
+  chip.click();
+  await new Promise((r) => setTimeout(r, 80));
+  out.panelOpenedByChip = !panel.classList.contains('hidden');
+  out.panelMasterChecked = !!(document.getElementById('ap-enabled') || {}).checked;
   const r = btn.getBoundingClientRect();
   const top = document.elementFromPoint(Math.round(r.left + r.width / 2), Math.round(r.top + r.height / 2));
   out.btnClickable = !!(top && (top === btn || btn.contains(top)));
-  out.hintShown = (document.getElementById('dash-now') || {}).textContent || '';
 
-  // 关掉 → 抽屉收回去（滑出动画 180ms，等它结束再断言）
+  // 关掉 → 输入区按钮跟着灭、弹层里的主开关也灭
   btn.click();
-  await new Promise((r) => setTimeout(r, 280));
+  await new Promise((r) => setTimeout(r, 120));
   out.afterOff = {
     settingOff: app.agentSettings().computerUse !== true,
-    dashboardHidden: dash.classList.contains('hidden'),
+    chipOff: !chip.classList.contains('on'),
+    masterOff: !(document.getElementById('ap-enabled') || {}).checked,
     stageAlwaysSeparate: !document.getElementById('stage-container'),
   };
-  // 对话输入区的 Agent 按钮也必须和这个开关同步
-  const chip = document.getElementById('btn-agent-mode');
-  out.chipExists = !!chip;
-  out.chipOff = !!chip && !chip.classList.contains('on');
-
-  // 收尾：明确落到「关」的干净状态，不依赖探针开始时读到什么
-  if (app.agentSettings().computerUse === true) { btn.click(); await new Promise((r) => setTimeout(r, 80)); }
+  // 收尾：明确落到「关」的干净状态
+  if (panel) closeAgentPanel();
+  if (app.agentSettings().computerUse === true) { btn.click(); await new Promise((r2) => setTimeout(r2, 80)); }
   app.dashboard.reset();
   return out;
 };
 
-// 自检钩子：Agent Control Dashboard + 人格保留（不跑 LLM，不花额度）
-// 这条守的是本轮最硬的要求：状态驱动 Dashboard、Live2D 让位、以及
-// **角色人格在 Agent 提示词里原样保留**。
+// 自检钩子：对话内活动卡 + 人格保留（不跑 LLM，不花额度）
+// 这条守的是最硬的要求：人格原样保留、状态驱动界面、**主窗口里没有第二套舞台**。
 window.__AILEEN_PROBE_DASHBOARD = async () => {
   const out = {};
   const app = window.__AILEEN_AGENT_TEST;
@@ -1103,18 +1130,14 @@ window.__AILEEN_PROBE_DASHBOARD = async () => {
   out.toolCount = pos.toolCount;
   out.assertOk = pos.assertOk === true;
 
-  // ---- 2) Dashboard 由状态驱动 ----
-  // 先复位：上一个预览（截图用的）会留下可见态，不复位的话
-  // 「跑之前应该是隐藏的」这条基线断言拿到的是脏状态。
-  const closeBtn = document.getElementById('ag-close');
-  if (closeBtn) closeBtn.click();
-  await new Promise((r) => setTimeout(r, 260));
-  app.dashboard.init();
+  // ---- 2) 活动卡由状态驱动 ----
+  window.__AILEEN_OPEN('chat');
   app.dashboard.reset();
   await new Promise((r) => setTimeout(r, 60));
   const before = app.dashboard.state();
-  out.hiddenBeforeRun = before.visible === false;
+  out.cardHiddenBeforeRun = before.cardVisible === false;
 
+  beginAgentTurn('打开浏览器搜索 AILEEN');
   app.dashboard.event('run_created', { run_id: 'probe', task: '打开浏览器搜索 AILEEN', maxRounds: 20 });
   app.dashboard.event('status', { status: 'planning' });
   app.dashboard.event('step', { step: 1, phase: 'llm' });
@@ -1122,33 +1145,36 @@ window.__AILEEN_PROBE_DASHBOARD = async () => {
   app.dashboard.event('tool_call', { name: 'window_list', riskLevel: 'LOW' });
   app.dashboard.event('tool_result', { name: 'window_list', ok: true, summary: '记事本 / Chrome' });
   app.dashboard.event('status', { status: 'using_tool' });
+  app.dashboard.event('step', { step: 2, phase: 'tool', tool: 'open_application' });
   app.dashboard.event('approval_request', { id: 'ap-probe', name: 'mouse_click', riskLevel: 'HIGH', preview: '要点击鼠标left' });
 
   const mid = app.dashboard.state();
-  out.visibleDuringRun = mid.visible === true;
-  // 展台是独立窗口，主窗口里永远不该出现 stage 容器（这就是「不替换陪伴」的结构保证）
-  out.stageIsSeparateWindow = !document.getElementById('stage-container');
-  out.mainWindowHasNoStage = out.stageIsSeparateWindow;
-  out.taskShown = mid.task;
-  out.logLines = mid.logLines;
+  out.cardVisibleDuringRun = mid.cardVisible === true;
+  out.cardRunning = mid.cardRunning === true;
+  out.mainWindowHasNoStage = !document.getElementById('stage-container');
+  out.stageIsSeparateWindow = out.mainWindowHasNoStage;
+  out.taskShown = mid.cardTask;
+  out.statusText = mid.cardStatus;
+  out.logLines = mid.stepLines;
   out.approvalShown = mid.approvalVisible === true;
-  out.statusText = mid.status;
 
-  // ---- 3) 取消之后 Live2D 要回来 ----
+  // ---- 3) 跑完之后卡片收尾（审批卡消失、不再是运行态） ----
   app.dashboard.event('status', { status: 'cancelled' });
   app.dashboard.event('finished', { status: 'cancelled' });
   const after = app.dashboard.state();
   out.approvalHiddenAfterFinish = after.approvalVisible === false;
+  out.runningFalseAfterFinish = after.running === false;
+  out.cardNotRunning = after.cardRunning === false;
   return out;
 };
 
-// 自检钩子：Dashboard 可见时把审批卡片摆出来（截图用）
+// 自检钩子：把「正在执行 + 等确认」的样子摆出来（截图用）
 window.__AILEEN_PREVIEW_DASHBOARD = () => {
   const app = window.__AILEEN_AGENT_TEST;
   if (!app) return false;
-  app.dashboard.init();
-  // 先把上一次预览可能留下的运行态清掉（否则「跑完要还原」这类判断会拿到脏状态）
-  app.dashboard.event('finished', { status: 'completed' });
+  window.__AILEEN_OPEN('chat');
+  app.dashboard.reset();
+  beginAgentTurn('打开浏览器搜索 AILEEN 并告诉我结果');
   app.dashboard.event('run_created', { run_id: 'preview', task: '打开浏览器搜索 AILEEN 并告诉我结果', maxRounds: 20 });
   app.dashboard.event('status', { status: 'using_tool' });
   app.dashboard.event('step', { step: 2, phase: 'tool', tool: 'open_application' });
@@ -1160,24 +1186,34 @@ window.__AILEEN_PREVIEW_DASHBOARD = () => {
   return true;
 };
 
-// 自检钩子：Agent 面板的交互收尾（审批卡片的拒绝按钮要真的接上）
+// 自检钩子：活动卡的交互收尾（审批的「拒绝」必须真的接上，收完卡片要清干净）
 // 单独一个函数是为了让「截图」发生在本函数之前 —— 截图时卡片还在。
 window.__AILEEN_PROBE_AGENT_AFTER = async () => {
   const out = {};
-  const box = document.getElementById('ag-approval');
+  const app = window.__AILEEN_AGENT_TEST;
+  // 只看**最新那张**活动卡：旧卡还留在对话里当记录，querySelector 会抓到旧的
+  const cards = document.querySelectorAll('.agent-card');
+  const live = cards.length ? cards[cards.length - 1] : null;
+  const box = live ? live.querySelector('.agent-approval') : null;
   out.visibleBeforeReject = !!box && !box.classList.contains('hidden');
-  const reject = document.getElementById('ag-reject');
+  const reject = live ? live.querySelector('.aa-reject') : null;
   out.hasReject = !!reject;
   if (reject) reject.click();
-  out.hiddenAfterReject = !!box && box.classList.contains('hidden');
-  // 关掉抽屉：hidden + open 都要清掉（滑出动画 180ms，等它结束再断言）
-  const panel = document.getElementById('agent-drawer');
-  const closeBtn = document.getElementById('ag-close');
-  if (closeBtn) closeBtn.click();
-  else if (panel) panel.classList.add('hidden');
-  await new Promise((r) => setTimeout(r, 260));
+  out.hiddenAfterReject = !!(box && box.classList.contains('hidden'));
+  // 弹层也要真的收得起来：先确保关着，再开、再关
+  closeAgentPanel();
+  await new Promise((r) => setTimeout(r, 40));
+  toggleAgentPanel();
+  await new Promise((r) => setTimeout(r, 60));
+  const panel = document.getElementById('agent-panel');
+  out.panelOpenedByToggle = !!panel && !panel.classList.contains('hidden');
+  closeAgentPanel();
+  await new Promise((r) => setTimeout(r, 60));
   out.panelHiddenAfterClose = !!panel && panel.classList.contains('hidden');
-  out.drawerClosedClass = !!panel && !panel.classList.contains('open');
+  // 复位：下一项断言/截图不该被这张卡影响
+  app.dashboard.reset();
+  await new Promise((r) => setTimeout(r, 60));
+  out.cardHiddenAfterReset = app.dashboard.state().cardVisible === false;
   out.mainWindowHasNoStage = !document.getElementById('stage-container');
   return out;
 };
@@ -1246,6 +1282,53 @@ window.__AILEEN_PROBE_STUDIO = () => {
   closePersonaStudio();
   out.closed = !document.getElementById('modal-persona') || document.getElementById('modal-persona').classList.contains('hidden');
   return out;
+};
+
+// 自检钩子：逐页量「内容是不是比视口宽」——宽了就会出现横向滚动条、右侧被切掉。
+// 返回越界清单（空数组 = 正常）。主进程会在大窗口和窄窗口各量一次。
+window.__AILEEN_HSCROLL = async () => {
+  const offenders = [];
+  const navFor = (p) => document.querySelector('#side-nav .nav-item[data-page="' + p + '"]');
+  const measure = (tag) => {
+    const page = document.querySelector('#content .page.on');
+    const body = (page && page.querySelector('.page-body')) || page;
+    if (!body) return;
+    // 「右侧被切掉」的定义是**元素真的伸出可视区**，不是 scrollWidth 比 clientWidth 大：
+    // 后者在出现竖向滚动条时必然差几个像素（滚动条占掉了 clientWidth），是假阳性。
+    const rect = body.getBoundingClientRect();
+    const edge = rect.right - (body.offsetWidth - body.clientWidth); // 去掉竖向滚动条
+    let worst = null;
+    let worstOver = 0;
+    for (const el of body.querySelectorAll('*')) {
+      const r = el.getBoundingClientRect();
+      if (r.width === 0 && r.height === 0) continue;
+      const o = Math.round(r.right - edge);
+      if (o > worstOver) { worstOver = o; worst = el; }
+    }
+    if (worstOver > 1) {
+      const who = worst ? ((worst.id && '#' + worst.id) || ('<.' + String(worst.className || worst.tagName).split(' ').join('.') + '>')) : '?';
+      offenders.push(tag + ':over+' + worstOver + ' (' + who + ')');
+    }
+    const docOver = Math.round(document.documentElement.scrollWidth - document.documentElement.clientWidth);
+    if (docOver > 1) offenders.push(tag + ':doc+' + docOver);
+  };
+  const pages = ['settings', 'tasks', 'devices', 'characters', 'memory', 'chat'];
+  for (const p of pages) {
+    const nav = navFor(p);
+    if (nav) { nav.click(); await new Promise((r) => setTimeout(r, 120)); }
+    if (p === 'settings') {
+      for (const b of Array.from(document.querySelectorAll('#settings-nav button'))) {
+        b.click();
+        await new Promise((r) => setTimeout(r, 60));
+        measure('settings/' + (b.dataset.sec || '?'));
+      }
+    } else {
+      measure(p);
+    }
+  }
+  const chatNav = navFor('chat');
+  if (chatNav) chatNav.click();
+  return { offenders, viewport: [window.innerWidth, window.innerHeight] };
 };
 
 // 自检钩子：人设解析（围栏 + 废话 + 字符串里的大括号 + 空字段丢弃）

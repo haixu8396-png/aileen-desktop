@@ -68,7 +68,7 @@ export const state = {
   currentMenuFile: null,
   quickFile: null,
   voiceLoop: false,
-  /** 预算用尽的任务：检查点与任务原文（抽屉上的「继续」用它断点续跑） */
+  /** 预算用尽的任务：检查点与任务原文（活动卡上的「继续执行」用它断点续跑） */
   pendingCheckpoint: null,
   pendingCheckpointTask: '',
   /** 最近一次 Agent 表现层状态（给展台的状态提示用；runtime 不依赖它） */

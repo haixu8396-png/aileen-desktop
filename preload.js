@@ -55,6 +55,8 @@ contextBridge.exposeInMainWorld('api', {
   // 工具能力全部在主进程执行，渲染层只说「要做什么」；
   // 目录项以 { name, isDirectory } 返回（Dirent 的方法跨 IPC 会丢）。
   agentWorkspace: () => ipcRenderer.invoke('agent:workspace'),
+  // 弹系统对话框挑工作目录（返回 { workspace } 或 null）
+  agentChooseWorkspace: () => ipcRenderer.invoke('agent:chooseWorkspace'),
   agentCursor: () => ipcRenderer.invoke('agent:cursor'),
   agentWindow: (payload) => ipcRenderer.invoke('agent:window', payload),
   agentOpen: (payload) => ipcRenderer.invoke('agent:open', payload),

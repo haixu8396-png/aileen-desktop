@@ -212,6 +212,8 @@ const CHANNELS = {
 
   // ---- Agent（电脑控制 / 编码）----
   'agent:workspace': v.NO_ARGS,
+  // 让用户挑一个工作目录：没有参数，返回 { workspace } 或 null
+  'agent:chooseWorkspace': v.NO_ARGS,
   'agent:cursor': v.NO_ARGS,
   'agent:fs': v.args(v.object({
     op: v.oneOf(['list', 'read', 'write', 'stat']),

@@ -180,7 +180,7 @@ details.advanced[open] summary { margin-bottom: var(--sp-3); }
 .settings-nav button:hover { background: var(--surface-soft); color: var(--text-primary); }
 .settings-nav button.on { background: var(--accent-soft); color: var(--accent-hover); font-weight: 600; }
 .settings-nav button .ico { width: 16px; height: 16px; }
-.settings-body { min-width: 0; overflow-y: auto; padding-right: var(--sp-2); }
+.settings-body { min-width: 0; overflow-y: auto; overflow-x: hidden; padding-right: var(--sp-2); }
 .settings-body > * { max-width: 900px; }
 .set-sec { display: none; flex-direction: column; gap: var(--sp-5); }
 .set-sec.on { display: flex; }
@@ -254,8 +254,10 @@ details.advanced[open] summary { margin-bottom: var(--sp-3); }
 .task-current-head .badge { flex: none; }
 .task-current-goal { font-size: var(--fs-md); color: var(--text-primary); line-height: 1.6; }
 .task-current-meta { display: flex; flex-wrap: wrap; gap: var(--sp-3); font-size: var(--fs-xs); color: var(--text-secondary); }
-.task-steps { display: flex; flex-direction: column; gap: 4px; }
-.task-step { display: flex; gap: var(--sp-2); font-size: var(--fs-xs); color: var(--text-secondary); }
+.task-steps { display: flex; flex-direction: column; gap: 4px; max-height: 180px; overflow-y: auto; }
+.task-step { display: flex; gap: var(--sp-2); font-size: var(--fs-xs); color: var(--text-secondary); line-height: 1.5; }
+.task-step.ok { color: var(--sage); }
+.task-step.err { color: var(--danger); }
 .task-step .ts-dot { width: 6px; height: 6px; border-radius: 50%; margin-top: 7px; flex: none; background: var(--border-strong); }
 .task-step.done .ts-dot { background: var(--sage); }
 .task-step.running .ts-dot { background: var(--accent); }
@@ -295,8 +297,12 @@ details.advanced[open] summary { margin-bottom: var(--sp-3); }
    Minecraft 面板（设备页里的卡）
    ============================================================ */
 .mc-row { display: flex; flex-wrap: wrap; gap: var(--sp-2); }
+/* grid/flex 子项默认 min-width:auto —— 数字输入框的固有宽度会把 96px 的列撑出容器
+   （窄窗口下表现为设备页右侧多出 8px、底部冒出一条横向滚动条）。 */
+.device-card .mc-row > * { min-width: 0; }
+.mc-row input { min-width: 0; }
 .mc-row label { flex: 1; min-width: 140px; }
-.mc-narrow { max-width: 110px; }
+.mc-narrow { max-width: 110px; min-width: 0; }
 .mc-persona { font-size: var(--fs-xs); color: var(--text-secondary); padding: var(--sp-2); background: var(--surface-soft); border-radius: var(--r-sm); }
 .mc-status { font-size: var(--fs-sm); color: var(--text-secondary); padding: 8px 10px; background: var(--surface-soft); border-radius: var(--r-sm); }
 .mc-status.on { color: var(--sage); }
