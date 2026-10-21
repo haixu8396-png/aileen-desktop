@@ -6,6 +6,7 @@
 import { loadOml2d } from 'oh-my-live2d';
 import { t, setLang } from './lib/i18n.js';
 import { applyIcons, iconSvg } from './lib/icons.js';
+import { createDragCoalescer } from './lib/drag-coalescer.js';
 
 const stageBox = document.getElementById('ov-stage');
 // 悬浮 UI 容器：热区按这一整块算（收起时只有工具条那么大）
@@ -17,7 +18,6 @@ const lockBtn = document.getElementById('ov-lock');
 let oml2d = null;
 let overlayCfg = { scale: 0.45, opacity: 1 };
 let currentModel = null;
-let dragging = false;
 let hovering = false;
 let hideTimer = null;
 let askedInteractive = null;
@@ -49,7 +49,7 @@ function showTools() {
   tools.classList.add('on');
   clearTimeout(hideTimer);
   hideTimer = setTimeout(() => {
-    if (!hovering && !dragging) tools.classList.remove('on');
+    if (!hovering && !dragActive) tools.classList.remove('on');
   }, 2600);
 }
 
@@ -60,7 +60,7 @@ function setInteractive(on) {
 }
 
 document.addEventListener('mousemove', (e) => {
-  if (dragging) return;
+  if (dragActive) return;
   const inside = overTools(e.clientX, e.clientY);
   hovering = inside;
   if (inside) { showTools(); setInteractive(true); }
@@ -70,23 +70,65 @@ document.addEventListener('mouseleave', () => { hovering = false; setInteractive
 window.addEventListener('blur', () => setInteractive(false));
 
 // ---------------- 拖拽移动 ----------------
-grip.addEventListener('pointerdown', async (e) => {
+// 拖动这件事以前有三个坑（真机表现：越拖越卡、松开后窗口还在飘、偶尔尺寸乱跳）：
+//   1. `pointermove` / `pointerup` 的监听器是**在 pointerdown 里**addEventListener 的，
+//      每拖一次就多一份 —— 拖到第三次，鼠标一动就是 3 个 IPC；
+//   2. 每个 pointermove 直接发一个 IPC，不限并发，消息排队越来越长；
+//   3. 结束时不作废待发的东西，松手之后队列里的旧位置还在应用。
+// 现在：监听器只绑一次 + 用 rAF 合并 + 同一时刻只有一个 IPC 在途 + 结束即作废。
+const dragCoalescer = createDragCoalescer({ call: () => window.api.overlayDragMove() });
+let dragActive = false;
+let dragPointerId = null;
+let dragEndCalls = 0;
+let dragMoveEvents = 0;
+
+function beginDrag(e) {
+  if (dragActive) return;
   e.preventDefault();
-  dragging = true;
+  dragActive = true;
+  dragPointerId = e.pointerId;
+  dragCoalescer.start();
   showTools();
-  try { grip.setPointerCapture(e.pointerId); } catch (err) { /* ignore */ }
-  await window.api.overlayDragStart();
-});
-grip.addEventListener('pointermove', () => { if (dragging) window.api.overlayDragMove(); });
-async function endDrag(e) {
-  if (!dragging) return;
-  dragging = false;
-  try { grip.releasePointerCapture(e.pointerId); } catch (err) { /* ignore */ }
-  await window.api.overlayDragEnd();
+  try { grip.setPointerCapture(e.pointerId); } catch (err) { /* 没有捕获也能拖 */ }
+  // 先置位再等主进程：pointermove 可能在这之前就到，丢了第一下会「拖不动」
+  Promise.resolve(window.api.overlayDragStart()).catch(() => { /* 窗口可能已经销毁 */ });
+}
+
+function onDragMove() {
+  if (!dragActive) return;
+  dragMoveEvents += 1;
+  dragCoalescer.request();
+}
+
+function endDrag() {
+  if (!dragActive) return;
+  dragActive = false;
+  dragEndCalls += 1;
+  // 先作废待发的帧/排队标记：这样松手之后不会再多写一个旧位置
+  dragCoalescer.end();
+  if (dragPointerId !== null) {
+    try { grip.releasePointerCapture(dragPointerId); } catch (err) { /* ignore */ }
+    dragPointerId = null;
+  }
+  Promise.resolve(window.api.overlayDragEnd()).catch(() => { /* ignore */ });
   showTools();
 }
+
+// 监听器只在这里绑**一次**（以前在 pointerdown 里重复绑，导致 IPC 越拖越多）
+grip.addEventListener('pointerdown', beginDrag);
+grip.addEventListener('pointermove', onDragMove);
 grip.addEventListener('pointerup', endDrag);
 grip.addEventListener('pointercancel', endDrag);
+grip.addEventListener('lostpointercapture', () => { if (dragActive) endDrag(); });
+
+/** 自检用：这一轮的拖动状态与 IPC 次数（不返回 DOM） */
+window.__AILEEN_OVERLAY_DRAG_STATS = () => Object.assign({
+  active: dragActive,
+  endCalls: dragEndCalls,
+  moveEvents: dragMoveEvents,
+}, dragCoalescer.stats());
+/** 主进程的超时兜底会来问一句「人是不是还按着把手」 */
+window.__AILEEN_OVERLAY_DRAGGING = () => dragActive;
 
 // ---------------- 工具按钮 ----------------
 document.getElementById('ov-smaller').onclick = () => { window.api.overlayResize({ dw: -40, dh: -64 }); showTools(); };

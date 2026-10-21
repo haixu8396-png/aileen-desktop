@@ -62,6 +62,8 @@ const overlayShouldCapture = overlay.getShouldCapture;
 const overlaySettings = overlay.getSettings;
 const setProgrammaticUntil = overlay.setProgrammaticUntil;
 const setOverlayDrag = overlay.setDrag;
+// 假光标：拖动回归用（真机没法托着鼠标跑脚本）
+const setOverlayCursor = overlay.setCursor;
 const applyOverlayBounds = overlay.applyBounds;
 const createOverlayWindow = overlay.createWindow;
 const destroyOverlayWindow = overlay.destroyWindow;
@@ -561,10 +563,9 @@ win.webContents.on('did-finish-load', () => {
           if (firstPre) codeBtn = true;
           copyUiDetail = {
             hasBtn: !!btn,
-            label: btn ? String(btn.textContent || '').trim() : '',
             clickable, belowBody, visible, codeCopyInBlock: !!codeBtn,
           };
-          copyUiOk = !!btn && clickable && belowBody && visible && String(copyUiDetail.label).length > 0;
+          copyUiOk = !!btn && clickable && belowBody && visible;
         } catch (err) { window.__AILEEN_ERRORS.push('copyUi: ' + String((err && err.message) || err)); }
         let uiElementsOk = false;
         let sideCollapseOk = false;
@@ -1002,6 +1003,146 @@ win.webContents.on('did-finish-load', () => {
           // 移动/拖拽之后也必须仍然是穿透的
           rep.ignoringAfterMove = getOverlayIgnoring();
           if (typeof setOverlayDrag === 'function') setOverlayDrag(null);
+          // ④ 拖动：真机最容易翻车的地方（事件堆积 / 尺寸被拉扯 / 松手后还在飘）
+          //    用渲染层**真实的事件入口**（PointerEvent on #ov-grip）驱动，
+          //    光标用注入的假坐标，所以「窗口有没有精确跟到最新位置」能被确定性断言。
+          try {
+            const setCursor = setOverlayCursor;
+            if (typeof setCursor !== 'function') throw new Error('setCursor 没有注入');
+            const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+            const dragStart = await w.getBounds();
+            // 先把窗口放到一个确定的坐标，省得受前面用例影响
+            await applyOverlayBounds({ x: 900, y: 200, width: dragStart.width, height: dragStart.height });
+            await sleep(200);
+            const base = w.getBounds();
+            let resizeEvents = 0;
+            const countResize = () => { resizeEvents += 1; };
+            w.on('resize', countResize);
+
+            const stats = () => w.webContents.executeJavaScript(
+              'window.__AILEEN_OVERLAY_DRAG_STATS ? window.__AILEEN_OVERLAY_DRAG_STATS() : null',
+            );
+            const dragging = () => w.webContents.executeJavaScript(
+              'window.__AILEEN_OVERLAY_DRAGGING ? window.__AILEEN_OVERLAY_DRAGGING() : null',
+            );
+            const dispatch = (type) => w.webContents.executeJavaScript(
+              'document.getElementById("ov-grip").dispatchEvent(new PointerEvent(' + JSON.stringify(type)
+              + ', { bubbles: true, pointerId: 9, pointerType: "mouse", isPrimary: true, button: 0 }))',
+            );
+
+            // 按下把手（假光标在窗口左上角 +120/+80 的位置，模拟「抓住工具栏继续拖」）
+            setCursor(() => ({ x: base.x + 120, y: base.y + 80 }));
+            const before1 = await stats();
+            await dispatch('pointerdown');
+            await sleep(120);
+            rep.dragStarted = (await dragging()) === true;
+
+            // 光标移动 120/60，然后在**同一帧**里砸 40 个 pointermove
+            setCursor(() => ({ x: base.x + 240, y: base.y + 140 }));
+            await w.webContents.executeJavaScript(
+              '(async () => { const g = document.getElementById("ov-grip");'
+              + ' for (let i = 0; i < 40; i += 1) {'
+              + '   g.dispatchEvent(new PointerEvent("pointermove", { bubbles: true, pointerId: 9, pointerType: "mouse", isPrimary: true, buttons: 1 }));'
+              + ' }'
+              + ' await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));'
+              + ' })()',
+            );
+            await sleep(220);
+            const mid = w.getBounds();
+            const midStats = await stats();
+
+            // 松手
+            await dispatch('pointerup');
+            await sleep(260);
+            const afterEndStats = await stats();
+            rep.dragEnded = (await dragging()) === false;
+            // 松手之后再动假光标：窗口绝不能继续跑
+            setCursor(() => ({ x: base.x + 700, y: base.y + 500 }));
+            await sleep(220);
+            const settled = w.getBounds();
+            setCursor(null);
+            w.removeListener('resize', countResize);
+
+            rep.dragProbe = {
+              base: [base.x, base.y, base.width, base.height],
+              mid: [mid.x, mid.y, mid.width, mid.height],
+              settled: [settled.x, settled.y, settled.width, settled.height],
+              want: [base.x + 120, base.y + 60],
+              moveEvents: (midStats.moveEvents || 0) - (before1.moveEvents || 0),
+              moveIpc: (midStats.calls || 0) - (before1.calls || 0),
+              endCalls: (afterEndStats.endCalls || 0) - (before1.endCalls || 0),
+              resizeEvents,
+              statsAfterEnd: afterEndStats,
+            };
+
+            // 高频事件必须被合并：40 个事件最多换算成几个 IPC（以前是每个事件一个）
+            rep.dragCoalesceOk = rep.dragProbe.moveEvents >= 20
+              && rep.dragProbe.moveIpc >= 1
+              && rep.dragProbe.moveIpc <= 4;
+            // 窗口位置 = 最新光标位置（dx/dy 在按下时算好，之后完全跟随）
+            const nearPx = (a, b2) => Math.abs(a - b2) <= 2;
+            rep.dragPositionOk = nearPx(mid.x, base.x + 120) && nearPx(mid.y, base.y + 60);
+            // 拖动只搬位置：宽高一动不动
+            rep.dragSizeStableOk = mid.width === base.width && mid.height === base.height
+              && settled.width === base.width && settled.height === base.height;
+            // 拖动期间不该出现任何 resize（出现了就是「尺寸被拉扯」的那类问题）
+            rep.dragNoResizeOk = resizeEvents === 0;
+            // 结束一次且只一次，且没有残留的帧 / 在途请求
+            rep.dragEndOk = rep.dragProbe.endCalls === 1 && rep.dragEnded === true
+              && afterEndStats.active === false && afterEndStats.pending === false
+              && afterEndStats.inFlight === false;
+            // 松手之后窗口不再跟随（没有残留动画帧或过时位置）
+            rep.dragNoResidualOk = settled.x === mid.x && settled.y === mid.y;
+            // 穿透要恢复：假光标被移到离热区很远的地方 → 应该重新穿透
+            await sleep(400);
+            rep.dragIgnoreRestored = getOverlayIgnoring();
+            // 拖动后的落盘：位置跟到最终位置，尺寸**没有变胖**（否则重启一次大几像素）
+            await sleep(500);
+            const persistedAfterDrag = overlaySettings();
+            rep.dragPersistProbe = {
+              persisted: [persistedAfterDrag.x, persistedAfterDrag.y, persistedAfterDrag.width, persistedAfterDrag.height],
+              wantPos: [mid.x, mid.y],
+              wantSize: [base.width, base.height],
+            };
+            rep.dragPersistOk = Math.abs(Number(persistedAfterDrag.width) - base.width) <= 6
+              && Math.abs(Number(persistedAfterDrag.height) - base.height) <= 6
+              && Math.abs(Number(persistedAfterDrag.x) - mid.x) <= 2
+              && Math.abs(Number(persistedAfterDrag.y) - mid.y) <= 2;
+
+            // 再拖第二次：监听器若被重复绑定，IPC 次数会翻倍
+            const before2 = await stats();
+            setCursor(() => ({ x: base.x + 100, y: base.y + 60 }));
+            await dispatch('pointerdown');
+            await sleep(100);
+            setCursor(() => ({ x: base.x + 160, y: base.y + 100 }));
+            await w.webContents.executeJavaScript(
+              '(async () => { const g = document.getElementById("ov-grip");'
+              + ' for (let i = 0; i < 40; i += 1) {'
+              + '   g.dispatchEvent(new PointerEvent("pointermove", { bubbles: true, pointerId: 9, pointerType: "mouse", isPrimary: true, buttons: 1 }));'
+              + ' }'
+              + ' await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));'
+              + ' })()',
+            );
+            await sleep(220);
+            await dispatch('pointerup');
+            await sleep(160);
+            const after2 = await stats();
+            setCursor(null);
+            rep.dragProbe.second = {
+              moveEvents: (after2.moveEvents || 0) - (before2.moveEvents || 0),
+              moveIpc: (after2.calls || 0) - (before2.calls || 0),
+              endCalls: (after2.endCalls || 0) - (before2.endCalls || 0),
+            };
+            // 第二轮每帧也最多一个 IPC（旧代码这里会是 2 的倍数，越拖越多）
+            rep.dragListenerOnceOk = rep.dragProbe.second.moveIpc >= 1
+              && rep.dragProbe.second.moveIpc <= 4
+              && rep.dragProbe.second.endCalls === 1;
+
+            // 还原：位置与尺寸回到拖动之前
+            await applyOverlayBounds({ x: dragStart.x, y: dragStart.y, width: dragStart.width, height: dragStart.height });
+            await sleep(150);
+          } catch (err) { rep.errors.push('drag: ' + String((err && err.message) || err)); }
+
           // 自检改过尺寸，把持久化值复位成创建时的尺寸，避免跑多轮后越漂越大
           if (rep.bounds) {
             try { writeSettings({ overlay: { width: rep.bounds.width, height: rep.bounds.height } }); } catch (err) { /* ignore */ }

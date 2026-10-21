@@ -207,7 +207,7 @@ export function makeMsgEl(role, content, index, isLastAssistant, showAvatar) {
   // 复制排在最前面：这是最常用的操作，要在「一眼能找到」的位置
   const cp = document.createElement('button');
   cp.className = 'msg-copy';
-  cp.innerHTML = iconSvg('copy', 14) + '<span class="msg-copy-label">' + t('chat.copy') + '</span>';
+  cp.innerHTML = iconSvg('copy', 14);
   cp.title = t('chat.copy');
   cp.onclick = () => copyText(content);
   acts.appendChild(cp);

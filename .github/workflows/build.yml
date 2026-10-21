@@ -116,6 +116,15 @@ jobs:
           if (-not $ovr.snapBackOk) { throw '悬浮展台尺寸被系统意外放大后没有弹回（Aero Snap 防护失效）' }
           if (-not $ovr.ignoringAfterResize) { throw '悬浮展台改过尺寸后不再是鼠标穿透状态（会把桌面点击全吃掉）' }
           if (-not $ovr.ignoringAfterMove) { throw '悬浮展台移动后不再是鼠标穿透状态' }
+          if (-not $ovr.dragCoalesceOk) { throw ('拖动的高频移动没有被合并（IPC 会无上限积压）→ ' + ($ovr.dragProbe | ConvertTo-Json -Compress)) }
+          if (-not $ovr.dragPositionOk) { throw ('拖动后窗口位置没有跟到最新光标位置 → ' + ($ovr.dragProbe | ConvertTo-Json -Compress)) }
+          if (-not $ovr.dragSizeStableOk) { throw ('拖动过程中窗口宽高变了（尺寸被拉扯）→ ' + ($ovr.dragProbe | ConvertTo-Json -Compress)) }
+          if (-not $ovr.dragNoResizeOk) { throw ('拖动期间出现了 resize 事件（会闪烁/尺寸抖动）→ ' + ($ovr.dragProbe | ConvertTo-Json -Compress)) }
+          if (-not $ovr.dragEndOk) { throw ('拖动结束后还有残留的动画帧/在途请求，或 dragEnd 被重复调用 → ' + ($ovr.dragProbe | ConvertTo-Json -Compress)) }
+          if (-not $ovr.dragNoResidualOk) { throw ('松手后窗口还在跟随光标移动 → ' + ($ovr.dragProbe | ConvertTo-Json -Compress)) }
+          if (-not $ovr.dragListenerOnceOk) { throw ('多次拖动后 IPC 次数翻倍（监听器被重复绑定）→ ' + ($ovr.dragProbe | ConvertTo-Json -Compress)) }
+          if ($ovr.dragIgnoreRestored -ne $true) { throw '拖动结束后展台没有恢复鼠标穿透' }
+          if (-not $ovr.dragPersistOk) { throw ('拖动后落盘的位置/尺寸不对（尺寸逐次变胖会让窗口越开越大）→ ' + ($ovr.dragPersistProbe | ConvertTo-Json -Compress)) }
           if ($ovr.cursorInHit -eq $false -and $ovr.ignoringByDefault -ne $true) { throw '光标不在手柄上时，悬浮展台必须鼠标穿透，否则会挡住桌面操作' }
           if (-not $ovr.moved) { throw '悬浮展台无法移动' }
           if (-not $ovr.toolsExists) { throw '悬浮展台缺少右下角工具栏' }
@@ -225,6 +234,15 @@ jobs:
           if (-not $ovr.snapBackOk) { throw '悬浮展台尺寸被系统意外放大后没有弹回（Aero Snap 防护失效）' }
           if (-not $ovr.ignoringAfterResize) { throw '悬浮展台改过尺寸后不再是鼠标穿透状态（会把桌面点击全吃掉）' }
           if (-not $ovr.ignoringAfterMove) { throw '悬浮展台移动后不再是鼠标穿透状态' }
+          if (-not $ovr.dragCoalesceOk) { throw ('拖动的高频移动没有被合并（IPC 会无上限积压）→ ' + ($ovr.dragProbe | ConvertTo-Json -Compress)) }
+          if (-not $ovr.dragPositionOk) { throw ('拖动后窗口位置没有跟到最新光标位置 → ' + ($ovr.dragProbe | ConvertTo-Json -Compress)) }
+          if (-not $ovr.dragSizeStableOk) { throw ('拖动过程中窗口宽高变了（尺寸被拉扯）→ ' + ($ovr.dragProbe | ConvertTo-Json -Compress)) }
+          if (-not $ovr.dragNoResizeOk) { throw ('拖动期间出现了 resize 事件（会闪烁/尺寸抖动）→ ' + ($ovr.dragProbe | ConvertTo-Json -Compress)) }
+          if (-not $ovr.dragEndOk) { throw ('拖动结束后还有残留的动画帧/在途请求，或 dragEnd 被重复调用 → ' + ($ovr.dragProbe | ConvertTo-Json -Compress)) }
+          if (-not $ovr.dragNoResidualOk) { throw ('松手后窗口还在跟随光标移动 → ' + ($ovr.dragProbe | ConvertTo-Json -Compress)) }
+          if (-not $ovr.dragListenerOnceOk) { throw ('多次拖动后 IPC 次数翻倍（监听器被重复绑定）→ ' + ($ovr.dragProbe | ConvertTo-Json -Compress)) }
+          if ($ovr.dragIgnoreRestored -ne $true) { throw '拖动结束后展台没有恢复鼠标穿透' }
+          if (-not $ovr.dragPersistOk) { throw ('拖动后落盘的位置/尺寸不对（尺寸逐次变胖会让窗口越开越大）→ ' + ($ovr.dragPersistProbe | ConvertTo-Json -Compress)) }
           if ($ovr.cursorInHit -eq $false -and $ovr.ignoringByDefault -ne $true) { throw '光标不在手柄上时，悬浮展台必须鼠标穿透，否则会挡住桌面操作' }
           if (-not $ovr.moved) { throw '悬浮展台无法移动' }
           if (-not $ovr.toolsExists) { throw '悬浮展台缺少右下角工具栏' }

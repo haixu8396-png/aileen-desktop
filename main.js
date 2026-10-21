@@ -312,7 +312,9 @@ let overlayInteractive = false;
 let overlayModel = null;      // 当前同步给悬浮窗的模型 { url, name }
 let overlayPersistTimer = null;
 let overlayIgnoreRequests = [];
-let overlayExpectedSize = null;   // 程序化设定的尺寸（唯一合法尺寸）
+let overlayExpectedSize = null;   // 程序化设定的尺寸（唯一合法尺寸；也是落盘要存的值）
+let overlayDragLast = null;       // 上一次已应用的位置（重复坐标不重复 setPosition）
+let overlayGuardSize = null;      // 尺寸守卫要弹回的目标：比 expected 宽松，会吸收跨屏 DPI 变化
 let overlayProgrammaticUntil = 0; // 这段时间内的 resize 事件视为程序化行为
 
 function overlaySettings() {
@@ -344,6 +346,7 @@ const sleepMs = (ms) => new Promise((r) => setTimeout(r, ms));
 async function applyOverlayBounds(next) {
   if (!overlayWin || overlayWin.isDestroyed()) return null;
   overlayExpectedSize = { width: next.width, height: next.height };
+  overlayGuardSize = { width: next.width, height: next.height };
   overlayProgrammaticUntil = Date.now() + 900;
   const locked = !overlayWin.isResizable();
   if (locked) { overlayWin.setResizable(true); await sleepMs(50); }
@@ -375,6 +378,9 @@ function persistOverlayBounds() {
   overlayPersistTimer = setTimeout(() => {
     overlayPersistTimer = null;
     if (!overlayWin || overlayWin.isDestroyed()) return;
+    // 拖动中不落盘：`moved` 每次移动都会来一遍，一直写设置既没必要也会跟拖动抢主线程。
+    // 拖动结束（dragEnd / 超时兜底）会自己调一次 persistOverlayBounds。
+    if (overlayDrag) { persistOverlayBounds(); return; }
     const b = overlayWin.getBounds();
     // 尺寸要存「程序化设定的值」，不能存 Windows 回读的实际值：
     // 无边框窗口带隐形边框，回读值比请求值大 1~6px；
@@ -408,16 +414,39 @@ function reassertOverlayIgnore() {
 // 万一 pointerup 丢了（窗口中途改尺寸、指针捕获失效…），overlayDrag 会一直是 set 状态，
 // overlayShouldCapture() 就永远返回 true —— 展台会永久吃掉鼠标，底下全点不动。
 let overlayDragTimer = null;
+/**
+ * 拖动超时兜底。
+ *
+ * 以前这里到点就直接把 `overlayDrag` 扔掉 —— 但「4 秒没动」不等于「pointerup 丢了」：
+ * 用户完全可能按着把手停一会儿再拖。那样一扔会中途把穿透状态改回去，
+ * 鼠标捕获也跟着断，拖动就断在中间（真机表现：拖到一半开始抖/不动了）。
+ * 所以现在到点先问渲染层「人还按着吗」，按着就续期；真丢了才收尾。
+ */
 function armDragTimeout() {
   if (overlayDragTimer) clearTimeout(overlayDragTimer);
-  overlayDragTimer = setTimeout(() => {
+  overlayDragTimer = setTimeout(async () => {
     overlayDragTimer = null;
+    if (!overlayDrag) return;
+    let stillDragging = false;
+    try {
+      if (overlayWin && !overlayWin.isDestroyed()) {
+        stillDragging = !!(await overlayWin.webContents.executeJavaScript(
+          'window.__AILEEN_OVERLAY_DRAGGING ? window.__AILEEN_OVERLAY_DRAGGING() : false',
+        ));
+      }
+    } catch (err) { stillDragging = false; }
+    if (stillDragging) { armDragTimeout(); return; }
     if (overlayDrag) {
       overlayDrag = null;
+      overlayDragLast = null;
+      if (overlayWin && !overlayWin.isDestroyed()) {
+        const b = overlayWin.getBounds();
+        overlayGuardSize = { width: b.width, height: b.height };
+      }
       persistOverlayBounds();
       reassertOverlayIgnore();
     }
-  }, 4000);
+  }, 8000);
 }
 
 function setOverlayIgnore(ignore) {
@@ -428,11 +457,24 @@ function setOverlayIgnore(ignore) {
   overlayWin.setIgnoreMouseEvents(ignore, { forward: true });
 }
 
+/**
+ * 光标位置的唯一入口。
+ * 平时就是 `screen.getCursorScreenPoint()`；自检可以临时换成一个假光标，
+ * 这样「窗口是否精确跟到最新光标位置」就能被确定性地断言（真机没法托着鼠标跑脚本）。
+ */
+let overlayCursorProvider = null;
+function overlayCursorPoint() {
+  if (typeof overlayCursorProvider === 'function') {
+    try { return overlayCursorProvider(); } catch (err) { /* 回退到真光标 */ }
+  }
+  return screen.getCursorScreenPoint();
+}
+
 /** 光标是否落在渲染层上报的交互热区内（该热区在窗口内坐标下恒定，与鼠标当前位置无关） */
 function overlayCursorInHit() {
   if (!overlayWin || overlayWin.isDestroyed()) return false;
   if (!overlayHit || overlayHit.w <= 0 || overlayHit.h <= 0) return false;
-  const pt = screen.getCursorScreenPoint();
+  const pt = overlayCursorPoint();
   const b = overlayWin.getBounds();
   const x = pt.x - b.x;
   const y = pt.y - b.y;
@@ -467,6 +509,9 @@ function destroyOverlayWindow() {
   overlayIgnoring = false;
   overlayHit = null;
   overlayDrag = null;
+  overlayDragLast = null;
+  overlayGuardSize = null;
+  overlayExpectedSize = null;
   writeSettings({ overlay: { visible: false } });
   broadcastOverlayState();
 }
@@ -510,6 +555,7 @@ function createOverlayWindow() {
     overlayWin.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
   } catch (err) { /* 某些平台不支持，忽略 */ }
   overlayExpectedSize = { width: overlayWin.getBounds().width, height: overlayWin.getBounds().height };
+  overlayGuardSize = { width: overlayExpectedSize.width, height: overlayExpectedSize.height };
   overlayIgnoring = false;
   setOverlayIgnore(true);
   startOverlayWatch();
@@ -530,9 +576,16 @@ function createOverlayWindow() {
   overlayWin.on('maximize', () => { try { overlayWin.unmaximize(); } catch (err) { /* ignore */ } });
   overlayWin.on('resize', () => {
     if (!overlayWin || overlayWin.isDestroyed()) return;
-    if (Date.now() < overlayProgrammaticUntil) return;
     const b = overlayWin.getBounds();
-    const exp = overlayExpectedSize;
+    // 拖动过程中出现的尺寸变化只有一个合法来源：跨显示器后 Windows 按新 DPI 重算 DIP 尺寸
+    //（物理尺寸没变，120/150% 缩放屏上 DIP 值就是会不同）。这时要把新尺寸登记下来，
+    // 而不是拽回旧值 —— 拽回去会和系统反复互相纠正，画面就闪、尺寸就「乱跳」。
+    if (overlayDrag) {
+      overlayGuardSize = { width: b.width, height: b.height };
+      return;
+    }
+    if (Date.now() < overlayProgrammaticUntil) return;
+    const exp = overlayGuardSize || overlayExpectedSize;
     if (exp && (Math.abs(b.width - exp.width) > 4 || Math.abs(b.height - exp.height) > 4)) {
       overlayProgrammaticUntil = Date.now() + 400;
       overlayWin.setBounds({ x: b.x, y: b.y, width: exp.width, height: exp.height });
@@ -650,23 +703,43 @@ function registerOverlayIpc() {
   });
   handle('overlay:dragStart', () => {
     if (!overlayWin || overlayWin.isDestroyed()) return false;
-    const pt = screen.getCursorScreenPoint();
+    const pt = overlayCursorPoint();
     const b = overlayWin.getBounds();
     overlayDrag = { dx: pt.x - b.x, dy: pt.y - b.y };
+    overlayDragLast = { x: b.x, y: b.y };
+    // 拖动只搬位置、不动尺寸：把当前尺寸登记成「守卫目标」。
+    // 跨显示器拖动时 Windows 会按新 DPI 重算 DIP 尺寸（物理尺寸不变），
+    // 不登记的话尺寸守卫会把窗口硬拽回旧 DIP 值 —— 和系统互相打架，就是「拖动时尺寸失控/闪烁」。
+    // 注意只动 guard，不动 expected：expected 是落盘要存的「请求尺寸」，
+    // 存回读值会让窗口每重启一次就大几像素。
+    overlayGuardSize = { width: b.width, height: b.height };
     armDragTimeout();
     setOverlayIgnore(false);
     return true;
   });
   handle('overlay:dragMove', () => {
     if (!overlayDrag || !overlayWin || overlayWin.isDestroyed()) return false;
-    const pt = screen.getCursorScreenPoint();
-    overlayWin.setPosition(Math.round(pt.x - overlayDrag.dx), Math.round(pt.y - overlayDrag.dy));
+    // 位置由主进程按**当前真实光标**算，渲染层只负责说「该更新了」：
+    // 这样即使事件堆积过时了，落到的也永远是最新位置。
+    const pt = overlayCursorPoint();
+    const x = Math.round(pt.x - overlayDrag.dx);
+    const y = Math.round(pt.y - overlayDrag.dy);
     armDragTimeout();
+    if (overlayDragLast && overlayDragLast.x === x && overlayDragLast.y === y) return true;
+    overlayDragLast = { x, y };
+    overlayWin.setPosition(x, y, false);
     return true;
   });
   handle('overlay:dragEnd', () => {
     if (overlayDragTimer) { clearTimeout(overlayDragTimer); overlayDragTimer = null; }
     overlayDrag = null;
+    overlayDragLast = null;
+    // 结束这一刻把真实尺寸记成守卫目标（跨屏 DPI 变化后，别让守卫再弹回旧值）；
+    // expected（落盘值）保持程序化设定的请求尺寸，避免「每跑一次就大几像素」。
+    if (overlayWin && !overlayWin.isDestroyed()) {
+      const b = overlayWin.getBounds();
+      overlayGuardSize = { width: b.width, height: b.height };
+    }
     persistOverlayBounds();
     setOverlayIgnore(!overlayShouldCapture());
     return true;
@@ -890,6 +963,8 @@ function selfTestDeps() {
       getDrag: () => overlayDrag,
       // 自检要模拟一次拖动：这些状态只能通过 setter 改（取值函数是 const 绑定）
       setDrag: (v) => { overlayDrag = v || null; },
+      // 假光标：自检托不动真鼠标，用注入的坐标验证「窗口是否精确跟到最新位置」
+      setCursor: (fn) => { overlayCursorProvider = typeof fn === 'function' ? fn : null; },
       getCursorInHit: () => overlayCursorInHit(),
       getShouldCapture: () => overlayShouldCapture(),
       getSettings: () => overlaySettings(),
@@ -1384,6 +1459,16 @@ app.whenReady().then(async () => {
   if (overlaySettings().visible) {
     setTimeout(() => { try { createOverlayWindow(); } catch (err) { console.error('[overlay] 自动恢复失败:', err); } }, 400);
   }
+
+  // 显示器缩放 / 分辨率变化（拔插扩展屏、改 DPI）：窗口的**物理**尺寸不变，
+  // 但 DIP 尺寸会跟着变。把新值登记成「合法尺寸」，否则尺寸守卫会把它拽回旧 DIP 值。
+  screen.on('display-metrics-changed', () => {
+    setTimeout(() => {
+      if (!overlayWin || overlayWin.isDestroyed() || overlayDrag) return;
+      const b = overlayWin.getBounds();
+      overlayGuardSize = { width: b.width, height: b.height };
+    }, 500);
+  });
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();

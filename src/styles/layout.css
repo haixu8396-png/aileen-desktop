@@ -296,28 +296,20 @@
   min-height: 24px;
 }
 .msg-actions button {
-  height: 24px; padding: 0 6px;
-  display: inline-flex; align-items: center; justify-content: center; gap: 4px;
-  border: 1px solid transparent; border-radius: var(--r-pill);
+  width: 24px; height: 24px; padding: 0;
+  display: inline-flex; align-items: center; justify-content: center;
+  border: 1px solid transparent; border-radius: var(--r-sm);
   background: transparent; color: var(--text-tertiary);
-  opacity: 0.4; transition: opacity var(--dur-1) var(--ease), color var(--dur-1) var(--ease), background var(--dur-1) var(--ease);
+  opacity: 0.55; transition: opacity var(--dur-1) var(--ease), color var(--dur-1) var(--ease), background var(--dur-1) var(--ease);
 }
-.msg-actions .msg-copy {
-  opacity: 1; padding: 0 9px 0 8px;
-  color: var(--text-secondary);
-  border-color: var(--border);
-  background: var(--surface-raised);
-}
-.msg-actions .msg-copy-label { font-size: var(--fs-2xs); font-weight: 600; letter-spacing: 0.02em; }
 .msg:hover .msg-actions button,
 .msg:focus-within .msg-actions button,
 .msg-actions button:hover { opacity: 1; color: var(--text-primary); }
 .msg-actions button:hover { background: var(--surface-raised); border-color: var(--border); }
 .msg-actions .ico { width: 14px; height: 14px; }
-.msg-actions .msg-copy .ico { width: 13px; height: 13px; }
 /* 触屏 / 无指针设备：没有 hover，全都得看得见 */
 @media (hover: none) {
-  .msg-actions button { opacity: 0.8; }
+  .msg-actions button { opacity: 0.85; }
 }
 
 /* 思考中 / 滚动到底 */
