@@ -55,6 +55,8 @@ body {
   white-space: nowrap;
   pointer-events: none;
   opacity: 0.92;
+  /* 和 #ov-ui 一样：要压在模型画布之上，否则状态字会被角色盖住 */
+  z-index: 20;
 }
 .ov-status.hidden { display: none; }
 
@@ -66,6 +68,9 @@ body {
   display: flex; flex-direction: column; align-items: flex-end; gap: 8px;
   max-width: calc(100% - 32px);
   pointer-events: auto;
+  /* 必须压在 Live2D 画布之上：库里的舞台元素带 z-index:1（见 overlay.js 的 STAGE_STYLE），
+     这里不给更高的话，弹出的聊天/动作面板会被模型挡住。 */
+  z-index: 20;
 }
 
 /* 工具条：竖着束成一列贴在右下角，不抢角色的视觉重量 */
