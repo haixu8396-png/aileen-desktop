@@ -170,13 +170,47 @@ export function makeMsgEl(role, content, index, isLastAssistant, showAvatar) {
     fillAvatar(av, (cur && cur.data && cur.data.name) || 'AILEEN', (cur && cur.data && cur.data.avatar) || '');
     div.appendChild(av);
   }
+  // 正文与操作条竖着叠：操作条在**消息下面**（以前浮在右上角，淡出到看不见，
+  // 用户反馈「复制图标不好找」）。外面这一层让「气泡 + 操作条」作为一个整体对齐。
+  const col = document.createElement('div');
+  col.className = 'msg-col';
   const body = document.createElement('div');
   body.className = 'msg-body';
-  if (role === 'assistant') body.innerHTML = renderMarkdown(content);
-  else body.textContent = content;
-  div.appendChild(body);
+  if (role === 'assistant') {
+    body.innerHTML = renderMarkdown(content);
+    // 代码块右上角给一个「复制这段代码」：长回复里想复制的往往只是那段。
+    // 用一层 wrapper 定位，代码横向滚动时按钮不会跟着跑出去。
+    body.querySelectorAll('pre').forEach((pre) => {
+      if (!pre.parentNode) return;
+      const wrap = document.createElement('div');
+      wrap.className = 'code-block';
+      pre.parentNode.insertBefore(wrap, pre);
+      wrap.appendChild(pre);
+      const btn = document.createElement('button');
+      btn.className = 'code-copy';
+      btn.type = 'button';
+      btn.title = t('chat.copyCode');
+      btn.innerHTML = iconSvg('copy', 13) + '<span>' + t('chat.copyCode') + '</span>';
+      btn.onclick = (e) => {
+        e.stopPropagation();
+        const code = pre.querySelector('code');
+        copyText(code ? code.innerText : pre.innerText);
+      };
+      wrap.appendChild(btn);
+    });
+  } else {
+    body.textContent = content;
+  }
+  col.appendChild(body);
   const acts = document.createElement('div');
   acts.className = 'msg-actions';
+  // 复制排在最前面：这是最常用的操作，要在「一眼能找到」的位置
+  const cp = document.createElement('button');
+  cp.className = 'msg-copy';
+  cp.innerHTML = iconSvg('copy', 14) + '<span class="msg-copy-label">' + t('chat.copy') + '</span>';
+  cp.title = t('chat.copy');
+  cp.onclick = () => copyText(content);
+  acts.appendChild(cp);
   if (role === 'assistant') {
     const sp = document.createElement('button');
     sp.innerHTML = iconSvg('speaker', 14);
@@ -184,11 +218,6 @@ export function makeMsgEl(role, content, index, isLastAssistant, showAvatar) {
     sp.onclick = () => speakText(content);
     acts.appendChild(sp);
   }
-  const cp = document.createElement('button');
-  cp.innerHTML = iconSvg('copy', 14);
-  cp.title = t('chat.copy');
-  cp.onclick = () => copyText(content);
-  acts.appendChild(cp);
   if (isLastAssistant) {
     const rg = document.createElement('button');
     rg.innerHTML = iconSvg('regenerate', 14);
@@ -203,7 +232,8 @@ export function makeMsgEl(role, content, index, isLastAssistant, showAvatar) {
     del.onclick = () => deleteMessage(index);
     acts.appendChild(del);
   }
-  div.appendChild(acts);
+  col.appendChild(acts);
+  div.appendChild(col);
   return div;
 }
 

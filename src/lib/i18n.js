@@ -278,6 +278,7 @@ export const EN = {
   "chat.copyFailed": "Copy failed",
   "chat.readAloud": "Read aloud",
   "chat.copy": "Copy",
+  "chat.copyCode": "Copy this code",
   "chat.nothingToRead": "Nothing to read aloud yet",
   "chat.needChar": "Create and select a character card first",
   "chat.noApiKey": "LLM API key is not configured",

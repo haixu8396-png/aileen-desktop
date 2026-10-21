@@ -822,5 +822,6 @@
   "agent.statePlanning": "规划中…",
   "agent.statePaused": "已暂停",
   "tasks.backToChat": "去对话里用 Agent",
-  "tasks.steps": "步"
+  "tasks.steps": "步",
+  "chat.copyCode": "复制这段代码"
 }

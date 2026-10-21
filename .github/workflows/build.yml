@@ -80,6 +80,7 @@ jobs:
           if (-not $diag.pageNavOk) { throw '界面：主导航切换页面失败（一次只应显示一页）' }
           if (-not $diag.markerProbeOk) { throw ('对话内核：标记解析器在打包产物里不可用 → ' + ($diag.markerProbeDetail | ConvertTo-Json -Compress)) }
           if (-not $diag.copyOk) { throw ('复制到剪贴板失败（应走主进程 clipboard）→ ' + ($diag.copyDetail | ConvertTo-Json -Compress)) }
+          if (-not $diag.copyUiOk) { throw ('复制入口不好找（必须在消息下面、常驻可见、点得到）→ ' + ($diag.copyUiDetail | ConvertTo-Json -Compress)) }
           if (-not $diag.pacerProbeOk) { throw ('对话内核：回复节奏控制不可用 → ' + ($diag.pacerProbeDetail | ConvertTo-Json -Compress)) }
           if (-not $diag.performOk) { throw ('表演设置不可调（设置分类打不开或保存不生效）→ ' + ($diag.performDetail | ConvertTo-Json -Compress)) }
           if (@($diag.uiBlockedBy).Count -gt 0) { throw ('界面被隐形元素遮挡，鼠标点不动 → ' + ($diag.uiBlockedBy -join ', ')) }
@@ -192,6 +193,7 @@ jobs:
           if (-not $diag.pageNavOk) { throw '界面：主导航切换页面失败（一次只应显示一页）' }
           if (-not $diag.markerProbeOk) { throw ('对话内核：标记解析器在打包产物里不可用 → ' + ($diag.markerProbeDetail | ConvertTo-Json -Compress)) }
           if (-not $diag.copyOk) { throw ('复制到剪贴板失败（应走主进程 clipboard）→ ' + ($diag.copyDetail | ConvertTo-Json -Compress)) }
+          if (-not $diag.copyUiOk) { throw ('复制入口不好找（必须在消息下面、常驻可见、点得到）→ ' + ($diag.copyUiDetail | ConvertTo-Json -Compress)) }
           if (-not $diag.pacerProbeOk) { throw ('对话内核：回复节奏控制不可用 → ' + ($diag.pacerProbeDetail | ConvertTo-Json -Compress)) }
           if (-not $diag.performOk) { throw ('表演设置不可调（设置分类打不开或保存不生效）→ ' + ($diag.performDetail | ConvertTo-Json -Compress)) }
           if (@($diag.uiBlockedBy).Count -gt 0) { throw ('界面被隐形元素遮挡，鼠标点不动 → ' + ($diag.uiBlockedBy -join ', ')) }

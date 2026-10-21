@@ -822,5 +822,6 @@
   "agent.statePlanning": "計画中…",
   "agent.statePaused": "一時停止中",
   "tasks.backToChat": "会話で Agent を使う",
-  "tasks.steps": "ステップ"
+  "tasks.steps": "ステップ",
+  "chat.copyCode": "このコードをコピー"
 }

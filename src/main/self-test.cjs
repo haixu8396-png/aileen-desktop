@@ -537,6 +537,35 @@ win.webContents.on('did-finish-load', () => {
           copyDetail = typeof window.__AILEEN_PROBE_COPY === 'function' ? await window.__AILEEN_PROBE_COPY() : null;
           copyOk = !!(copyDetail && copyDetail.ok === true);
         } catch (err) { window.__AILEEN_ERRORS.push('copyProbe: ' + String((err && err.message) || err)); }
+        // 复制**入口**好不好找：按钮必须在消息下面、常驻可见、并且点得到
+        // （用户反馈过「复制图标不在对话下面、有的时候不好找」）
+        let copyUiOk = false;
+        let copyUiDetail = null;
+        try {
+          const msg = document.querySelector('#messages .msg.assistant') || document.querySelector('#messages .msg');
+          const btn = msg ? msg.querySelector('.msg-actions .msg-copy') : null;
+          const acts = msg ? msg.querySelector('.msg-actions') : null;
+          const body = msg ? msg.querySelector('.msg-body') : null;
+          let clickable = false;
+          let belowBody = false;
+          let visible = false;
+          if (btn && acts && body) {
+            const r = btn.getBoundingClientRect();
+            const top = document.elementFromPoint(Math.round(r.left + r.width / 2), Math.round(r.top + r.height / 2));
+            clickable = !!(top && (top === btn || btn.contains(top)));
+            belowBody = acts.getBoundingClientRect().top >= body.getBoundingClientRect().bottom - 3;
+            visible = parseFloat(getComputedStyle(btn).opacity || '0') > 0.3;
+          }
+          let codeBtn = null;
+          const firstPre = msg ? msg.querySelector('.code-block .code-copy') : null;
+          if (firstPre) codeBtn = true;
+          copyUiDetail = {
+            hasBtn: !!btn,
+            label: btn ? String(btn.textContent || '').trim() : '',
+            clickable, belowBody, visible, codeCopyInBlock: !!codeBtn,
+          };
+          copyUiOk = !!btn && clickable && belowBody && visible && String(copyUiDetail.label).length > 0;
+        } catch (err) { window.__AILEEN_ERRORS.push('copyUi: ' + String((err && err.message) || err)); }
         let uiElementsOk = false;
         let sideCollapseOk = false;
         let searchFilterOk = false;
@@ -737,6 +766,8 @@ win.webContents.on('did-finish-load', () => {
           markerProbeDetail,
           copyOk,
           copyDetail,
+          copyUiOk,
+          copyUiDetail,
           pacerProbeOk,
           pacerProbeDetail,
           performOk,

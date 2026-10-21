@@ -219,10 +219,12 @@
   font-size: var(--fs-xs); font-weight: 600; color: var(--accent-hover);
 }
 .msg .msg-body { min-width: 0; flex: 1; }
-.msg.assistant .msg-body { padding-right: var(--sp-6); }
+/* 正文 + 操作条：竖着叠，操作条在正文**下面**（复制按钮要一眼能找到） */
+.msg .msg-col { display: flex; flex-direction: column; gap: 4px; min-width: 0; flex: 1; }
 .msg.user { justify-content: flex-end; }
+.msg.user .msg-col { flex: 0 1 auto; align-items: flex-end; max-width: min(76%, 640px); }
 .msg.user .msg-body {
-  flex: 0 1 auto; max-width: min(76%, 640px);
+  flex: 0 1 auto; max-width: 100%;
   padding: 10px 14px;
   background: var(--accent-soft);
   color: var(--text-primary);
@@ -266,27 +268,57 @@
   overflow-x: auto;
 }
 .msg-body pre code { padding: 0; background: none; font-size: var(--fs-sm); line-height: 1.6; }
+/* 代码块右上角的「复制这段代码」：absolute 到 wrapper 上，代码横向滚动时它不会跑走 */
+.code-block { position: relative; margin: 10px 0; }
+.code-block > pre { margin: 0; padding-top: 34px; }
+.code-copy {
+  position: absolute; top: 6px; right: 6px; z-index: 1;
+  height: 22px; padding: 0 8px;
+  display: inline-flex; align-items: center; gap: 4px;
+  border: 1px solid var(--border); border-radius: var(--r-pill);
+  background: var(--surface-raised); color: var(--text-tertiary);
+  font-size: var(--fs-2xs); font-weight: 600;
+  opacity: 0.75; transition: opacity var(--dur-1) var(--ease), color var(--dur-1) var(--ease);
+}
+.code-copy:hover, .code-copy:focus-visible { opacity: 1; color: var(--text-primary); }
+.code-copy .ico { width: 13px; height: 13px; }
 .msg-body table { border-collapse: collapse; margin: 10px 0; font-size: var(--fs-sm); width: 100%; }
 .msg-body th, .msg-body td { border: 1px solid var(--border); padding: 6px 10px; text-align: left; }
 .msg-body th { background: var(--surface-soft); font-weight: 600; }
 .msg-body hr { border: none; border-top: 1px solid var(--border); margin: 16px 0; }
 .msg-body img { border-radius: var(--r-md); }
 
-/* 每次消息的低频操作：悬停/聚焦时才出现 */
+/* 每条消息的操作条：常驻在正文**下面**（以前浮在右上角 + 只在悬停时出现，
+   用户反馈「有的时候不好找」）。复制是主操作，带文字标签一直可见；
+   朗读/重生成/删除是低频操作，悬停时才亮起来，免得每条消息下面都挂一排按钮。 */
 .msg-actions {
-  position: absolute; right: 0; top: 0;
-  display: flex; gap: 2px;
-  opacity: 0; transition: opacity var(--dur-1) var(--ease);
+  display: flex; gap: 4px; align-items: center;
+  min-height: 24px;
 }
-.msg.user .msg-actions { right: auto; left: 0; top: -22px; }
-.msg:hover .msg-actions, .msg:focus-within .msg-actions { opacity: 1; }
 .msg-actions button {
-  width: 26px; height: 26px; padding: 0;
-  border: 1px solid var(--border); border-radius: var(--r-sm);
-  background: var(--surface-raised); color: var(--text-tertiary);
+  height: 24px; padding: 0 6px;
+  display: inline-flex; align-items: center; justify-content: center; gap: 4px;
+  border: 1px solid transparent; border-radius: var(--r-pill);
+  background: transparent; color: var(--text-tertiary);
+  opacity: 0.4; transition: opacity var(--dur-1) var(--ease), color var(--dur-1) var(--ease), background var(--dur-1) var(--ease);
 }
-.msg-actions button:hover { color: var(--text-primary); border-color: var(--border-strong); }
+.msg-actions .msg-copy {
+  opacity: 1; padding: 0 9px 0 8px;
+  color: var(--text-secondary);
+  border-color: var(--border);
+  background: var(--surface-raised);
+}
+.msg-actions .msg-copy-label { font-size: var(--fs-2xs); font-weight: 600; letter-spacing: 0.02em; }
+.msg:hover .msg-actions button,
+.msg:focus-within .msg-actions button,
+.msg-actions button:hover { opacity: 1; color: var(--text-primary); }
+.msg-actions button:hover { background: var(--surface-raised); border-color: var(--border); }
 .msg-actions .ico { width: 14px; height: 14px; }
+.msg-actions .msg-copy .ico { width: 13px; height: 13px; }
+/* 触屏 / 无指针设备：没有 hover，全都得看得见 */
+@media (hover: none) {
+  .msg-actions button { opacity: 0.8; }
+}
 
 /* 思考中 / 滚动到底 */
 .typing {
