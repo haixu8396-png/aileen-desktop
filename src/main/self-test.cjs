@@ -1401,12 +1401,17 @@ win.webContents.on('did-finish-load', () => {
             rep.modelRenderedOk = rep.modelsAvailable
               ? !!(rep.overlayProbe && rep.overlayProbe.renderedOk === true && rep.overlayProbe.stageChildren > 0)
               : 'skipped:no-model-installed';
-            // 换引擎之后：一定要真的用上新引擎（而不是悄悄回落到什么空实现），
-            // 并且 internalModel 挂上了（Cubism Core 没加载成功时这里就是 no-internalModel）。
+            // 零模型时反过来要验「空状态提示真的出来了」，否则展台会停在最后一个模型的残影上。
+            rep.overlayEmptyOk = rep.modelsAvailable
+              ? null
+              : !!(rep.overlayProbe && rep.overlayProbe.emptyHint === true);
+            // 换引擎之后：一定要真的用上新引擎（而不是悄悄回落到什么空实现）；
+            // 装了模型时还要求 internalModel 挂上（Cubism Core 没加载成功时这里就是 no-internalModel）。
             rep.overlayEngineOk = !!(rep.overlayProbe
               && rep.overlayProbe.engine === 'untitled-pixi-live2d-engine'
-              && rep.overlayProbe.hasPixiApp === true
-              && rep.overlayProbe.status === 'internalModel-ok');
+              && (rep.modelsAvailable
+                ? (rep.overlayProbe.hasPixiApp === true && rep.overlayProbe.status === 'internalModel-ok')
+                : true));
             // 口型同步：灌一个包络进去，嘴部参数必须被驱动（只看「此刻的值」会被衰减骗过去，
             // 所以渲染层额外记了一个峰值）。
             if (rep.modelsAvailable) {
@@ -1441,10 +1446,13 @@ win.webContents.on('did-finish-load', () => {
                 stage: fitDebug2 ? fitDebug2.stage : null,
                 keys: live2dBefore ? Object.keys(live2dBefore).sort() : [],
               };
-              rep.fineCtrlOk = !!p2 && p2.ticker && p2.ticker.maxFPS === 30
-                && Number(p2.hq.fit) === 1
-                && !!live2dBefore && ['fit', 'zoom', 'lipsync', 'idleMotion', 'focusFollow', 'physics', 'quality', 'fps', 'lod', 'mask']
-                  .every((k) => Object.prototype.hasOwnProperty.call(live2dBefore, k));
+              // 「精细控制生效」要观测 fps/占比，这些只有真挂了模型才有意义（CI 是零模型目录）
+              rep.fineCtrlOk = rep.modelsAvailable
+                ? (!!p2 && p2.ticker && p2.ticker.maxFPS === 30
+                  && Number(p2.hq.fit) === 1
+                  && !!live2dBefore && ['fit', 'zoom', 'lipsync', 'idleMotion', 'focusFollow', 'physics', 'quality', 'fps', 'lod', 'mask']
+                    .every((k) => Object.prototype.hasOwnProperty.call(live2dBefore, k)))
+                : 'skipped:no-model-installed';
               // fit=1 时角色必须几乎铺满窗口（像素盒量的，和引擎内部包围盒无关）
               const drawnOk = !!(fitDebug2 && fitDebug2.drawn && fitDebug2.stage
                 && (fitDebug2.drawn[1] >= Math.round(fitDebug2.stage[1] * 0.85)
@@ -1535,7 +1543,8 @@ win.webContents.on('did-finish-load', () => {
               const pf = await w.webContents.executeJavaScript('window.__AILEEN_L2D_TEST_PROP_FIT ? window.__AILEEN_L2D_TEST_PROP_FIT() : null');
               rep.propFitProbe = pf;
               rep.propFitOk = rep.modelsAvailable ? !!(pf && pf.ok) : 'skipped:no-model-installed';
-              if (pf && pf.ok === false && pf.error) rep.errors.push('prop fit: ' + pf.error);
+              // 零模型时这条门禁本来就 skipped（没有道具热键可试），不要往 errors 里塞噪音
+              if (rep.modelsAvailable && pf && pf.ok === false && pf.error) rep.errors.push('prop fit: ' + pf.error);
             } catch (err) { rep.errors.push('live2d compat: ' + String((err && err.message) || err)); }
             // 「⋯」面板必须能滚动：37 个热键 + 145 个部件一屏放不下，滚不动就等于下面那半截不存在
             try {

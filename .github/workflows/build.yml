@@ -158,7 +158,7 @@ jobs:
           # 换引擎（PixiJS v8 + untitled-pixi-live2d-engine）之后的硬约束：
           # 必须真的用上新引擎、Cubism Core 必须加载成功（否则 internalModel 根本挂不上）
           if (-not $ovr.overlayEngineOk) { throw ('展台没有用上新 Live2D 引擎（PixiJS v8 / untitled-pixi-live2d-engine）→ ' + ($ovr.overlayProbe | ConvertTo-Json -Compress -Depth 4)) }
-          if (-not $ovr.fineCtrlOk) { throw ('设置里的「Live2D 精细控制」没有生效（fps/fit 改了展台没跟上）→ ' + ($ovr.fineCtrlProbe | ConvertTo-Json -Compress)) }
+          if ($ovr.modelsAvailable -and $ovr.fineCtrlOk -eq $false) { throw ('设置里的「Live2D 精细控制」没有生效（fps/fit 改了展台没跟上）→ ' + ($ovr.fineCtrlProbe | ConvertTo-Json -Compress)) }
           if ($ovr.modelsAvailable -and -not $ovr.lipsyncOk) { throw ('口型同步没有驱动嘴部参数 → ' + ($ovr.lipsyncProbe | ConvertTo-Json -Compress)) }
           if (-not $ovr.mouthIpcOk) { throw ('口型的 IPC 通道不通（参数校验拒绝了 overlay:mouth）→ ' + ($ovr.mouthIpcProbe | ConvertTo-Json -Compress)) }
           if ($ovr.modelsAvailable -and -not $ovr.fitFillsOk) { throw ('角色没有铺满展台窗口（按真实像素量的）→ ' + ($ovr.overlayProbe.fitDebug | ConvertTo-Json -Compress)) }
@@ -301,7 +301,7 @@ jobs:
           # 换引擎（PixiJS v8 + untitled-pixi-live2d-engine）之后的硬约束：
           # 必须真的用上新引擎、Cubism Core 必须加载成功（否则 internalModel 根本挂不上）
           if (-not $ovr.overlayEngineOk) { throw ('展台没有用上新 Live2D 引擎（PixiJS v8 / untitled-pixi-live2d-engine）→ ' + ($ovr.overlayProbe | ConvertTo-Json -Compress -Depth 4)) }
-          if (-not $ovr.fineCtrlOk) { throw ('设置里的「Live2D 精细控制」没有生效（fps/fit 改了展台没跟上）→ ' + ($ovr.fineCtrlProbe | ConvertTo-Json -Compress)) }
+          if ($ovr.modelsAvailable -and $ovr.fineCtrlOk -eq $false) { throw ('设置里的「Live2D 精细控制」没有生效（fps/fit 改了展台没跟上）→ ' + ($ovr.fineCtrlProbe | ConvertTo-Json -Compress)) }
           if ($ovr.modelsAvailable -and -not $ovr.lipsyncOk) { throw ('口型同步没有驱动嘴部参数 → ' + ($ovr.lipsyncProbe | ConvertTo-Json -Compress)) }
           if (-not $ovr.mouthIpcOk) { throw ('口型的 IPC 通道不通（参数校验拒绝了 overlay:mouth）→ ' + ($ovr.mouthIpcProbe | ConvertTo-Json -Compress)) }
           if ($ovr.modelsAvailable -and -not $ovr.fitFillsOk) { throw ('角色没有铺满展台窗口（按真实像素量的）→ ' + ($ovr.overlayProbe.fitDebug | ConvertTo-Json -Compress)) }
