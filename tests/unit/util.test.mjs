@@ -102,6 +102,47 @@ describe('normalizeSettings · 无边框悬浮展台', () => {
   });
 });
 
+describe('normalizeSettings · Live2D 精细控制', () => {
+  it('缺省时给出一整套可用的默认值（展台渲染层直接读它）', () => {
+    const l = normalizeSettings({}).live2d;
+    expect(l.fit).toBe(0.95);
+    expect(l.zoom).toBe(1);
+    expect(l.offsetY).toBe(0);
+    expect(l.lipsync).toBe(true);
+    expect(l.lipsyncGain).toBe(1.2);
+    expect(l.idleMotion).toBe(true);
+    expect(l.idleInterval).toBe(14);
+    expect(l.focusFollow).toBe(true);
+    expect(l.physics).toBe(true);
+    expect(l.quality).toBe('auto');
+    expect(l.fps).toBe(60);
+    expect(l.lod).toBe('auto');
+    expect(l.mask).toBe('auto');
+  });
+  it('越界数值被收敛（占比不能无限大、帧率不能为 0）', () => {
+    const l = normalizeSettings({ live2d: { fit: 99, zoom: 0, offsetY: -9, lipsyncGain: 999, idleInterval: 0, fps: 1 } }).live2d;
+    expect(l.fit).toBe(1.15);
+    expect(l.zoom).toBe(0.4);
+    expect(l.offsetY).toBe(-0.3);
+    expect(l.lipsyncGain).toBe(3);
+    expect(l.idleInterval).toBe(3);
+    expect(l.fps).toBe(15);
+  });
+  it('枚举字段只接受白名单值，未知值回落到默认', () => {
+    const l = normalizeSettings({ live2d: { quality: '8x', lod: 'max', mask: 'ultra' } }).live2d;
+    expect(l.quality).toBe('auto');
+    expect(l.lod).toBe('auto');
+    expect(l.mask).toBe('auto');
+    expect(normalizeSettings({ live2d: { quality: '2', lod: 'off', mask: 'high' } }).live2d.quality).toBe('2');
+  });
+  it('未知字段被丢弃、开关只认布尔值', () => {
+    const l = normalizeSettings({ live2d: { evil: 1, lipsync: 'yes', physics: false } }).live2d;
+    expect(l.evil).toBeUndefined();
+    expect(l.lipsync).toBe(true); // 非布尔 → 回落默认值（不是字符串 'yes'）
+    expect(l.physics).toBe(false);
+  });
+});
+
 describe('normalizeSettings · Minecraft 伙伴', () => {
   it('缺省时给安全默认值', () => {
     const m = normalizeSettings({}).mc;

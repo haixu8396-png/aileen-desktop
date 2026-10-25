@@ -101,6 +101,14 @@ const CHANNELS = {
   'overlay:dragStart': v.NO_ARGS,
   'overlay:dragMove': v.NO_ARGS,
   'overlay:dragEnd': v.NO_ARGS,
+  // 展台工具条面板的模型微调倍率（落盘 live2d.zoom）
+  'overlay:setZoom': v.args(v.object({
+    zoom: v.num({ min: 0.4, max: 1.25 }),
+  })),
+  // 主窗口 → 展台：TTS 音量包络（0..1）
+  'overlay:mouth': v.args(v.object({
+    level: v.num({ min: 0, max: 1 }),
+  })),
   // ---- 双窗口会话同步（0.8）----
   // 主窗口 → 主进程 → 展台：消息 / 状态 / 角色切换的**只读广播**
   'overlay:session': v.args(v.object({

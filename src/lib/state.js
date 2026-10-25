@@ -58,7 +58,6 @@ export const state = {
   characters: [],    // [{file, data}]
   current: null,     // {file, data}
   messages: [],      // [{role, content}]
-  oml2d: null,
   busy: false,
   abortCtrl: null,
   lastAssistantText: '',

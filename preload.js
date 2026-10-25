@@ -92,6 +92,10 @@ contextBridge.exposeInMainWorld('api', {
   overlayReset: () => ipcRenderer.invoke('overlay:reset'),
   // 设置里的「展台大小」：{ width, height }（主进程还会再钳一次，撑不满屏幕）
   overlaySetSize: (size) => ipcRenderer.invoke('overlay:setSize', size),
+  // 展台工具条面板里的模型微调倍率（落盘到 live2d.zoom）
+  overlaySetZoom: (zoom) => ipcRenderer.invoke('overlay:setZoom', { zoom }),
+  // 主窗口 → 展台：TTS 音量包络（0..1），驱动口型
+  overlayMouth: (level) => ipcRenderer.invoke('overlay:mouth', { level }),
   onMenuAction: (cb) => ipcRenderer.on('menu:action', (_e, action) => cb(action)),
   // ---- Minecraft 伙伴 ----
   mcConnect: (opts) => ipcRenderer.invoke('mc:connect', opts),
@@ -108,4 +112,8 @@ contextBridge.exposeInMainWorld('api', {
   onOverlayModel: (cb) => ipcRenderer.on('overlay:model', (_e, m) => cb(m)),
   onOverlaySession: (cb) => ipcRenderer.on('overlay:session', (_e, s) => cb(s)),
   onOverlayRequest: (cb) => ipcRenderer.on('overlay:request', (_e, r) => cb(r)),
+  // 精细控制改动（设置页保存后广播）/ 口型包络 / 视线跟随的光标位置
+  onOverlayLive2D: (cb) => ipcRenderer.on('overlay:live2d', (_e, cfg) => cb(cfg)),
+  onOverlayMouth: (cb) => ipcRenderer.on('overlay:mouth', (_e, level) => cb(level)),
+  onOverlayGaze: (cb) => ipcRenderer.on('overlay:gaze', (_e, pt) => cb(pt)),
 });

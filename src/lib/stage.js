@@ -329,12 +329,15 @@ export async function deleteLocalModel(m) {
 }
 
 // ---------------- 展台窗口大小 ----------------
-// 窗口尺寸只有三个档位 + 工具条的 −/＋ 微调。主进程还会再钳一次
-// （最大 40% 屏宽 / 80% 屏高），所以任何一档都不会「占领整个屏幕」。
+// 窗口尺寸只有四档 + 工具条的 −/＋ 微调。主进程还会再钳一次
+// （最大 72% 屏宽 / 92% 屏高、绝对上限 1200×1280，且整个窗口必须落在工作区里、
+// 底边留 28px 不压任务栏），所以任何一档都不会「占领整个屏幕」。
+// 「超大」这一档是用户反馈「显示最大值还是太小」之后加的。
 const STAGE_WINDOW_SIZES = {
   small: { width: 320, height: 520 },
   medium: { width: 400, height: 640 },
-  large: { width: 520, height: 780 },
+  large: { width: 560, height: 820 },
+  xlarge: { width: 760, height: 1050 },
 };
 
 export async function applyStageSize(preset) {

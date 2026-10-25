@@ -18,7 +18,7 @@
 // ============================================================
 import { loadSettings, getSettings, saveSettings, setSettingsCache } from './lib/settings.js';
 import { streamChat } from './lib/llm.js';
-import { LLM_PROVIDERS, state, hooks, stt } from './lib/state.js';
+import { LLM_PROVIDERS, state, hooks, stt, tts } from './lib/state.js';
 import { $, toast, autoGrowInput } from './lib/dom.js';
 import { applyIcons } from './lib/icons.js';
 import {
@@ -27,6 +27,8 @@ import {
   refreshModelsAfterAdd, applyStageScale, toggleStage, resetStagePosition, renderLocalList, renderUrlList,
   refreshStageCapabilities, applyStageSize, syncStageSizeSwitch,
 } from './lib/stage.js';
+// 「Live2D 精细控制」那一组（口型/待机动作/视线/画质/LOD/帧率）的绑定与落盘
+import { bindLive2DSettings } from './lib/live2d-settings.js';
 import {
   send, renderMessages, setBusy, ttsSettingsForCharacter, clearMessages, regenerateLast, resumeWithAgent, copyText,
 } from './lib/chat.js';
@@ -154,6 +156,17 @@ async function boot() {
   bindMc();
   bindChess();
   bindPersonaStudio();
+  bindLive2DSettings();
+  // 口型同步：TTS 播放时把音量包络转发给展台（展台拿它驱动嘴部参数）。
+  // 关掉开关就不接，连 IPC 都不发。
+  tts.onLevel = (level) => {
+    const cfg = getSettings().live2d || {};
+    if (!cfg.lipsync) return;
+    try {
+      const p = window.api.overlayMouth(level);
+      if (p && typeof p.catch === 'function') p.catch(() => { /* 展台没开 */ });
+    } catch (err) { /* 展台没开 */ }
+  };
   initAgentUI();
   // 「继续执行」= 用检查点重开一次任务。回调在这里注入，避免 chat ↔ agent-ui 互相 import。
   setResumeHandler((checkpoint) => resumeWithAgent(checkpoint));

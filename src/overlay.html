@@ -2,7 +2,7 @@
 <html lang="zh-CN">
 <head>
 <meta charset="UTF-8" />
-<meta http-equiv="Content-Security-Policy" content="default-src 'self' 'unsafe-inline' 'unsafe-eval' data: blob: http://127.0.0.1:*; script-src 'self' 'unsafe-inline' 'unsafe-eval' blob:; img-src 'self' data: blob: http://127.0.0.1:*; connect-src 'self' http://127.0.0.1:* https:; media-src 'self' blob: http://127.0.0.1:*; style-src 'self' 'unsafe-inline'; font-src 'self' data:" />
+<meta http-equiv="Content-Security-Policy" content="default-src 'self' 'unsafe-inline' 'unsafe-eval' data: blob: http://127.0.0.1:*; script-src 'self' 'unsafe-inline' 'unsafe-eval' blob:; img-src 'self' data: blob: http://127.0.0.1:*; connect-src 'self' data: blob: http://127.0.0.1:* https:; media-src 'self' blob: data: http://127.0.0.1:*; style-src 'self' 'unsafe-inline'; font-src 'self' data:" />
 <title>AILEEN Stage</title>
 <link rel="stylesheet" href="./overlay.css" />
 </head>
@@ -32,8 +32,22 @@
       </div>
     </div>
 
-    <!-- 动作 / 表情 / 模型 / 尺寸 -->
+    <!-- 热键（VTube Studio）/ 部件 / 动作 / 表情 / 模型 / 尺寸 -->
     <div id="ov-more" class="ov-panel hidden">
+      <div id="ov-hotkey-sec" class="hidden">
+        <div class="ov-label-row">
+          <span class="ov-label" data-i18n="overlay.hotkeys">热键（VTS）</span>
+          <button id="ov-hotkey-clear" class="ov-link" data-i18n="overlay.clearAll">全部清除</button>
+        </div>
+        <div id="ov-hotkeys" class="ov-chips"></div>
+      </div>
+      <div id="ov-parts-sec" class="hidden">
+        <div class="ov-label-row">
+          <span class="ov-label" data-i18n="overlay.parts">部件</span>
+          <button id="ov-parts-reset" class="ov-link" data-i18n="overlay.partsAllOn">全部显示</button>
+        </div>
+        <div id="ov-parts" class="ov-chips"></div>
+      </div>
       <div class="ov-label" data-i18n="overlay.motion">动作</div>
       <div id="ov-motions" class="ov-chips"></div>
       <div class="ov-label" data-i18n="overlay.expression">表情</div>
@@ -41,7 +55,12 @@
       <div class="ov-label" data-i18n="overlay.model">模型</div>
       <select id="ov-models"></select>
       <div class="ov-label" data-i18n="overlay.size">大小</div>
-      <input id="ov-scale" type="range" min="0.25" max="1" step="0.05" />
+      <input id="ov-scale" type="range" min="0.4" max="1.25" step="0.05" />
+      <div class="ov-label-row">
+        <span class="ov-label" data-i18n="overlay.fit">画面适配</span>
+        <button id="ov-fit-now" class="ov-link" data-i18n="overlay.fitNow">按当前姿势适配</button>
+      </div>
+      <div id="ov-fit-note" class="ov-muted hidden" data-i18n="overlay.fitClipHint">道具超出画面了，点上面的按钮重新适配</div>
     </div>
 
     <div id="ov-tools" data-i18n-title="overlay.toolsTitle">
@@ -57,30 +76,12 @@
     </div>
   </div>
 </div>
-<script>
-// oh-my-live2d 判断「是不是手机」用的是 matchMedia("screen and (max-width: 768px)") ——
-// 那是**窗口宽度**，不是屏幕宽度。展台窗口天生就窄（400~600px），于是永远被判成手机：
-// 手机分支下 mobileDisplay 默认 false → 整个模型加载被跳过；即使强行打开，它也只认
-// mobilePosition/mobileScale，并且在模型还没初始化好时就去设锚点，直接把加载链打断
-// （实测报错：onAnchorChange 读 undefined 的 width，模型永远画不出来）。
-// 展台本来就是桌面窗口，这里在库加载之前把这条查询的答案固定成「不是手机」，
-// 让它走和主界面完全同一条（已验证可用的）桌面分支。
-(function () {
-  var mm = window.matchMedia.bind(window);
-  window.matchMedia = function (query) {
-    var real = mm(query);
-    if (typeof query === "string" && query.replace(/\s+/g, "").indexOf("(max-width:768px)") >= 0) {
-      return {
-        matches: false, media: real.media, onchange: null,
-        addListener: function () {}, removeListener: function () {},
-        addEventListener: function () {}, removeEventListener: function () {},
-        dispatchEvent: function () { return false; },
-      };
-    }
-    return real;
-  };
-})();
-</script>
+<!--
+  Cubism Core：Live2D 官方运行库（Live2D Proprietary Software License，
+  但官方明确列入 RedistributableFiles —— 可以随应用一起分发，见 src/public/cubism/）。
+  必须在 overlay.js（module）之前**同步**执行完：引擎初始化时会直接读 window.Live2DCubismCore。
+-->
+<script src="./cubism/live2dcubismcore.min.js"></script>
 <script type="module" src="./overlay.js"></script>
 </body>
 </html>

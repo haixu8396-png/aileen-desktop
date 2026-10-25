@@ -118,16 +118,29 @@ jobs:
           if (-not $ovr.ignoringAfterResize) { throw '悬浮展台改过尺寸后不再是鼠标穿透状态（会把桌面点击全吃掉）' }
           if (-not $ovr.ignoringAfterMove) { throw '悬浮展台移动后不再是鼠标穿透状态' }
           if ($ovr.modelKeepsStateOk -eq $false) { throw ('改窗口尺寸后模型被重建了（动作/表情/口型会断）→ ' + ($ovr.modelKeepsStateProbe | ConvertTo-Json -Compress)) }
+          if ($ovr.modelsAvailable -and $ovr.partPanelOk -eq $false) { throw ('部件面板没读出 cdi3 的部件名 → ' + ($ovr.partPanelProbe | ConvertTo-Json -Compress -Depth 4)) }
+          if ($ovr.modelsAvailable -and $ovr.partToggleOk -eq $false) { throw ('部件开关没生效（隐藏后不透明度没有变 0）→ ' + ($ovr.partToggleProbe | ConvertTo-Json -Compress)) }
+          if ($ovr.modelsAvailable -and $ovr.paramWriteOk -eq $false) { throw ('Live2D 参数写不进模型（按字符串 id 写只会写进幻影表，必须按下标）→ ' + ($ovr.paramWriteProbe | ConvertTo-Json -Compress)) }
+          if ($ovr.modelsAvailable -and $ovr.expressionApplyOk -eq $false) { throw ('表达式没有真的改到模型参数，或关掉后没有还原成基线 → ' + ($ovr.expressionApplyProbe | ConvertTo-Json -Compress)) }
+          if ($ovr.modelsAvailable -and $ovr.expressionMissingOk -eq $false) { throw ('表达式里引用了模型没有的参数却没报错（假成功）→ ' + ($ovr.expressionMissingProbe | ConvertTo-Json -Compress)) }
+          if ($ovr.modelsAvailable -and $ovr.partRestoreOk -eq $false) { throw ('部件隐藏后恢复不回原来的不透明度（一律写 1 会让本来就半透明的部件变实）→ ' + ($ovr.partRestoreProbe | ConvertTo-Json -Compress)) }
+          if ($ovr.modelsAvailable -and $ovr.live2dStateOk -eq $false) { throw ('Live2D 状态存取不一致（按模型持久化坏了）→ ' + ($ovr.live2dStateProbe | ConvertTo-Json -Compress)) }
+          if ($ovr.modelsAvailable -and $ovr.propFitOk -eq $false) { throw ('道具出框的手动适配坏了（点「按当前姿势适配」后内容仍被裁，或者不该自动改却自动改了）→ ' + ($ovr.propFitProbe | ConvertTo-Json -Compress -Depth 4)) }
+          if ($ovr.modelsAvailable -and $ovr.live2dLoadOk -eq $false) { throw ('Live2D 热键/部件状态加载失败（不能和「模型没有配置」混为一谈）→ ' + ($ovr.hotkeyProbe | ConvertTo-Json -Compress -Depth 4)) }
+          if ($ovr.modelsAvailable -and $ovr.hotkeyToggleOk -eq $false) { throw ('VTS 热键点了画面没变（引擎画出来的部件/绘制不透明度与关掉时一样）→ ' + ($ovr.hotkeyToggleProbe | ConvertTo-Json -Compress -Depth 5)) }
+          if (-not $ovr.panelScrollOk) { throw ('「⋯」面板不能滚动（热键/部件下面那半截点不到）→ ' + ($ovr.panelScrollProbe | ConvertTo-Json -Compress)) }
+          if ($ovr.modelsAvailable -and $ovr.panelInsideOk -eq $false) { throw ('「⋯」面板超出了窗口（贴到上沿外面，上面那截永远点不到）→ ' + ($ovr.panelScrollProbe | ConvertTo-Json -Compress)) }
           if (-not $ovr.overlaySizeOk) { throw ('展台窗口尺寸没有被钳住（可能铺满屏幕）→ ' + ($ovr.overlaySizeProbe | ConvertTo-Json -Compress)) }
           if (-not $ovr.overlayTaskbarGapOk) { throw ('展台底边贴着任务栏（角色的脚会踩在任务栏上）→ ' + ($ovr.overlayTaskbarGapProbe | ConvertTo-Json -Compress)) }
           if (-not $ovr.overlayInWorkAreaOk) { throw ('展台窗口露到工作区外（会挡住任务栏）→ ' + ($ovr.overlaySizeProbe | ConvertTo-Json -Compress)) }
-          if (-not $ovr.overlaySizeResetOk) { throw ('展台大小复位失败（应回到 400×640）→ ' + ($ovr.overlaySizeProbe | ConvertTo-Json -Compress)) }
+          if (-not $ovr.overlaySizeResetOk) { throw ('展台大小复位失败（应回到默认档，且同样要过 clamp）→ ' + ($ovr.overlaySizeProbe | ConvertTo-Json -Compress)) }
+          if (-not $ovr.overlaySizeBiggerOk) { throw ('展台尺寸上限没有放宽（用户反馈「最大值还是太小」）→ ' + ($ovr.overlaySizeProbe | ConvertTo-Json -Compress)) }
           if (-not $ovr.dragCoalesceOk) { throw ('拖动的高频移动没有被合并（IPC 会无上限积压）→ ' + ($ovr.dragProbe | ConvertTo-Json -Compress)) }
           if (-not $ovr.dragNoLiveMoveOk) { throw ('拖动过程中窗口应该原地不动（只留提示框）→ ' + ($ovr.dragProbe | ConvertTo-Json -Compress)) }
           if (-not $ovr.dragGhostOk) { throw ('拖动提示框没有跟手，或松手后没消失 → ' + ($ovr.dragProbe | ConvertTo-Json -Compress)) }
           if (-not $ovr.dragPositionOk) { throw ('拖动后窗口位置没有跟到最新光标位置 → ' + ($ovr.dragProbe | ConvertTo-Json -Compress)) }
           if (-not $ovr.dragSizeStableOk) { throw ('拖动过程中窗口宽高变了（尺寸被拉扯）→ ' + ($ovr.dragProbe | ConvertTo-Json -Compress)) }
-          if (-not $ovr.dragNoResizeOk) { throw ('拖动期间出现了 resize 事件（会闪烁/尺寸抖动）→ ' + ($ovr.dragProbe | ConvertTo-Json -Compress)) }
+          if (-not $ovr.dragNoResizeOk) { throw ('拖动期间窗口宽高被改了（会闪烁/尺寸抖动）→ ' + ($ovr.dragResizeLog | ConvertTo-Json -Compress)) }
           if (-not $ovr.dragEndOk) { throw ('拖动结束后还有残留的动画帧/在途请求，或 dragEnd 被重复调用 → ' + ($ovr.dragProbe | ConvertTo-Json -Compress)) }
           if (-not $ovr.dragNoResidualOk) { throw ('松手后窗口没有停在落点，或还在跟随光标 → ' + ($ovr.dragProbe | ConvertTo-Json -Compress)) }
           if (-not $ovr.dragListenerOnceOk) { throw ('多次拖动后 IPC 次数翻倍（监听器被重复绑定）→ ' + ($ovr.dragProbe | ConvertTo-Json -Compress)) }
@@ -139,12 +152,18 @@ jobs:
           if ($ovr.mineflayer -ne $true) { throw ('打包产物里 mineflayer 不可用: ' + $ovr.mineflayer) }
           if ($ovr.pathfinder -ne $true) { throw ('打包产物里 mineflayer-pathfinder 不可用: ' + $ovr.pathfinder) }
           if (-not $ovr.gripExists) { throw '悬浮展台缺少拖拽手柄' }
-          # 展台被误判成「手机」时，oh-my-live2d 会完全跳过模型加载 —— 这条任何环境都必须成立
-          if ($ovr.overlayProbe.mqMobile -ne $false) { throw '悬浮展台被判定成了移动端（matchMedia 窗口宽度误判），模型会完全不加载' }
           # 像素级断言只在真的装了模型时才有意义；CI 用全新数据目录，没有模型就退化成检查空状态
           if ($ovr.modelsAvailable -and -not $ovr.modelRenderedOk) { throw ('悬浮展台没有把模型画出来（帧缓冲为空）→ ' + ($ovr.overlayProbe | ConvertTo-Json -Compress -Depth 4)) }
           if (-not $ovr.modelsAvailable -and -not $ovr.overlayEmptyOk) { throw ('没有安装模型时，悬浮展台应当显示空状态 → ' + ($ovr.overlayProbe | ConvertTo-Json -Compress -Depth 4)) }
-          if (-not $ovr.overlayMqOk) { throw '悬浮展台的平台判定异常' }
+          # 换引擎（PixiJS v8 + untitled-pixi-live2d-engine）之后的硬约束：
+          # 必须真的用上新引擎、Cubism Core 必须加载成功（否则 internalModel 根本挂不上）
+          if (-not $ovr.overlayEngineOk) { throw ('展台没有用上新 Live2D 引擎（PixiJS v8 / untitled-pixi-live2d-engine）→ ' + ($ovr.overlayProbe | ConvertTo-Json -Compress -Depth 4)) }
+          if (-not $ovr.fineCtrlOk) { throw ('设置里的「Live2D 精细控制」没有生效（fps/fit 改了展台没跟上）→ ' + ($ovr.fineCtrlProbe | ConvertTo-Json -Compress)) }
+          if ($ovr.modelsAvailable -and -not $ovr.lipsyncOk) { throw ('口型同步没有驱动嘴部参数 → ' + ($ovr.lipsyncProbe | ConvertTo-Json -Compress)) }
+          if (-not $ovr.mouthIpcOk) { throw ('口型的 IPC 通道不通（参数校验拒绝了 overlay:mouth）→ ' + ($ovr.mouthIpcProbe | ConvertTo-Json -Compress)) }
+          if ($ovr.modelsAvailable -and -not $ovr.fitFillsOk) { throw ('角色没有铺满展台窗口（按真实像素量的）→ ' + ($ovr.overlayProbe.fitDebug | ConvertTo-Json -Compress)) }
+          if ($ovr.modelsAvailable -and $ovr.hotkeyListOk -eq $false) { throw ('模型自带的 VTS 热键没有读出来 → ' + ($ovr.hotkeyProbe | ConvertTo-Json -Compress -Depth 4)) }
+          if ($ovr.modelsAvailable -and $ovr.hotkeyToggleOk -eq $false) { throw ('VTS 热键开关/全部清除没有生效 → ' + ($ovr.hotkeyToggleProbe | ConvertTo-Json -Compress)) }
           if (-not $ovr.fullscreenAccelOk) { throw '全屏没有绑定 F11（视图菜单里的 togglefullscreen 缺 accelerator）' }
           if (-not $ovr.fullscreenToggleOk) { throw '窗口全屏开关无效' }
           if (-not $ovr.modelDeleteOk) { throw ('删除本地模型失败（临时模型目录没被删掉）→ ' + $ovr.modelDeleteBefore + ' / ' + $ovr.modelDeleteAfter) }
@@ -244,14 +263,27 @@ jobs:
           if (-not $ovr.ignoringAfterResize) { throw '悬浮展台改过尺寸后不再是鼠标穿透状态（会把桌面点击全吃掉）' }
           if (-not $ovr.ignoringAfterMove) { throw '悬浮展台移动后不再是鼠标穿透状态' }
           if ($ovr.modelKeepsStateOk -eq $false) { throw ('改窗口尺寸后模型被重建了（动作/表情/口型会断）→ ' + ($ovr.modelKeepsStateProbe | ConvertTo-Json -Compress)) }
+          if ($ovr.modelsAvailable -and $ovr.partPanelOk -eq $false) { throw ('部件面板没读出 cdi3 的部件名 → ' + ($ovr.partPanelProbe | ConvertTo-Json -Compress -Depth 4)) }
+          if ($ovr.modelsAvailable -and $ovr.partToggleOk -eq $false) { throw ('部件开关没生效（隐藏后不透明度没有变 0）→ ' + ($ovr.partToggleProbe | ConvertTo-Json -Compress)) }
+          if ($ovr.modelsAvailable -and $ovr.paramWriteOk -eq $false) { throw ('Live2D 参数写不进模型（按字符串 id 写只会写进幻影表，必须按下标）→ ' + ($ovr.paramWriteProbe | ConvertTo-Json -Compress)) }
+          if ($ovr.modelsAvailable -and $ovr.expressionApplyOk -eq $false) { throw ('表达式没有真的改到模型参数，或关掉后没有还原成基线 → ' + ($ovr.expressionApplyProbe | ConvertTo-Json -Compress)) }
+          if ($ovr.modelsAvailable -and $ovr.expressionMissingOk -eq $false) { throw ('表达式里引用了模型没有的参数却没报错（假成功）→ ' + ($ovr.expressionMissingProbe | ConvertTo-Json -Compress)) }
+          if ($ovr.modelsAvailable -and $ovr.partRestoreOk -eq $false) { throw ('部件隐藏后恢复不回原来的不透明度（一律写 1 会让本来就半透明的部件变实）→ ' + ($ovr.partRestoreProbe | ConvertTo-Json -Compress)) }
+          if ($ovr.modelsAvailable -and $ovr.live2dStateOk -eq $false) { throw ('Live2D 状态存取不一致（按模型持久化坏了）→ ' + ($ovr.live2dStateProbe | ConvertTo-Json -Compress)) }
+          if ($ovr.modelsAvailable -and $ovr.propFitOk -eq $false) { throw ('道具出框的手动适配坏了（点「按当前姿势适配」后内容仍被裁，或者不该自动改却自动改了）→ ' + ($ovr.propFitProbe | ConvertTo-Json -Compress -Depth 4)) }
+          if ($ovr.modelsAvailable -and $ovr.live2dLoadOk -eq $false) { throw ('Live2D 热键/部件状态加载失败（不能和「模型没有配置」混为一谈）→ ' + ($ovr.hotkeyProbe | ConvertTo-Json -Compress -Depth 4)) }
+          if ($ovr.modelsAvailable -and $ovr.hotkeyToggleOk -eq $false) { throw ('VTS 热键点了画面没变（引擎画出来的部件/绘制不透明度与关掉时一样）→ ' + ($ovr.hotkeyToggleProbe | ConvertTo-Json -Compress -Depth 5)) }
+          if (-not $ovr.panelScrollOk) { throw ('「⋯」面板不能滚动（热键/部件下面那半截点不到）→ ' + ($ovr.panelScrollProbe | ConvertTo-Json -Compress)) }
+          if ($ovr.modelsAvailable -and $ovr.panelInsideOk -eq $false) { throw ('「⋯」面板超出了窗口（贴到上沿外面，上面那截永远点不到）→ ' + ($ovr.panelScrollProbe | ConvertTo-Json -Compress)) }
           if (-not $ovr.overlaySizeOk) { throw ('展台窗口尺寸没有被钳住（可能铺满屏幕）→ ' + ($ovr.overlaySizeProbe | ConvertTo-Json -Compress)) }
           if (-not $ovr.overlayTaskbarGapOk) { throw ('展台底边贴着任务栏（角色的脚会踩在任务栏上）→ ' + ($ovr.overlayTaskbarGapProbe | ConvertTo-Json -Compress)) }
           if (-not $ovr.overlayInWorkAreaOk) { throw ('展台窗口露到工作区外（会挡住任务栏）→ ' + ($ovr.overlaySizeProbe | ConvertTo-Json -Compress)) }
-          if (-not $ovr.overlaySizeResetOk) { throw ('展台大小复位失败（应回到 400×640）→ ' + ($ovr.overlaySizeProbe | ConvertTo-Json -Compress)) }
+          if (-not $ovr.overlaySizeResetOk) { throw ('展台大小复位失败（应回到默认档，且同样要过 clamp）→ ' + ($ovr.overlaySizeProbe | ConvertTo-Json -Compress)) }
+          if (-not $ovr.overlaySizeBiggerOk) { throw ('展台尺寸上限没有放宽（用户反馈「最大值还是太小」）→ ' + ($ovr.overlaySizeProbe | ConvertTo-Json -Compress)) }
           if (-not $ovr.dragCoalesceOk) { throw ('拖动的高频移动没有被合并（IPC 会无上限积压）→ ' + ($ovr.dragProbe | ConvertTo-Json -Compress)) }
           if (-not $ovr.dragPositionOk) { throw ('拖动后窗口位置没有跟到最新光标位置 → ' + ($ovr.dragProbe | ConvertTo-Json -Compress)) }
           if (-not $ovr.dragSizeStableOk) { throw ('拖动过程中窗口宽高变了（尺寸被拉扯）→ ' + ($ovr.dragProbe | ConvertTo-Json -Compress)) }
-          if (-not $ovr.dragNoResizeOk) { throw ('拖动期间出现了 resize 事件（会闪烁/尺寸抖动）→ ' + ($ovr.dragProbe | ConvertTo-Json -Compress)) }
+          if (-not $ovr.dragNoResizeOk) { throw ('拖动期间窗口宽高被改了（会闪烁/尺寸抖动）→ ' + ($ovr.dragResizeLog | ConvertTo-Json -Compress)) }
           if (-not $ovr.dragEndOk) { throw ('拖动结束后还有残留的动画帧/在途请求，或 dragEnd 被重复调用 → ' + ($ovr.dragProbe | ConvertTo-Json -Compress)) }
           if (-not $ovr.dragNoResidualOk) { throw ('松手后窗口没有停在落点，或还在跟随光标 → ' + ($ovr.dragProbe | ConvertTo-Json -Compress)) }
           if (-not $ovr.dragListenerOnceOk) { throw ('多次拖动后 IPC 次数翻倍（监听器被重复绑定）→ ' + ($ovr.dragProbe | ConvertTo-Json -Compress)) }
@@ -263,12 +295,18 @@ jobs:
           if ($ovr.mineflayer -ne $true) { throw ('打包产物里 mineflayer 不可用: ' + $ovr.mineflayer) }
           if ($ovr.pathfinder -ne $true) { throw ('打包产物里 mineflayer-pathfinder 不可用: ' + $ovr.pathfinder) }
           if (-not $ovr.gripExists) { throw '悬浮展台缺少拖拽手柄' }
-          # 展台被误判成「手机」时，oh-my-live2d 会完全跳过模型加载 —— 这条任何环境都必须成立
-          if ($ovr.overlayProbe.mqMobile -ne $false) { throw '悬浮展台被判定成了移动端（matchMedia 窗口宽度误判），模型会完全不加载' }
           # 像素级断言只在真的装了模型时才有意义；CI 用全新数据目录，没有模型就退化成检查空状态
           if ($ovr.modelsAvailable -and -not $ovr.modelRenderedOk) { throw ('悬浮展台没有把模型画出来（帧缓冲为空）→ ' + ($ovr.overlayProbe | ConvertTo-Json -Compress -Depth 4)) }
           if (-not $ovr.modelsAvailable -and -not $ovr.overlayEmptyOk) { throw ('没有安装模型时，悬浮展台应当显示空状态 → ' + ($ovr.overlayProbe | ConvertTo-Json -Compress -Depth 4)) }
-          if (-not $ovr.overlayMqOk) { throw '悬浮展台的平台判定异常' }
+          # 换引擎（PixiJS v8 + untitled-pixi-live2d-engine）之后的硬约束：
+          # 必须真的用上新引擎、Cubism Core 必须加载成功（否则 internalModel 根本挂不上）
+          if (-not $ovr.overlayEngineOk) { throw ('展台没有用上新 Live2D 引擎（PixiJS v8 / untitled-pixi-live2d-engine）→ ' + ($ovr.overlayProbe | ConvertTo-Json -Compress -Depth 4)) }
+          if (-not $ovr.fineCtrlOk) { throw ('设置里的「Live2D 精细控制」没有生效（fps/fit 改了展台没跟上）→ ' + ($ovr.fineCtrlProbe | ConvertTo-Json -Compress)) }
+          if ($ovr.modelsAvailable -and -not $ovr.lipsyncOk) { throw ('口型同步没有驱动嘴部参数 → ' + ($ovr.lipsyncProbe | ConvertTo-Json -Compress)) }
+          if (-not $ovr.mouthIpcOk) { throw ('口型的 IPC 通道不通（参数校验拒绝了 overlay:mouth）→ ' + ($ovr.mouthIpcProbe | ConvertTo-Json -Compress)) }
+          if ($ovr.modelsAvailable -and -not $ovr.fitFillsOk) { throw ('角色没有铺满展台窗口（按真实像素量的）→ ' + ($ovr.overlayProbe.fitDebug | ConvertTo-Json -Compress)) }
+          if ($ovr.modelsAvailable -and $ovr.hotkeyListOk -eq $false) { throw ('模型自带的 VTS 热键没有读出来 → ' + ($ovr.hotkeyProbe | ConvertTo-Json -Compress -Depth 4)) }
+          if ($ovr.modelsAvailable -and $ovr.hotkeyToggleOk -eq $false) { throw ('VTS 热键开关/全部清除没有生效 → ' + ($ovr.hotkeyToggleProbe | ConvertTo-Json -Compress)) }
           if (-not $ovr.fullscreenAccelOk) { throw '全屏没有绑定 F11（视图菜单里的 togglefullscreen 缺 accelerator）' }
           if (-not $ovr.fullscreenToggleOk) { throw '窗口全屏开关无效' }
           if (-not $ovr.modelDeleteOk) { throw ('删除本地模型失败（临时模型目录没被删掉）→ ' + $ovr.modelDeleteBefore + ' / ' + $ovr.modelDeleteAfter) }

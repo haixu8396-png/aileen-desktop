@@ -73,6 +73,8 @@ const getOverlayBounds = overlay.getBounds;
 const getOverlayGhost = overlay.getGhost;
 const getOverlayGhostVisible = overlay.getGhostVisible;
 const getWorkArea = overlay.getWorkArea;
+const pushOverlayLive2D = overlay.pushLive2D || (() => false);
+const getOverlayLive2D = overlay.getLive2D || (() => ({}));
 const createOverlayWindow = overlay.createWindow;
 const destroyOverlayWindow = overlay.destroyWindow;
 
@@ -1113,7 +1115,10 @@ win.webContents.on('did-finish-load', () => {
           // 等穿透监控那一拍（250ms）再断言：光标在窗口外 → 移动之后必须还是穿透的
           await new Promise((r) => setTimeout(r, 320));
           rep.ignoringAfterMove = getOverlayIgnoring();
-          // 展台大小边界：用户报过「直接占领了整个屏幕」—— 任何来源的尺寸都必须被钳住
+          // 展台大小边界：用户报过「直接占领了整个屏幕」，后来又报「最大值还是太小」。
+          // 两条要求同时成立的方式是：**上限由 clampOverlaySize 说了算**，而且它自己必须在
+          // 屏幕比例 + 绝对上限之内，并且窗口整个落在工作区里（底边留缝）。
+          // 注意：这里不能把比例写死 —— CI 的虚拟屏只有 1024×720，写死就会假红（踩过一次）。
           try {
             const area = getWorkArea();
             const huge = clampOverlaySizeFn(99999, 99999);
@@ -1127,11 +1132,12 @@ win.webContents.on('did-finish-load', () => {
               huge: [huge.width, huge.height],
               tiny: [tiny.width, tiny.height],
               applied: afterProbe ? [afterProbe.width, afterProbe.height] : null,
-              maxRatioW: Math.round(area.width * 0.4),
-              maxRatioH: Math.round(area.height * 0.8),
+              caps: { ratioW: 0.72, ratioH: 0.92, absW: 1200, absH: 1280 },
             };
-            const fitsScreen = !!afterProbe && afterProbe.width <= Math.round(area.width * 0.4) + 6
-              && afterProbe.height <= Math.round(area.height * 0.8) + 6;
+            const ratioCapW = Math.round(area.width * 0.72);
+            const ratioCapH = Math.round(area.height * 0.92);
+            const fitsScreen = !!afterProbe && afterProbe.width <= huge.width + 6
+              && afterProbe.height <= huge.height + 6;
             const tinyFloored = tiny.width >= 240 && tiny.height >= 380;
             // 窗口必须整个落在工作区里：露到任务栏上就是「挡住任务栏」
             // 底边还要留一条缝：贴着工作区底边 = 脚踩在任务栏上（用户报过两次）
@@ -1142,11 +1148,16 @@ win.webContents.on('did-finish-load', () => {
               && afterProbe.x >= area.x - 1 && afterProbe.y >= area.y - 1
               && afterProbe.x + afterProbe.width <= area.x + area.width + 6
               && afterProbe.y + afterProbe.height <= area.y + area.height + 6;
-            rep.overlaySizeOk = huge.width <= Math.round(area.width * 0.4) + 1
-              && huge.height <= Math.round(area.height * 0.8) + 1
-              && tinyFloored && fitsScreen;
+            // 上限既要「在比例/绝对上限之内」，也要真的比历史值（720×900）更大，
+            // 否则等于这次「调大」没生效。小屏上被比例钳住是正常的，所以按 min 比较。
+            const capWOk = huge.width <= Math.min(1200, ratioCapW) + 1;
+            const capHOk = huge.height <= Math.min(1280, ratioCapH) + 1;
+            const biggerWOk = huge.width >= Math.min(1200, ratioCapW) - 1 && huge.width > 320;
+            const biggerHOk = huge.height >= Math.min(1280, ratioCapH) - 1 && huge.height > 380;
+            rep.overlaySizeOk = capWOk && capHOk && tinyFloored && fitsScreen;
+            rep.overlaySizeBiggerOk = biggerWOk && biggerHOk && capWOk && capHOk;
             // 「reset」的语义：大小也回到默认（400×640），不只是挪位置。
-            // 注意默认值本身也要过 clamp：CI 的虚拟屏只有 1024×720，640 高会被钳到 576。
+            // 注意默认值本身也要过 clamp：CI 的虚拟屏只有 1024×720，640 高会被钳到更小。
             const resetWant = clampOverlaySizeFn(400, 640);
             await setOverlaySize(resetWant.width, resetWant.height);
             await new Promise((r) => setTimeout(r, 220));
@@ -1188,12 +1199,28 @@ win.webContents.on('did-finish-load', () => {
             if (typeof setCursor !== 'function') throw new Error('setCursor 没有注入');
             const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
             const dragStart = await w.getBounds();
+            // 拖动用例要求窗口上方有足够的余量（它固定往左上拖 120/60）：
+            // 窗口一旦占满屏高（72% 上限下 816 高的工作区能到 ~750），y 被钳到 0，
+            // 「往左上 60」就变成负坐标、被 clampOverlayPosition 钳平 —— 断言会假红。
+            // 所以先用一个确定的小尺寸做这组用例，跑完再还原。
+            const probeSize = { width: 420, height: 600 };
+            await setOverlaySize(probeSize.width, probeSize.height);
+            await sleep(300);
             // 先把窗口放到一个确定的坐标，省得受前面用例影响
-            await applyOverlayBounds({ x: 900, y: 200, width: dragStart.width, height: dragStart.height });
-            await sleep(200);
+            await applyOverlayBounds({ x: 900, y: 200, width: probeSize.width, height: probeSize.height });
+            // 等 Windows 把「解除 resizable → setBounds → 锁回」这套收尾事件排空，
+            // 否则那一次 resize 会算到「拖动期间」头上（假红过一次）。
+            await sleep(450);
             const base = w.getBounds();
             let resizeEvents = 0;
-            const countResize = () => { resizeEvents += 1; };
+            // 拖动期间「尺寸被拉扯」才是 bug：Windows 上切换鼠标穿透本身就会发一次
+            // 同尺寸的 resize 事件（窗口样式重建），所以不能只数次数，要看宽高有没有变。
+            const resizeLog = [];
+            const countResize = () => {
+              resizeEvents += 1;
+              const bb = w.getBounds();
+              resizeLog.push([bb.width, bb.height]);
+            };
             w.on('resize', countResize);
 
             const stats = () => w.webContents.executeJavaScript(
@@ -1278,8 +1305,12 @@ win.webContents.on('did-finish-load', () => {
             const nearSize = (a, b2) => Math.abs(a - b2) <= 2;
             rep.dragSizeStableOk = nearSize(mid.width, base.width) && nearSize(mid.height, base.height)
               && nearSize(settled.width, base.width) && nearSize(settled.height, base.height);
-            // 拖动期间不该出现任何 resize（出现了就是「尺寸被拉扯」的那类问题）
-            rep.dragNoResizeOk = resizeEvents === 0;
+            // 拖动期间尺寸不能变（出现「宽高变了」就是被拉扯的那类问题）。
+            // 注意不能要求「resize 事件数 === 0」：Windows 在切换鼠标穿透时会补发一次
+            // 同尺寸的 resize，那是窗口样式重建，不是尺寸被拉扯。
+            const resizeChangedSize = resizeLog.some((sz) => Math.abs(sz[0] - base.width) > 2 || Math.abs(sz[1] - base.height) > 2);
+            rep.dragNoResizeOk = !resizeChangedSize;
+            rep.dragResizeLog = resizeLog;
             // 结束一次且只一次，且没有残留的帧 / 在途请求
             rep.dragEndOk = rep.dragProbe.endCalls === 1 && rep.dragEnded === true
               && afterEndStats.active === false && afterEndStats.pending === false
@@ -1367,12 +1398,176 @@ win.webContents.on('did-finish-load', () => {
             rep.overlayProbe = await w.webContents.executeJavaScript('window.__AILEEN_OVERLAY_PROBE ? window.__AILEEN_OVERLAY_PROBE() : null');
             // 「模型画出来了」这条断言只在真的装了模型时才有意义：
             // CI 是全新技术目录（零模型），硬要求像素就等于要求一个不可能的事。
-            // 但「展台不该被当成手机」这条任何环境都必须成立 —— 那才是模型完全不加载的元凶。
             rep.modelRenderedOk = rep.modelsAvailable
               ? !!(rep.overlayProbe && rep.overlayProbe.renderedOk === true && rep.overlayProbe.stageChildren > 0)
               : 'skipped:no-model-installed';
-            rep.overlayMqOk = !!(rep.overlayProbe && rep.overlayProbe.mqMobile === false);
-            rep.overlayEmptyOk = rep.modelsAvailable ? null : !!(rep.overlayProbe && rep.overlayProbe.emptyHint === true);
+            // 换引擎之后：一定要真的用上新引擎（而不是悄悄回落到什么空实现），
+            // 并且 internalModel 挂上了（Cubism Core 没加载成功时这里就是 no-internalModel）。
+            rep.overlayEngineOk = !!(rep.overlayProbe
+              && rep.overlayProbe.engine === 'untitled-pixi-live2d-engine'
+              && rep.overlayProbe.hasPixiApp === true
+              && rep.overlayProbe.status === 'internalModel-ok');
+            // 口型同步：灌一个包络进去，嘴部参数必须被驱动（只看「此刻的值」会被衰减骗过去，
+            // 所以渲染层额外记了一个峰值）。
+            if (rep.modelsAvailable) {
+              try {
+                await w.webContents.executeJavaScript('window.__AILEEN_OVERLAY_MOUTH ? window.__AILEEN_OVERLAY_MOUTH(0.95) : null');
+                await new Promise((r) => setTimeout(r, 350));
+                rep.lipsyncProbe = await w.webContents.executeJavaScript('window.__AILEEN_MOUTH_VALUE ? window.__AILEEN_MOUTH_VALUE() : null');
+                rep.lipsyncOk = !!(rep.lipsyncProbe && Number(rep.lipsyncProbe.peak) > 0.2);
+              } catch (err) { rep.lipsyncOk = 'err:' + String((err && err.message) || err); }
+            } else {
+              rep.lipsyncOk = 'skipped:no-model-installed';
+            }
+            // 口型 IPC 本身（主窗口渲染层 → 主进程 → 展台）也要能通：schema 不对会被静默拒绝
+            try {
+              const echoed = await w.webContents.executeJavaScript('window.api.overlayMouth ? window.api.overlayMouth(0.42) : null');
+              rep.mouthIpcProbe = echoed;
+              rep.mouthIpcOk = typeof echoed === 'number' && Math.abs(echoed - 0.42) < 0.001;
+            } catch (err) { rep.mouthIpcOk = 'err:' + String((err && err.message) || err); }
+            // 精细控制：改设置 → 主进程推给展台 → 展台立刻生效（帧率上限是最好观测的一个）
+            try {
+              const live2dBefore = getOverlayLive2D();
+              writeSettings({ live2d: { fps: 30, fit: 1 } });
+              const pushed = pushOverlayLive2D();
+              await new Promise((r) => setTimeout(r, 420));
+              const p2 = await w.webContents.executeJavaScript('window.__AILEEN_OVERLAY_PROBE ? window.__AILEEN_OVERLAY_PROBE() : null');
+              const fitDebug2 = p2 && p2.fitDebug;
+              rep.fineCtrlProbe = {
+                pushed,
+                fps: p2 && p2.ticker ? p2.ticker.maxFPS : null,
+                fit: p2 && p2.hq ? p2.hq.fit : null,
+                drawn: fitDebug2 ? fitDebug2.drawn : null,
+                stage: fitDebug2 ? fitDebug2.stage : null,
+                keys: live2dBefore ? Object.keys(live2dBefore).sort() : [],
+              };
+              rep.fineCtrlOk = !!p2 && p2.ticker && p2.ticker.maxFPS === 30
+                && Number(p2.hq.fit) === 1
+                && !!live2dBefore && ['fit', 'zoom', 'lipsync', 'idleMotion', 'focusFollow', 'physics', 'quality', 'fps', 'lod', 'mask']
+                  .every((k) => Object.prototype.hasOwnProperty.call(live2dBefore, k));
+              // fit=1 时角色必须几乎铺满窗口（像素盒量的，和引擎内部包围盒无关）
+              const drawnOk = !!(fitDebug2 && fitDebug2.drawn && fitDebug2.stage
+                && (fitDebug2.drawn[1] >= Math.round(fitDebug2.stage[1] * 0.85)
+                  || fitDebug2.drawn[0] >= Math.round(fitDebug2.stage[0] * 0.85)));
+              rep.fitFillsOk = rep.modelsAvailable ? drawnOk : 'skipped:no-model-installed';
+              // 还原刚才的自检改动
+              writeSettings({ live2d: live2dBefore });
+              pushOverlayLive2D();
+              await new Promise((r) => setTimeout(r, 260));
+            } catch (err) { rep.errors.push('fineCtrl: ' + String((err && err.message) || err)); }
+            // VTS 热键表是异步 fetch 的，等它读完再断言
+            await new Promise((r) => setTimeout(r, 3000));
+
+            // VTube Studio 热键：模型目录里的 .vtube.json（没有就是 skipped）
+            try {
+              const hk = await w.webContents.executeJavaScript('window.__AILEEN_HOTKEYS ? window.__AILEEN_HOTKEYS() : null');
+              rep.hotkeyProbe = hk;
+              // 状态加载本身失败了（配置读不到 / 代码炸了）必须单独报，不能和「这个模型没有热键」混成一个样
+              rep.live2dLoadOk = rep.modelsAvailable
+                ? !(hk && hk.loadError)
+                : 'skipped:no-model-installed';
+              rep.hotkeyListOk = rep.modelsAvailable
+                ? (!!hk && (hk.count > 0 || 'skipped:no-vts-config'))
+                : 'skipped:no-model-installed';
+              if (rep.modelsAvailable && hk && hk.count > 0) {
+                const pick = (hk.names || []).find((n) => /school uniform/i.test(n))
+                  || (hk.names || []).find((n) => !/remove all/i.test(n))
+                  || (hk.names || [])[0];
+                // 「画面真的变了」才是证据：参数值在帧外读到的永远是基线（引擎每帧 loadParameters 还原），
+                // 所以这里用引擎画出来的部件/绘制不透明度指纹来判断。
+                const vis = await w.webContents.executeJavaScript(
+                  'window.__AILEEN_L2D_TEST_HOTKEY_VISUAL ? window.__AILEEN_L2D_TEST_HOTKEY_VISUAL(' + JSON.stringify(pick) + ') : null',
+                );
+                rep.hotkeyToggleProbe = { pick, visual: vis };
+                if (vis && vis.ok === false && vis.error) rep.errors.push('hotkey visual: ' + vis.error);
+                rep.hotkeyToggleOk = !!(vis && vis.ok);
+              } else {
+                rep.hotkeyToggleOk = 'skipped:no-vts-config';
+              }
+            } catch (err) { rep.hotkeyListOk = 'err:' + String((err && err.message) || err); }
+            // 部件开关（cdi3 的中文部件名）：A 方案里「换装/去装饰」靠的就是这条
+            try {
+              const pt = await w.webContents.executeJavaScript('window.__AILEEN_PARTS ? window.__AILEEN_PARTS() : null');
+              rep.partPanelProbe = pt ? { count: pt.count, sample: (pt.names || []).slice(0, 8) } : null;
+              rep.partPanelOk = rep.modelsAvailable
+                ? (!!pt && (pt.count > 0 || 'skipped:no-cdi3'))
+                : 'skipped:no-model-installed';
+              if (rep.modelsAvailable && pt && pt.count > 0) {
+                const target = (pt.names || []).find((n) => /衣服|body|dress/i.test(n)) || (pt.names || [])[0];
+                const beforeOpacity = await w.webContents.executeJavaScript('window.__AILEEN_PART_OPACITY(' + JSON.stringify(target) + ')');
+                const hiddenOn = await w.webContents.executeJavaScript('window.__AILEEN_PART_TOGGLE(' + JSON.stringify(target) + ')');
+                await new Promise((r) => setTimeout(r, 350));
+                const afterOpacity = await w.webContents.executeJavaScript('window.__AILEEN_PART_OPACITY(' + JSON.stringify(target) + ')');
+                const hiddenList = (await w.webContents.executeJavaScript('window.__AILEEN_PARTS()')).hidden;
+                await w.webContents.executeJavaScript('window.__AILEEN_PART_TOGGLE(' + JSON.stringify(target) + ')');
+                await new Promise((r) => setTimeout(r, 300));
+                rep.partToggleProbe = { target, hiddenOn, beforeOpacity, afterOpacity, hidden: hiddenList };
+                // 隐藏后不透明度必须真的变 0（这是「部件开关真的生效」的硬证据）
+                rep.partToggleOk = hiddenOn === true && Array.isArray(hiddenList) && hiddenList.length > 0
+                  && (afterOpacity === null || Number(afterOpacity) <= 0.05);
+              } else {
+                rep.partToggleOk = 'skipped:no-cdi3';
+              }
+            } catch (err) { rep.partPanelOk = 'err:' + String((err && err.message) || err); }
+            // Live2D 兼容层：这几个门禁看的是「引擎里的真实状态」，不是按钮亮没亮
+            try {
+              const pw = await w.webContents.executeJavaScript('window.__AILEEN_L2D_TEST_PARAM_WRITE ? window.__AILEEN_L2D_TEST_PARAM_WRITE() : null');
+              rep.paramWriteProbe = pw;
+              rep.paramWriteOk = rep.modelsAvailable ? !!(pw && pw.ok) : 'skipped:no-model-installed';
+
+              const ex = await w.webContents.executeJavaScript('window.__AILEEN_L2D_TEST_EXPRESSION ? window.__AILEEN_L2D_TEST_EXPRESSION() : null');
+              rep.expressionApplyProbe = ex;
+              rep.expressionApplyOk = rep.modelsAvailable ? !!(ex && ex.ok) : 'skipped:no-model-installed';
+
+              const mi = await w.webContents.executeJavaScript('window.__AILEEN_L2D_TEST_MISSING ? window.__AILEEN_L2D_TEST_MISSING() : null');
+              rep.expressionMissingProbe = mi;
+              rep.expressionMissingOk = rep.modelsAvailable ? !!(mi && mi.ok) : 'skipped:no-model-installed';
+
+              const pr = await w.webContents.executeJavaScript('window.__AILEEN_L2D_TEST_PART_RESTORE ? window.__AILEEN_L2D_TEST_PART_RESTORE() : null');
+              rep.partRestoreProbe = pr;
+              rep.partRestoreOk = rep.modelsAvailable ? !!(pr && pr.ok) : 'skipped:no-model-installed';
+
+              const st = await w.webContents.executeJavaScript('window.__AILEEN_L2D_TEST_STATE ? window.__AILEEN_L2D_TEST_STATE() : null');
+              rep.live2dStateProbe = st;
+              rep.live2dStateOk = rep.modelsAvailable ? !!(st && st.ok) : 'skipped:no-model-installed';
+
+              // 道具出框：**不自动改比例**，点「按当前姿势适配」才改（用户明确要求手动）
+              const pf = await w.webContents.executeJavaScript('window.__AILEEN_L2D_TEST_PROP_FIT ? window.__AILEEN_L2D_TEST_PROP_FIT() : null');
+              rep.propFitProbe = pf;
+              rep.propFitOk = rep.modelsAvailable ? !!(pf && pf.ok) : 'skipped:no-model-installed';
+              if (pf && pf.ok === false && pf.error) rep.errors.push('prop fit: ' + pf.error);
+            } catch (err) { rep.errors.push('live2d compat: ' + String((err && err.message) || err)); }
+            // 「⋯」面板必须能滚动：37 个热键 + 145 个部件一屏放不下，滚不动就等于下面那半截不存在
+            try {
+              const sc = await w.webContents.executeJavaScript(`(function(){
+                var box = document.getElementById('ov-more');
+                if (!box) return null;
+                box.classList.remove('hidden');
+                box.scrollTop = 0;
+                var overflow = box.scrollHeight - box.clientHeight;
+                box.scrollTop = box.scrollHeight;
+                var r = box.getBoundingClientRect();
+                var out = {
+                  overflow: overflow, scrollTop: box.scrollTop, clientHeight: box.clientHeight, scrollHeight: box.scrollHeight,
+                  overflowY: getComputedStyle(box).overflowY,
+                  rect: [Math.round(r.left), Math.round(r.top), Math.round(r.width), Math.round(r.height)],
+                  view: [window.innerWidth, window.innerHeight],
+                };
+                box.scrollTop = 0;   // 截图要拍面板顶部（热键那一栏），不是最底下
+                return out;
+              })()`);
+              await new Promise((r) => setTimeout(r, 120));
+              rep.panelScrollProbe = sc;
+              rep.panelScrollOk = !!sc && sc.overflowY === 'auto'
+                && (sc.overflow <= 0 || sc.scrollTop > 0);
+              // 面板本身必须整个落在窗口里：贴到窗口上沿外面的话，上面那截永远点不到
+              const inside = !!sc && Array.isArray(sc.rect) && Array.isArray(sc.view)
+                && sc.rect[1] >= -1
+                && sc.rect[1] + sc.rect[3] <= sc.view[1] + 1
+                && sc.rect[0] >= -1
+                && sc.rect[0] + sc.rect[2] <= sc.view[0] + 1;
+              rep.panelInsideOk = rep.modelsAvailable ? inside : 'skipped:no-model-installed';
+            } catch (err) { rep.panelScrollOk = 'err:' + String((err && err.message) || err); }
             rep.mainWindowMq = await win.webContents.executeJavaScript('({ mq: window.matchMedia("screen and (max-width: 768px)").matches, screen: [window.screen.width, window.screen.height] })').catch(() => null);
           } catch (err) { rep.errors.push('overlay probe: ' + String((err && err.message) || err)); }
           await new Promise((r) => setTimeout(r, 400));

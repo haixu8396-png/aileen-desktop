@@ -206,6 +206,14 @@ details.advanced[open] summary { margin-bottom: var(--sp-3); }
 .set-row .sr-control { margin-left: auto; flex: none; display: flex; align-items: center; gap: var(--sp-2); }
 .set-row .sr-control select, .set-row .sr-control input { min-width: 200px; }
 .set-row .sr-control .seg button { min-width: auto; }
+/* 滑块旁边的数值（Live2D 精细控制）：等宽数字，滑动时不会左右抖 */
+.set-row .sr-val {
+  font-size: var(--fs-xs); color: var(--text-secondary);
+  min-width: 3.2em; text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+/* 父开关关掉时把子参数调暗（不是禁用，改的时候照样能调） */
+.set-row.is-muted { opacity: 0.45; }
 
 /* ============================================================
    记忆与知识库

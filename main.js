@@ -406,12 +406,19 @@ const OVERLAY_SIZE = {
   defaultHeight: 640,
   minWidth: 240,
   minHeight: 380,
-  /** 屏幕的比例上限：宽度最多 40%，高度最多 80% */
-  maxWidthRatio: 0.4,
-  maxHeightRatio: 0.8,
-  /** 绝对上限（大屏上也不让它铺满） */
-  absMaxWidth: 720,
-  absMaxHeight: 900,
+  /**
+   * 屏幕的比例上限：宽度最多 72%，高度最多 92%。
+   *
+   * 历史：先是 1400×1600（等于在 1536×864 的屏上铺满桌面，用户原话「直接占领了整个屏幕」），
+   * 然后收紧到 40%/80%（≤720×900）—— 收紧之后用户又反馈「显示最大值还是太小」。
+   * 现在放宽到 72%/92%，但**底边仍然留 28px 缝**（OVERLAY_BOTTOM_GAP），
+   * 并且最终一定被 clampOverlayPosition() 整个钳进工作区，所以「大」和「不挡任务栏」能同时成立。
+   */
+  maxWidthRatio: 0.72,
+  maxHeightRatio: 0.92,
+  /** 绝对上限（超大屏上也不让它铺满整块屏） */
+  absMaxWidth: 1200,
+  absMaxHeight: 1280,
 };
 
 /** 把一组宽高钳进合法范围（设置里的旧值、＋/－ 按钮、自检都走它） */
@@ -616,11 +623,39 @@ function startOverlayWatch() {
   overlayWatch = setInterval(() => {
     if (!overlayWin || overlayWin.isDestroyed()) { stopOverlayWatch(); return; }
     setOverlayIgnore(!overlayShouldCapture());
+    pushOverlayGaze();
   }, 250);
 }
 
 function stopOverlayWatch() {
   if (overlayWatch) { clearInterval(overlayWatch); overlayWatch = null; }
+}
+
+/**
+ * 把「精细控制」这一组推给展台。
+ * 设置页保存后（settings:set）与展台创建时都走这里 —— 改完立刻生效，不用重开窗口。
+ */
+function pushOverlayLive2D() {
+  if (!overlayWin || overlayWin.isDestroyed()) return false;
+  try {
+    overlayWin.webContents.send('overlay:live2d', readSettings().live2d || {});
+    return true;
+  } catch (err) { return false; }
+}
+
+/**
+ * 视线跟随：把真实光标（相对展台窗口的坐标）送给渲染层，由它调 model.focus()。
+ * 展台窗口自己收不到 pointermove（大部分时候整窗鼠标穿透），所以只能由主进程喂。
+ */
+function pushOverlayGaze() {
+  if (!overlayWin || overlayWin.isDestroyed() || !overlayWin.isVisible()) return;
+  const cfg = readSettings().live2d || {};
+  if (!cfg.focusFollow) return;
+  try {
+    const pt = overlayCursorPoint();
+    const b = overlayWin.getBounds();
+    overlayWin.webContents.send('overlay:gaze', { x: pt.x - b.x, y: pt.y - b.y });
+  } catch (err) { /* 窗口刚销毁 */ }
 }
 
 // ------------------------------------------------------------
@@ -788,6 +823,7 @@ function createOverlayWindow() {
     overlayWin.showInactive();
     startOverlayWatch();
     if (overlayModel) overlayWin.webContents.send('overlay:model', overlayModel);
+    pushOverlayLive2D();
     broadcastOverlayState();
   });
   // 兜底：即使用户缩放被系统绕过了，也不允许尺寸变成非程序化的值（直接弹回）
@@ -869,6 +905,8 @@ function registerOverlayIpc() {
   handle('overlay:getState', () => ({
     model: overlayModel,
     overlay: overlaySettings(),
+    // 精细控制（画质/口型/口型增益/待机动作/视线跟随/物理/LOD/遮罩/帧率）
+    live2d: readSettings().live2d || {},
     theme: readSettings().theme || {},
     // 展台与主窗口共享同一套外观：主题模式 + 强调色 + 减少动效
     appearance: readSettings().appearance || { mode: 'light', accent: 'rose' },
@@ -925,6 +963,23 @@ function registerOverlayIpc() {
     payload && payload.width,
     payload && payload.height,
   ));
+  // 展台工具条面板里的模型微调倍率：落在 live2d.zoom（和设置页的 live2d.fit 相乘）
+  handle('overlay:setZoom', (_e, payload) => {
+    const raw = Number(payload && payload.zoom);
+    const zoom = Math.min(1.25, Math.max(0.4, Number.isFinite(raw) ? raw : 1));
+    writeSettings({ live2d: { zoom } });
+    pushOverlayLive2D();
+    return zoom;
+  });
+  // 主窗口 → 展台：TTS 音量包络（0..1），展台用它驱动嘴部参数
+  handle('overlay:mouth', (_e, payload) => {
+    const raw = Number(payload && payload.level);
+    const level = Math.min(1, Math.max(0, Number.isFinite(raw) ? raw : 0));
+    if (overlayWin && !overlayWin.isDestroyed()) {
+      try { overlayWin.webContents.send('overlay:mouth', level); } catch (err) { /* 窗口刚关掉 */ }
+    }
+    return level;
+  });
   handle('overlay:dragStart', () => {
     if (!overlayWin || overlayWin.isDestroyed()) return false;
     const pt = overlayCursorPoint();
@@ -1212,6 +1267,9 @@ function selfTestDeps() {
       // 尺寸边界自检用：设置里的「展台大小」走 setSize，clampSize 是纯函数
       setSize: (w, h) => setOverlaySize(w, h),
       clampSize: (w, h) => clampOverlaySize(w, h),
+      // 精细控制：自检要能验证「改了设置真的推到展台、并立刻生效」
+      pushLive2D: () => pushOverlayLive2D(),
+      getLive2D: () => readSettings().live2d || {},
       getBounds: () => (overlayWin && !overlayWin.isDestroyed() ? overlayWin.getBounds() : null),
       getWorkArea: () => screen.getPrimaryDisplay().workArea,
       // 拖动提示框：拖动时它跟手，松手才落位
@@ -1556,6 +1614,8 @@ function registerIpc() {
     const next = writeSettings(patch);
     // 语言变了要重建原生菜单
     if (next && next.language !== appMenuLang) { appMenuLang = next.language; buildAppMenu(appMenuLang); }
+    // 精细控制（画质/口型/LOD/遮罩/物理…）改完立刻推给展台，不用重开窗口
+    pushOverlayLive2D();
     return settingsForRenderer(next);
   });
 

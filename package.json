@@ -1,7 +1,7 @@
 {
   "name": "aileen",
   "productName": "AILEEN",
-  "version": "0.7.5",
+  "version": "0.7.6",
   "description": "桌面 AI 伴侣：Live2D 角色 + 多模型 LLM 对话 + 语音 + 屏幕视觉 + 电脑控制 + Minecraft/国际象棋，本地运行、数据私有",
   "license": "PolyForm-Noncommercial-1.0.0",
   "author": "AILEEN Contributors",
@@ -63,11 +63,13 @@
     }
   },
   "dependencies": {
+    "@pixi/sound": "^6.0.1",
     "dompurify": "^3.4.15",
     "js-chess-engine": "^2.4.6",
     "mineflayer": "^4.39.0",
     "mineflayer-pathfinder": "^2.4.5",
-    "oh-my-live2d": "^0.19.3"
+    "pixi.js": "^8.22.0",
+    "untitled-pixi-live2d-engine": "^1.4.0"
   },
   "devDependencies": {
     "electron": "^44.1.0",

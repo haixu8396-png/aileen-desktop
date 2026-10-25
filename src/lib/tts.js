@@ -24,6 +24,47 @@ export class TTS {
     this.onStart = null; // (text) => void
     this.onEnd = null;   // () => void
     this.onError = null; // (err) => void
+    // 口型同步：每 ~40ms 把当前音量包络（0..1）报给外面（展台拿它驱动嘴部参数）。
+    // web（系统语音）拿不到音频流，用程序化包络兜底，否则用系统语音时嘴根本不动。
+    this.onLevel = null;
+    this._levelTimer = null;
+    this._analyser = null;
+  }
+
+  /** 开始上报音量包络（有分析器就用真音量，没有就走程序化） */
+  _startLevelLoop(procedural) {
+    this._stopLevelLoop();
+    if (typeof this.onLevel !== 'function') return;
+    const started = Date.now();
+    this._levelTimer = setInterval(() => {
+      let level = 0;
+      if (!procedural && this._analyser) {
+        try {
+          const buf = new Uint8Array(this._analyser.fftSize);
+          this._analyser.getByteTimeDomainData(buf);
+          let sum = 0;
+          for (let i = 0; i < buf.length; i += 4) {
+            const v = (buf[i] - 128) / 128;
+            sum += v * v;
+          }
+          level = Math.min(1, Math.sqrt(sum / (buf.length / 4)) * 3.2);
+        } catch (err) { level = 0; }
+      } else {
+        // 程序化口型：按音节节奏开合（系统语音没有可分析的音频流）
+        const tsec = (Date.now() - started) / 1000;
+        const base = 0.35 + 0.3 * Math.abs(Math.sin(tsec * 9.1));
+        level = Math.min(1, base * (0.7 + 0.3 * Math.abs(Math.sin(tsec * 3.3))));
+      }
+      try { this.onLevel(level); } catch (err) { /* 回调自己炸了不该影响播放 */ }
+    }, 40);
+  }
+
+  _stopLevelLoop() {
+    if (this._levelTimer) { clearInterval(this._levelTimer); this._levelTimer = null; }
+    this._analyser = null;
+    if (typeof this.onLevel === 'function') {
+      try { this.onLevel(0); } catch (err) { /* ignore */ }
+    }
   }
 
   /** 取一个新的播放令牌 */
@@ -99,6 +140,7 @@ export class TTS {
   }
 
   _finish() {
+    this._stopLevelLoop();
     this._src = null;
     this._abort = null;
     this.playing = false;
@@ -126,6 +168,8 @@ export class TTS {
     u.onend = () => this._finishCurrent(token);
     u.onerror = () => this._finishCurrent(token);
     window.speechSynthesis.speak(u);
+    // 系统语音没有可分析的音频流 → 用程序化包络兜底，让嘴跟着动起来
+    this._startLevelLoop(true);
   }
 
   _pickVoice(preferred, language) {
@@ -162,13 +206,25 @@ export class TTS {
     if (!token || token.done || token !== this._token) return;
     const src = ctx.createBufferSource();
     src.buffer = audioBuf;
-    src.connect(ctx.destination);
+    // 接一个分析器：口型同步要的是「这一帧有多响」，不改变播放链路
+    let analyser = null;
+    try {
+      analyser = ctx.createAnalyser();
+      analyser.fftSize = 512;
+      src.connect(analyser);
+      analyser.connect(ctx.destination);
+    } catch (err) {
+      analyser = null;
+      src.connect(ctx.destination);
+    }
+    this._analyser = analyser;
     this._src = src;
     this.playing = true;
     if (this.onStart) this.onStart(text);
     src.onended = () => this._finishCurrent(token);
     if (ctx.state === 'suspended') await ctx.resume();
     src.start();
+    this._startLevelLoop(!analyser);
   }
 
   /**

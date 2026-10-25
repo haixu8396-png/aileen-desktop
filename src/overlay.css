@@ -67,6 +67,9 @@ body {
   position: fixed; right: 16px; bottom: 16px; left: auto; transform: none;
   display: flex; flex-direction: column; align-items: flex-end; gap: 8px;
   max-width: calc(100% - 32px);
+  /* 高度也要钳住：面板 + 工具条叠起来会顶到窗口上沿外面（上面那截就永远看不到），
+     钳住之后由 #ov-more 自己收缩 + 内部滚动 */
+  max-height: calc(100vh - 32px);
   pointer-events: auto;
   /* 必须压在 Live2D 画布之上：库里的舞台元素带 z-index:1（见 overlay.js 的 STAGE_STYLE），
      这里不给更高的话，弹出的聊天/动作面板会被模型挡住。 */
@@ -77,6 +80,7 @@ body {
 #ov-tools {
   display: flex; flex-direction: column; align-items: center; gap: 1px;
   padding: 5px;
+  flex: 0 0 auto;   /* 工具条不参与收缩，让面板去缩 */
   border-radius: 18px;
   background: var(--ov-surface);
   border: 1px solid var(--ov-border);
@@ -123,6 +127,22 @@ html[data-theme='dark'] #ov-grip { background: rgba(241, 234, 240, 0.12); }
   pointer-events: auto;
 }
 .ov-panel.hidden { display: none; }
+/* 「⋯」面板内容很多（37 个热键 + 145 个部件），必须能滚动，否则下面的一辈子点不到。
+   高度由 flex 收缩决定（#ov-ui 已经钳住总高），min-height:0 是让它真的能缩下来。 */
+#ov-more {
+  flex: 0 1 auto;
+  min-height: 0;
+  max-height: min(calc(100vh - 96px), 640px);
+  overflow-y: auto;
+  overflow-x: hidden;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  scrollbar-color: var(--ov-border) transparent;
+}
+#ov-more::-webkit-scrollbar { width: 8px; }
+#ov-more::-webkit-scrollbar-track { background: transparent; }
+#ov-more::-webkit-scrollbar-thumb { background: var(--ov-border); border-radius: 4px; }
+#ov-more::-webkit-scrollbar-thumb:hover { background: var(--ov-accent); }
 .ov-panel-head {
   display: flex; align-items: center; justify-content: space-between; gap: 8px;
   font-weight: 600; font-size: 13px; color: var(--ov-text);
@@ -167,15 +187,39 @@ button.ov-link {
   color: var(--ov-accent); font-size: 12px; cursor: pointer; border-radius: 6px;
 }
 button.ov-link:hover { background: var(--ov-accent-soft); }
+/* 「按当前姿势适配」有提醒时用强调色描出来（道具出框了才会亮） */
+button.ov-link.is-attn {
+  border: 1px dashed var(--ov-accent);
+  font-weight: 600;
+}
 .ov-muted { color: var(--ov-text-soft); font-size: 11px; margin-left: auto; }
+#ov-fit-note { margin: 2px 0 0; line-height: 1.5; text-align: left; }
 
 .ov-label { font-size: 10.5px; letter-spacing: 0.04em; text-transform: uppercase; color: var(--ov-text-soft); margin-top: 2px; }
+/* 带右侧小动作的标题行（热键 + 全部清除） */
+.ov-label-row { display: flex; align-items: center; justify-content: space-between; gap: 6px; }
 .ov-chips { display: flex; flex-wrap: wrap; gap: 4px; }
 .ov-chips button {
   padding: 3px 9px; font-size: 11.5px; border-radius: 999px; cursor: pointer;
   background: transparent; border: 1px solid var(--ov-border); color: var(--ov-text-soft);
 }
 .ov-chips button:hover { border-color: var(--ov-accent); color: var(--ov-text); }
+/* 热键激活态：和工具条按钮一致的强调色 */
+.ov-chips button.on {
+  background: var(--ov-accent); border-color: var(--ov-accent); color: #fff;
+}
+/* 表达式/部件有明确失败原因（参数不在模型里、文件读不到）：不隐藏，标出来 */
+.ov-chips button.is-bad {
+  border-color: #c0503f; color: #c0503f; border-style: dashed;
+}
+.ov-chips button.is-off,
+.ov-chips button:disabled {
+  opacity: 0.45; cursor: not-allowed;
+}
+/* 正在读表达式文件：给个「在动」的样子，别让人以为点了没反应 */
+.ov-chips button.is-loading {
+  opacity: 0.6; cursor: progress;
+}
 #ov-models {
   width: 100%; height: 30px; padding: 0 8px;
   border-radius: 8px; border: 1px solid var(--ov-border);

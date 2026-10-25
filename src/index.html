@@ -908,6 +908,7 @@
                   <button data-size="small" data-i18n="stage.sizeSmall">小</button>
                   <button data-size="medium" data-i18n="stage.sizeMedium">中</button>
                   <button data-size="large" data-i18n="stage.sizeLarge">大</button>
+                  <button data-size="xlarge" data-i18n="stage.sizeXL">超大</button>
                 </div></div>
               </div>
               <div class="set-row">
@@ -915,6 +916,95 @@
                 <div class="sr-control"><button id="btn-stage-reset" class="ghost"><span data-icon="regenerate"></span><span data-i18n="stage.resetBtn">重置</span></button></div>
               </div>
               <p class="hint" data-i18n="stage.actionsNote">动作、表情与口型跟随模型实际提供的资源，在展台工具条的「⋯」里选择。</p>
+            </div>
+            <div class="set-divider"></div>
+            <!-- Live2D 精细控制：展台渲染层怎么画（口型 / 待机 / 视线 / 画质 / LOD / 帧率） -->
+            <div class="set-group" id="set-live2d-fine">
+              <div class="set-group-head">
+                <h3 data-i18n="stage.fine">Live2D 精细控制</h3>
+                <p data-i18n="stage.fineDesc">改完立刻生效，不用重开展台。画质、LOD、帧率会重建一次渲染器，其余都是实时生效。</p>
+              </div>
+              <div class="set-row">
+                <div class="sr-text"><span class="sr-title" data-i18n="stage.fit">角色占比</span><span class="sr-desc" data-i18n="stage.fitDesc">角色在窗口里占多大：1.0 = 刚好铺满，超过 1 会略微出血（头和脚出一点边）。</span></div>
+                <div class="sr-control"><input id="l2d-fit" type="range" min="0.5" max="1.15" step="0.05" /><span class="sr-val" id="l2d-fit-val"></span></div>
+              </div>
+              <div class="set-row">
+                <div class="sr-text"><span class="sr-title" data-i18n="stage.offsetY">垂直偏移</span><span class="sr-desc" data-i18n="stage.offsetYDesc">负数往上、正数往下，单位是窗口高度。脚踩不到底的时候用它微调。</span></div>
+                <div class="sr-control"><input id="l2d-offset" type="range" min="-0.3" max="0.3" step="0.02" /><span class="sr-val" id="l2d-offset-val"></span></div>
+              </div>
+              <div class="set-row">
+                <div class="sr-text"><span class="sr-title" data-i18n="stage.lipsync">口型同步</span><span class="sr-desc" data-i18n="stage.lipsyncDesc">朗读时按音量驱动嘴部；系统语音拿不到音频流，用程序化口型兜底。</span></div>
+                <div class="sr-control"><div class="seg" id="l2d-lipsync">
+                  <button data-val="on" data-i18n="stage.on">开</button>
+                  <button data-val="off" data-i18n="stage.off">关</button>
+                </div></div>
+              </div>
+              <div class="set-row" id="l2d-gain-row">
+                <div class="sr-text"><span class="sr-title" data-i18n="stage.lipsyncGain">口型幅度</span><span class="sr-desc" data-i18n="stage.lipsyncGainDesc">嘴张多大。模型本身嘴小的话往大调。</span></div>
+                <div class="sr-control"><input id="l2d-gain" type="range" min="0.3" max="3" step="0.1" /><span class="sr-val" id="l2d-gain-val"></span></div>
+              </div>
+              <div class="set-row">
+                <div class="sr-text"><span class="sr-title" data-i18n="stage.idleMotion">自动待机动作</span><span class="sr-desc" data-i18n="stage.idleMotionDesc">闲着的时候随机播一次模型里的 Idle 动作。</span></div>
+                <div class="sr-control"><div class="seg" id="l2d-idle">
+                  <button data-val="on" data-i18n="stage.on">开</button>
+                  <button data-val="off" data-i18n="stage.off">关</button>
+                </div></div>
+              </div>
+              <div class="set-row" id="l2d-idle-row">
+                <div class="sr-text"><span class="sr-title" data-i18n="stage.idleInterval">待机间隔</span><span class="sr-desc" data-i18n="stage.idleIntervalDesc">两次待机动作之间隔多少秒。</span></div>
+                <div class="sr-control"><input id="l2d-idle-interval" type="range" min="3" max="180" step="1" /><span class="sr-val" id="l2d-idle-interval-val"></span></div>
+              </div>
+              <div class="set-row">
+                <div class="sr-text"><span class="sr-title" data-i18n="stage.focus">视线跟随</span><span class="sr-desc" data-i18n="stage.focusDesc">角色的眼睛跟着真实鼠标走（展台窗口自己收不到鼠标事件，由主进程把坐标喂进来）。</span></div>
+                <div class="sr-control"><div class="seg" id="l2d-focus">
+                  <button data-val="on" data-i18n="stage.on">开</button>
+                  <button data-val="off" data-i18n="stage.off">关</button>
+                </div></div>
+              </div>
+              <div class="set-row">
+                <div class="sr-text"><span class="sr-title" data-i18n="stage.physics">物理效果</span><span class="sr-desc" data-i18n="stage.physicsDesc">头发、裙摆的摆动。关掉可以让低配机器更稳。</span></div>
+                <div class="sr-control"><div class="seg" id="l2d-physics">
+                  <button data-val="on" data-i18n="stage.on">开</button>
+                  <button data-val="off" data-i18n="stage.off">关</button>
+                </div></div>
+              </div>
+              <div class="set-row">
+                <div class="sr-text"><span class="sr-title" data-i18n="stage.quality">渲染倍率</span><span class="sr-desc" data-i18n="stage.qualityDesc">画布分辨率。auto 跟随屏幕 DPI（最多 2x）；调低能明显省显卡。</span></div>
+                <div class="sr-control"><div class="seg" id="l2d-quality">
+                  <button data-val="auto">auto</button>
+                  <button data-val="1">1x</button>
+                  <button data-val="1.5">1.5x</button>
+                  <button data-val="2">2x</button>
+                </div></div>
+              </div>
+              <div class="set-row">
+                <div class="sr-text"><span class="sr-title" data-i18n="stage.fps">帧率上限</span><span class="sr-desc" data-i18n="stage.fpsDesc">30 帧更省电，60 帧更顺。</span></div>
+                <div class="sr-control"><div class="seg" id="l2d-fps">
+                  <button data-val="30">30</button>
+                  <button data-val="60">60</button>
+                </div></div>
+              </div>
+              <div class="set-row">
+                <div class="sr-text"><span class="sr-title" data-i18n="stage.lod">纹理精度</span><span class="sr-desc" data-i18n="stage.lodDesc">大图集模型用 auto 会自动降采样（省显存），full 保持原始清晰度。</span></div>
+                <div class="sr-control"><div class="seg" id="l2d-lod">
+                  <button data-val="auto">auto</button>
+                  <button data-val="full" data-i18n="stage.lodFull">完整</button>
+                  <button data-val="off" data-i18n="stage.off">关</button>
+                </div></div>
+              </div>
+              <div class="set-row">
+                <div class="sr-text"><span class="sr-title" data-i18n="stage.mask">遮罩精度</span><span class="sr-desc" data-i18n="stage.maskDesc">复杂模型出现毛边/锯齿时用「高」；一般的模型 auto 就够。</span></div>
+                <div class="sr-control"><div class="seg" id="l2d-mask">
+                  <button data-val="auto">auto</button>
+                  <button data-val="high" data-i18n="stage.maskHigh">高</button>
+                  <button data-val="normal" data-i18n="stage.maskNormal">普通</button>
+                </div></div>
+              </div>
+              <div class="set-actions">
+                <span class="saved-hint" data-i18n="settings.saved">已保存</span>
+                <span class="spacer"></span>
+                <button id="l2d-reset" class="ghost" data-i18n="stage.fineResetBtn">恢复默认</button>
+              </div>
             </div>
             <div class="set-divider"></div>
             <div class="set-group">

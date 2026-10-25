@@ -73,6 +73,10 @@ const PACING_LEVELS = ['off', 'rare', 'natural'];
 const APPEARANCE_MODES = ['light', 'dark', 'system'];
 const ACCENT_IDS = ['rose', 'sage', 'lavender', 'amber', 'custom'];
 const HEX_COLOR = /^#[0-9a-fA-F]{6}$/;
+// Live2D 渲染精细控制（展台窗口里「怎么画」的那几个开关）
+const LIVE2D_QUALITY = ['auto', '1', '1.5', '2'];
+const LIVE2D_LOD = ['auto', 'full', 'off'];
+const LIVE2D_MASK = ['auto', 'high', 'normal'];
 
 const asStr = (v, max = 500) => (typeof v === 'string' ? v.slice(0, max) : '');
 const asBool = (v, dflt = false) => (typeof v === 'boolean' ? v : dflt);
@@ -111,6 +115,7 @@ function normalizeSettings(raw, defaults) {
   const mc = pick('mc');
   const chess = pick('chess');
   const stage = pick('stage');
+  const live2d = pick('live2d');
   const agent = pick('agent');
   const embedding = pick('embedding');
   const memoryCfg = pick('memoryCfg');
@@ -211,6 +216,36 @@ function normalizeSettings(raw, defaults) {
     // Live2D 舞台视图偏好
     stage: {
       scale: asNum(stage.scale, 0.15, 1.5, 0.3),
+    },
+    // Live2D 渲染精细控制（展台窗口的渲染层直接读这一组）
+    //
+    // 为什么单独一组而不是塞进 overlay：overlay 存的是「窗口在哪、多大、透不透明」，
+    // 这里存的是「角色怎么画」—— 换渲染引擎、调口型、调画质都只动这里。
+    //   fit      模型在窗口里的基线占比（1 = 刚好铺满，>1 允许略微出血）
+    //   zoom     展台工具条面板里的临时微调倍率（乘在 fit 上，也会落盘）
+    //   offsetY  垂直偏移，单位是窗口高度（负数向上）
+    live2d: {
+      fit: asNum(live2d.fit, 0.5, 1.15, 0.95),
+      zoom: asNum(live2d.zoom, 0.4, 1.25, 1),
+      offsetY: asNum(live2d.offsetY, -0.3, 0.3, 0),
+      // 口型同步：主窗口把 TTS 的音量包络送过来，展台拿它驱动嘴部参数
+      lipsync: asBool(live2d.lipsync, true),
+      lipsyncGain: asNum(live2d.lipsyncGain, 0.3, 3, 1.2),
+      // 待机动作：每隔一段时间随机播一次 Idle 组里的动作
+      idleMotion: asBool(live2d.idleMotion, true),
+      idleInterval: Math.round(asNum(live2d.idleInterval, 3, 180, 14)),
+      // 视线跟随：跟随真实鼠标（主进程把光标位置送进展台窗口）
+      focusFollow: asBool(live2d.focusFollow, true),
+      // 物理（头发/衣服摆动）
+      physics: asBool(live2d.physics, true),
+      // 渲染倍率（devicePixelRatio 的替代值，auto = 跟随屏幕但最多 2x）
+      quality: asOneOf(live2d.quality, LIVE2D_QUALITY, 'auto'),
+      // 帧率上限（省电；0 在设置里不开放，最低 15）
+      fps: Math.round(asNum(live2d.fps, 15, 60, 60)),
+      // 大图集的纹理 LOD：auto = 按实际屏幕尺寸降采样，full = 原始分辨率
+      lod: asOneOf(live2d.lod, LIVE2D_LOD, 'auto'),
+      // 遮罩精度：auto = 引擎自己判断，high = 强制高精度（复杂模型才有毛边）
+      mask: asOneOf(live2d.mask, LIVE2D_MASK, 'auto'),
     },
     // 长期记忆与知识库的语义检索：**与对话用的 LLM 分开配置**
     // （算向量用便宜的小模型就够，没必要用对话模型）
