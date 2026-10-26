@@ -3,6 +3,46 @@ import util from '../../shared/util.cjs';
 
 const { deepMerge, sanitizeFileName, normalizeSettings, isInsidePath } = util;
 
+describe('设置归一化：模型类型的默认值', () => {
+  it('除 LLM 外，语音合成 / 识别 / 嵌入模型默认都是「（无）」', () => {
+    const s = normalizeSettings({}, {});
+    expect(s.tts.provider).toBe('none');
+    expect(s.stt.provider).toBe('none');
+    expect(s.embedding.provider).toBe('none');
+    // LLM 不能是 none：对话必须有模型
+    expect(s.llm.provider).not.toBe('none');
+  });
+
+  it('显式选 none 会保留；乱填的值退回 none', () => {
+    expect(normalizeSettings({ tts: { provider: 'none' } }, {}).tts.provider).toBe('none');
+    expect(normalizeSettings({ stt: { provider: 'none' } }, {}).stt.provider).toBe('none');
+    expect(normalizeSettings({ embedding: { provider: 'none' } }, {}).embedding.provider).toBe('none');
+    expect(normalizeSettings({ tts: { provider: 'bogus' } }, {}).tts.provider).toBe('none');
+  });
+
+  it('时间感知默认开，关掉能记住', () => {
+    expect(normalizeSettings({}, {}).general.timeAwareness).toBe(true);
+    expect(normalizeSettings({ general: { timeAwareness: false } }, {}).general.timeAwareness).toBe(false);
+  });
+});
+
+describe('设置归一化：Live2D 状态存档', () => {
+  it('只保留字符串数组，坏数据丢掉但整体不炸', () => {
+    const s = normalizeSettings({ live2dState: { byModel: { 'a/b.model3.json': { activeExpressions: ['x.exp3.json', 3, null], hiddenParts: ['Part1'] } } } }, {});
+    expect(s.live2dState.byModel['a/b.model3.json'].activeExpressions).toEqual(['x.exp3.json']);
+    expect(s.live2dState.byModel['a/b.model3.json'].hiddenParts).toEqual(['Part1']);
+  });
+
+  it('模型数量有上限（设置文件不会被撑爆）', () => {
+    const byModel = {};
+    for (let i = 0; i < 80; i += 1) byModel['m' + i + '/m.model3.json'] = { activeExpressions: [], hiddenParts: [], updatedAt: i };
+    const s = normalizeSettings({ live2dState: { byModel } }, {});
+    expect(Object.keys(s.live2dState.byModel).length).toBeLessThanOrEqual(50);
+    // 保留最近的（updatedAt 大的）
+    expect(s.live2dState.byModel['m79/m.model3.json']).toBeTruthy();
+  });
+});
+
 describe('deepMerge', () => {
   it('递归合并对象、数组整体替换', () => {
     const a = { x: { y: 1, z: 2 }, list: [1, 2, 3] };

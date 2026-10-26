@@ -107,7 +107,7 @@ export function saveLlmModal() {
 // ---------------- TTS ----------------
 export function fillTts() {
   const s = getSettings();
-  $('s-tts-provider').value = s.tts.provider || 'web';
+  $('s-tts-provider').value = s.tts.provider || 'none';
   $('s-tts-language').value = s.tts.language || 'zh';
   const isOpenai = $('s-tts-provider').value === 'openai';
   $('wrap-tts-custom').classList.toggle('hidden', !isOpenai);
@@ -153,7 +153,7 @@ export function saveTtsModal() {
 // ---------------- STT ----------------
 export function fillStt() {
   const s = getSettings();
-  $('s-stt-provider').value = s.stt.provider || 'openai';
+  $('s-stt-provider').value = s.stt.provider || 'none';
   $('s-stt-language').value = s.stt.language || 'zh';
   const isOpenai = $('s-stt-provider').value === 'openai';
   $('wrap-stt-custom').classList.toggle('hidden', !isOpenai);
@@ -196,7 +196,7 @@ export function fillEmbedding() {
   const mem = s.memoryCfg || {};
   const know = s.knowledgeCfg || {};
   $('s-embed-enabled').checked = e.enabled !== false;
-  $('s-embed-provider').value = e.provider || 'openai';
+  $('s-embed-provider').value = e.provider || 'none';
   const custom = !!e.customBaseUrl || e.provider === 'custom';
   $('s-embed-custom-url').checked = custom;
   $('wrap-embed-base').classList.toggle('hidden', !custom);

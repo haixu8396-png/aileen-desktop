@@ -78,6 +78,12 @@ contextBridge.exposeInMainWorld('api', {
   overlaySetInteractive: (on) => ipcRenderer.invoke('overlay:interactive', on),
   overlayResize: (payload) => ipcRenderer.invoke('overlay:resize', payload),
   overlayGetState: () => ipcRenderer.invoke('overlay:getState'),
+  // 展台热键/部件状态：落盘在主进程设置文件里（不依赖 localStorage 的退出时落盘）
+  live2dGetState: (payload) => ipcRenderer.invoke('live2d:getState', payload),
+  live2dSetState: (payload) => ipcRenderer.invoke('live2d:setState', payload),
+  // 展台「上次用多大」（打开时按它恢复，不自动适配）
+  live2dGetLayout: (payload) => ipcRenderer.invoke('live2d:getLayout', payload),
+  live2dSetLayout: (payload) => ipcRenderer.invoke('live2d:setLayout', payload),
   overlayDragStart: () => ipcRenderer.invoke('overlay:dragStart'),
   overlayDragMove: () => ipcRenderer.invoke('overlay:dragMove'),
   overlayDragEnd: () => ipcRenderer.invoke('overlay:dragEnd'),
@@ -90,6 +96,8 @@ contextBridge.exposeInMainWorld('api', {
   // Agent 检查点（断点续跑）：{ op: 'save'|'load'|'clear', data? }
   agentCheckpoint: (payload) => ipcRenderer.invoke('agent:checkpoint', payload),
   overlayReset: () => ipcRenderer.invoke('overlay:reset'),
+  // 拖右下角把手改展台大小（绝对宽高，主进程再钳一次）
+  overlayResizeTo: (payload) => ipcRenderer.invoke('overlay:resizeTo', payload),
   // 设置里的「展台大小」：{ width, height }（主进程还会再钳一次，撑不满屏幕）
   overlaySetSize: (size) => ipcRenderer.invoke('overlay:setSize', size),
   // 展台工具条面板里的模型微调倍率（落盘到 live2d.zoom）

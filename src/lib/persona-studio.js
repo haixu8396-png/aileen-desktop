@@ -180,6 +180,16 @@ export async function generateFromStudio() {
 }
 
 export function bindPersonaStudio() {
+  // 角色编辑页里的「人设生成室」是个 <details>：展开它就应该看到内容。
+  // 以前内容块带着 hidden，真正的展开要靠 openPersonaStudio()，而那个入口界面上没有 ——
+  // 用户看到的就是「点开人设生成室什么都没有」（= 功能不见了）。
+  const wrap = $('persona-wrap');
+  if (wrap && !wrap.__aileenBound) {
+    wrap.__aileenBound = true;
+    wrap.addEventListener('toggle', () => {
+      if (wrap.open) openPersonaStudio();
+    });
+  }
   const cancel = $('pa-cancel');
   if (cancel) cancel.onclick = () => closePersonaStudio();
   const gen = $('pa-generate');

@@ -25,6 +25,36 @@ import { buildAgentSystemPrompt } from '../agent/planner.js';
 
 export { LAYER, DEFAULT_BUDGET, PROTECTED_LAYERS, estimateTokens, resolveBudget, scoreItem, trimMessages };
 
+const WEEKDAY_ZH = ['日', '一', '二', '三', '四', '五', '六'];
+const WEEKDAY_EN = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+
+/**
+ * 「时间感知」那一段提示词：当前日期、星期、时间（含时段）。
+ * 做成纯函数是为了能单测（固定 now 就固定输出），也方便别的入口复用。
+ */
+export function buildTimeAwareness(now, lang) {
+  const d = now instanceof Date && !Number.isNaN(now.getTime()) ? now : new Date();
+  const pad = (n) => String(n).padStart(2, '0');
+  const hm = pad(d.getHours()) + ':' + pad(d.getMinutes());
+  const md = d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate());
+  const hour = d.getHours();
+  const isZh = lang === 'zh';
+  const isJa = lang === 'ja';
+  if (isZh) {
+    const part = hour < 5 ? '凌晨' : hour < 8 ? '早上' : hour < 11 ? '上午' : hour < 13 ? '中午' : hour < 18 ? '下午' : hour < 23 ? '晚上' : '深夜';
+    return '现在是 ' + md + ' 星期' + WEEKDAY_ZH[d.getDay()] + ' ' + hm + '（' + part + '）。'
+      + '你可以自然地提到时间，但不要每句都强调它。';
+  }
+  if (isJa) {
+    const part = hour < 5 ? '深夜' : hour < 8 ? '早朝' : hour < 11 ? '午前' : hour < 13 ? '昼' : hour < 18 ? '午後' : hour < 23 ? '夜' : '深夜';
+    return '今は ' + md + '（' + ['日', '月', '火', '水', '木', '金', '土'][d.getDay()] + '曜日）' + hm + '（' + part + '）です。'
+      + '時間に自然に触れてもかまいませんが、毎回強調しないでください。';
+  }
+  const part = hour < 5 ? 'late night' : hour < 8 ? 'early morning' : hour < 11 ? 'morning' : hour < 13 ? 'midday' : hour < 18 ? 'afternoon' : hour < 23 ? 'evening' : 'late night';
+  return 'It is now ' + md + ' (' + WEEKDAY_EN[d.getDay()] + ') ' + hm + ', ' + part + '.'
+    + ' You may mention the time naturally, but do not bring it up in every reply.';
+}
+
 /**
  * 人格必须原样出现在 system 的第一段。
  *
@@ -80,6 +110,23 @@ export function createContextEngine(deps = {}) {
     const persona = buildSystemPrompt(card);
     let baseSystem = persona;
     const extras = [];
+    // 时间感知（设置 → 外观与常规里的开关）：让角色知道"现在几点、今天几号"。
+    // 接在人格之后，同样只是第 0 段的附加内容 —— 绝不替换人格。
+    // 开关来源优先级：调用方显式传 > 设置（general.timeAwareness）> 默认开
+    const setting = (() => {
+      try {
+        const s = typeof deps.getSettings === 'function' ? deps.getSettings() : null;
+        return s && s.general ? s.general : null;
+      } catch (err) { return null; }
+    })();
+    const timeOn = input.timeAwareness !== undefined
+      ? input.timeAwareness !== false
+      : (!setting || setting.timeAwareness !== false);
+    if (timeOn) {
+      const now = input.now instanceof Date ? input.now : new Date();
+      const lang = input.language || (setting && setting.language) || deps.language || 'zh';
+      extras.push(buildTimeAwareness(now, lang));
+    }
     // 风格指令（表演档位/回复节奏那套）接在人格之后，仍然是 system 的第 0 段内容
     if (input.systemExtra) extras.push(String(input.systemExtra).trim());
     if (agentCfg) {

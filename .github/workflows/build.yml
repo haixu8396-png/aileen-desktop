@@ -126,6 +126,9 @@ jobs:
           if ($ovr.modelsAvailable -and $ovr.partRestoreOk -eq $false) { throw ('部件隐藏后恢复不回原来的不透明度（一律写 1 会让本来就半透明的部件变实）→ ' + ($ovr.partRestoreProbe | ConvertTo-Json -Compress)) }
           if ($ovr.modelsAvailable -and $ovr.live2dStateOk -eq $false) { throw ('Live2D 状态存取不一致（按模型持久化坏了）→ ' + ($ovr.live2dStateProbe | ConvertTo-Json -Compress)) }
           if ($ovr.modelsAvailable -and $ovr.propFitOk -eq $false) { throw ('道具出框的手动适配坏了（点「按当前姿势适配」后内容仍被裁，或者不该自动改却自动改了）→ ' + ($ovr.propFitProbe | ConvertTo-Json -Compress -Depth 4)) }
+          if ($ovr.modelsAvailable -and $ovr.persistOk -eq $false) { throw ('Live2D 热键/部件状态下次打开记不住（存档键里可能又带了随机端口，或老存档迁移坏了）→ ' + ($ovr.persistProbe | ConvertTo-Json -Compress)) }
+          if ($ovr.modelsAvailable -and $ovr.layoutRestoreOk -eq $false) { throw ('打开展台时又自动重新适配了（应该按上次的比例恢复、不测量）→ ' + ($ovr.layoutRestoreProbe | ConvertTo-Json -Compress)) }
+          if (-not $ovr.resizeHandleOk) { throw ('右下角把手拖不动（鼠标拖边框改展台大小失效）→ ' + ($ovr.resizeHandleProbe | ConvertTo-Json -Compress -Depth 4)) }
           if ($ovr.modelsAvailable -and $ovr.live2dLoadOk -eq $false) { throw ('Live2D 热键/部件状态加载失败（不能和「模型没有配置」混为一谈）→ ' + ($ovr.hotkeyProbe | ConvertTo-Json -Compress -Depth 4)) }
           if ($ovr.modelsAvailable -and $ovr.hotkeyToggleOk -eq $false) { throw ('VTS 热键点了画面没变（引擎画出来的部件/绘制不透明度与关掉时一样）→ ' + ($ovr.hotkeyToggleProbe | ConvertTo-Json -Compress -Depth 5)) }
           if (-not $ovr.panelScrollOk) { throw ('「⋯」面板不能滚动（热键/部件下面那半截点不到）→ ' + ($ovr.panelScrollProbe | ConvertTo-Json -Compress)) }
@@ -271,6 +274,9 @@ jobs:
           if ($ovr.modelsAvailable -and $ovr.partRestoreOk -eq $false) { throw ('部件隐藏后恢复不回原来的不透明度（一律写 1 会让本来就半透明的部件变实）→ ' + ($ovr.partRestoreProbe | ConvertTo-Json -Compress)) }
           if ($ovr.modelsAvailable -and $ovr.live2dStateOk -eq $false) { throw ('Live2D 状态存取不一致（按模型持久化坏了）→ ' + ($ovr.live2dStateProbe | ConvertTo-Json -Compress)) }
           if ($ovr.modelsAvailable -and $ovr.propFitOk -eq $false) { throw ('道具出框的手动适配坏了（点「按当前姿势适配」后内容仍被裁，或者不该自动改却自动改了）→ ' + ($ovr.propFitProbe | ConvertTo-Json -Compress -Depth 4)) }
+          if ($ovr.modelsAvailable -and $ovr.persistOk -eq $false) { throw ('Live2D 热键/部件状态下次打开记不住（存档键里可能又带了随机端口，或老存档迁移坏了）→ ' + ($ovr.persistProbe | ConvertTo-Json -Compress)) }
+          if ($ovr.modelsAvailable -and $ovr.layoutRestoreOk -eq $false) { throw ('打开展台时又自动重新适配了（应该按上次的比例恢复、不测量）→ ' + ($ovr.layoutRestoreProbe | ConvertTo-Json -Compress)) }
+          if (-not $ovr.resizeHandleOk) { throw ('右下角把手拖不动（鼠标拖边框改展台大小失效）→ ' + ($ovr.resizeHandleProbe | ConvertTo-Json -Compress -Depth 4)) }
           if ($ovr.modelsAvailable -and $ovr.live2dLoadOk -eq $false) { throw ('Live2D 热键/部件状态加载失败（不能和「模型没有配置」混为一谈）→ ' + ($ovr.hotkeyProbe | ConvertTo-Json -Compress -Depth 4)) }
           if ($ovr.modelsAvailable -and $ovr.hotkeyToggleOk -eq $false) { throw ('VTS 热键点了画面没变（引擎画出来的部件/绘制不透明度与关掉时一样）→ ' + ($ovr.hotkeyToggleProbe | ConvertTo-Json -Compress -Depth 5)) }
           if (-not $ovr.panelScrollOk) { throw ('「⋯」面板不能滚动（热键/部件下面那半截点不到）→ ' + ($ovr.panelScrollProbe | ConvertTo-Json -Compress)) }

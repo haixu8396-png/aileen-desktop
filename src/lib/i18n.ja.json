@@ -877,5 +877,12 @@
   "overlay.fitNow": "今のポーズで合わせる",
   "overlay.fitClipHint": "小道具が画面からはみ出しています。上のボタンで合わせ直せます",
   "overlay.fitDone": "今のポーズで合わせ直しました",
-  "overlay.fitFailed": "フィットできませんでした（モデルの準備中）"
+  "overlay.fitFailed": "フィットできませんでした（モデルの準備中）",
+  "overlay.resizeTip": "ドラッグでステージの大きさを変更",
+  "provider.none": "（なし）",
+  "stt.noProvider": "音声認識エンジンが未設定です（設定 → 音声認識で選択してください）",
+  "general.timeAwareness": "時間認識",
+  "general.timeAwarenessDesc": "キャラクターが今の日時を把握できます（人格の後ろに付くだけで、人格は変わりません）。",
+  "general.timeOn": "時間認識をオンにしました",
+  "general.timeOff": "時間認識をオフにしました"
 }

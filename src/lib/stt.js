@@ -53,8 +53,17 @@ export class STT {
   }
 
   async start(settings) {
+    const provider = (settings && settings.stt && settings.stt.provider) || 'none';
+    // 「（无）」= 用户没选识别引擎：别去抢麦克风，直接把原因说清楚（错误码给上层翻译）
+    if (provider === 'none') {
+      if (this.onError) {
+        const err = new Error('stt.noProvider');
+        err.code = 'stt.noProvider';
+        this.onError(err);
+      }
+      return false;
+    }
     if (this.recognizing) return;
-    const provider = settings.stt.provider || 'openai';
     this._settings = settings;
     try {
       if (provider === 'web') {

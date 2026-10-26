@@ -58,11 +58,12 @@ function isInsidePath(child, parent) {
 }
 
 const LLM_PROVIDERS = ['deepseek', 'openai', 'moonshot', 'siliconflow', 'groq', 'zhipu', 'qwen', 'xiaomi', 'openrouter', 'ollama', 'custom'];
-const TTS_PROVIDERS = ['web', 'openai', 'fish', 'xiaomi'];
-const STT_PROVIDERS = ['openai', 'xiaomi', 'web'];
+// none = 明确不用（默认）。用户要求：除了对话 LLM，其它模型类型都要有「（无）」并且默认就是它。
+const TTS_PROVIDERS = ['none', 'web', 'openai', 'fish', 'xiaomi'];
+const STT_PROVIDERS = ['none', 'openai', 'xiaomi', 'web'];
 // 嵌入模型供应商：只用于「长期记忆 / 知识库」的语义检索。
 // 与对话用的 LLM 分开配置 —— 算向量用便宜的小模型就够。
-const EMBEDDING_PROVIDERS = ['openai', 'siliconflow', 'qwen', 'zhipu', 'ollama', 'custom'];
+const EMBEDDING_PROVIDERS = ['none', 'openai', 'siliconflow', 'qwen', 'zhipu', 'ollama', 'custom'];
 const TTS_LANGS = ['zh', 'en', 'ja', 'es'];
 const STT_LANGS = ['auto', 'zh', 'en', 'ja', 'es'];
 const UI_LANGS = ['en', 'ja', 'zh'];
@@ -102,6 +103,73 @@ function numOrNull(v, min, max) {
   return Math.min(max, Math.max(min, n));
 }
 
+/** 每个模型最多记这么多条；模型数量也有上限，避免设置文件被撑爆 */
+const LIVE2D_STATE_MAX_MODELS = 50;
+const LIVE2D_STATE_MAX_ITEMS = 400;
+const LIVE2D_STATE_MAX_KEY = 300;
+
+const asStrList = (v, max) => (Array.isArray(v) ? v.filter((x) => typeof x === 'string' && x && x.length <= 200).slice(0, max) : []);
+
+/**
+ * Live2D 状态存档：{ byModel: { [稳定模型标识]: { activeExpressions, hiddenParts, updatedAt } } }
+ * 只保留最近的 LIVE2D_STATE_MAX_MODELS 个模型（按 updatedAt），数组长度也有限制。
+ */
+/**
+ * 「上次用多大」的存档：每个模型一条，最多 50 条，只留有限位的数字。
+ * 打开展台时先按它恢复（不测量、不重算），只有第一次或用户点「按当前姿势适配」才重新量。
+ */
+const LIVE2D_LAYOUT_MAX_MODELS = 50;
+
+function normalizeLive2dLayout(raw) {
+  const out = { byModel: {} };
+  const src = raw && typeof raw === 'object' && raw.byModel && typeof raw.byModel === 'object' ? raw.byModel : {};
+  const entries = [];
+  for (const [key, v] of Object.entries(src)) {
+    if (typeof key !== 'string' || !key || key.length > LIVE2D_STATE_MAX_KEY) continue;
+    if (!v || typeof v !== 'object') continue;
+    const scale = Number(v.scale);
+    const fx = Number(v.fx);
+    const fy = Number(v.fy);
+    if (!Number.isFinite(scale) || scale <= 0 || scale > 64) continue;
+    if (!Number.isFinite(fx) || fx < -1 || fx > 2) continue;
+    if (!Number.isFinite(fy) || fy < -1 || fy > 2) continue;
+    const drawn = Array.isArray(v.drawn)
+      ? [Math.max(0, Math.round(Number(v.drawn[0]) || 0)), Math.max(0, Math.round(Number(v.drawn[1]) || 0))]
+      : null;
+    entries.push([key, {
+      scale: Number(scale.toFixed(8)),
+      fx: Number(fx.toFixed(6)),
+      fy: Number(fy.toFixed(6)),
+      drawn,
+      updatedAt: Number.isFinite(Number(v.updatedAt)) ? Number(v.updatedAt) : 0,
+    }]);
+  }
+  entries.sort((a, b) => b[1].updatedAt - a[1].updatedAt);
+  for (const [key, v] of entries.slice(0, LIVE2D_LAYOUT_MAX_MODELS)) out.byModel[key] = v;
+  return out;
+}
+
+function normalizeLive2dState(raw) {
+  const out = { byModel: {} };
+  const src = raw && typeof raw === 'object' && raw.byModel && typeof raw.byModel === 'object' ? raw.byModel : {};
+  const entries = [];
+  for (const [key, v] of Object.entries(src)) {
+    if (typeof key !== 'string' || !key || key.length > LIVE2D_STATE_MAX_KEY) continue;
+    if (!v || typeof v !== 'object') continue;
+    entries.push([
+      key,
+      {
+        activeExpressions: asStrList(v.activeExpressions, LIVE2D_STATE_MAX_ITEMS),
+        hiddenParts: asStrList(v.hiddenParts, LIVE2D_STATE_MAX_ITEMS),
+        updatedAt: Number.isFinite(Number(v.updatedAt)) ? Number(v.updatedAt) : 0,
+      },
+    ]);
+  }
+  entries.sort((a, b) => b[1].updatedAt - a[1].updatedAt);
+  for (const [key, v] of entries.slice(0, LIVE2D_STATE_MAX_MODELS)) out.byModel[key] = v;
+  return out;
+}
+
 function normalizeSettings(raw, defaults) {
   const base = (defaults && typeof defaults === 'object') ? defaults : {};
   const r = (raw && typeof raw === 'object') ? raw : {};
@@ -121,6 +189,7 @@ function normalizeSettings(raw, defaults) {
   const memoryCfg = pick('memoryCfg');
   const knowledgeCfg = pick('knowledgeCfg');
   const appearance = pick('appearance');
+  const general = pick('general');
 
   const extraModels = Array.isArray(r.extraModels)
     ? r.extraModels
@@ -153,7 +222,7 @@ function normalizeSettings(raw, defaults) {
       maxTokens: Math.round(asNum(llm.maxTokens, 1, 8192, 1024)),
     },
     tts: {
-      provider: asOneOf(tts.provider, TTS_PROVIDERS, 'web'),
+      provider: asOneOf(tts.provider, TTS_PROVIDERS, 'none'),
       language: asOneOf(tts.language, TTS_LANGS, 'zh'),
       baseUrl: asUrl(tts.baseUrl),
       customBaseUrl: asBool(tts.customBaseUrl, false),
@@ -164,7 +233,7 @@ function normalizeSettings(raw, defaults) {
       autoPlay: asBool(tts.autoPlay, true),
     },
     stt: {
-      provider: asOneOf(stt.provider, STT_PROVIDERS, 'openai'),
+      provider: asOneOf(stt.provider, STT_PROVIDERS, 'none'),
       language: asOneOf(stt.language, STT_LANGS, 'zh'),
       baseUrl: asUrl(stt.baseUrl),
       customBaseUrl: asBool(stt.customBaseUrl, false),
@@ -247,12 +316,26 @@ function normalizeSettings(raw, defaults) {
       // 遮罩精度：auto = 引擎自己判断，high = 强制高精度（复杂模型才有毛边）
       mask: asOneOf(live2d.mask, LIVE2D_MASK, 'auto'),
     },
+    // 常规行为开关（设置 → 外观与常规）
+    general: {
+      // 时间感知：把「现在几点/今天几号」交给角色（接在人格之后，不替换人格）
+      timeAwareness: asBool(general.timeAwareness, true),
+    },
+    // 展台「上次用多大」—— 打开时按它恢复，不再自动重新适配。
+    // { byModel: { [稳定模型标识]: { scale, fx, fy, drawn:[w,h], updatedAt } } }
+    //   scale = 模型缩放；fx / fy = 画布中心在窗口里的相对位置（0~1），窗口尺寸变了按比例走
+    live2dLayout: normalizeLive2dLayout(raw.live2dLayout),
+    // Live2D 热键 / 部件状态的落盘（按模型分开）。
+    // 为什么不放 localStorage：file:// 下的 localStorage 只在**正常退出**时才落盘，
+    // 强杀 / 崩溃 / 直接关机就全丢（实测过），用户看到的就是「热键记不住」。这里写进设置文件，
+    // 由主进程原子写，稳。
+    live2dState: normalizeLive2dState(raw.live2dState),
     // 长期记忆与知识库的语义检索：**与对话用的 LLM 分开配置**
     // （算向量用便宜的小模型就够，没必要用对话模型）
     embedding: {
       // 关掉也能用：检索退化成关键词匹配（离线可用，只是语义能力弱）
       enabled: asBool(embedding.enabled, true),
-      provider: asOneOf(embedding.provider, EMBEDDING_PROVIDERS, 'openai'),
+      provider: asOneOf(embedding.provider, EMBEDDING_PROVIDERS, 'none'),
       baseUrl: asUrl(embedding.baseUrl),
       customBaseUrl: asBool(embedding.customBaseUrl, false),
       // 与其他分组一致：这里存的是 safeStorage 密文，不是明文

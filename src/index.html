@@ -204,6 +204,7 @@
           <span class="ph-desc" data-i18n="characters.desc">创建、编辑与切换你的角色。每个角色有自己的对话与记忆。</span>
         </div>
         <div class="ph-actions">
+          <button id="btn-persona-studio" class="ghost"><span data-icon="spark"></span><span data-i18n="studio.menu">人设生成室</span></button>
           <button id="btn-import-card" class="ghost"><span data-icon="import"></span><span data-i18n="nav.importCard">导入角色卡</span></button>
           <button id="btn-new-card" class="primary"><span data-icon="plus"></span><span data-i18n="nav.newChar">新建角色</span></button>
         </div>
@@ -630,6 +631,10 @@
                 <div class="sr-text"><span class="sr-title" data-i18n="appearance.reduceMotion">减少动效</span><span class="sr-desc" data-i18n="appearance.reduceMotionDesc">关闭淡入与位移动画，长文本更稳。</span></div>
                 <div class="sr-control"><label class="check"><input id="s-reduce-motion" type="checkbox" /></label></div>
               </div>
+              <div class="set-row">
+                <div class="sr-text"><span class="sr-title" data-i18n="general.timeAwareness">时间感知</span><span class="sr-desc" data-i18n="general.timeAwarenessDesc">让角色知道现在几点、今天几号（接在人格之后，不会改人格）。</span></div>
+                <div class="sr-control"><label class="check"><input id="s-time-awareness" type="checkbox" /></label></div>
+              </div>
             </div>
 
             <div class="set-divider"></div>
@@ -753,6 +758,7 @@
               <div class="form-col">
                 <label class="check"><input id="s-embed-enabled" type="checkbox" /> <span data-i18n="embed.enabled">使用嵌入模型做语义检索</span></label>
                 <label><span data-i18n="embed.provider">服务商</span><select id="s-embed-provider">
+                  <option value="none" data-i18n="provider.none">（无）</option>
                   <option value="openai">OpenAI</option>
                   <option value="siliconflow">硅基流动</option>
                   <option value="qwen">阿里云百炼</option>
@@ -791,6 +797,7 @@
               <div class="set-group-head"><h3 data-i18n="tts.title">朗读</h3><p data-i18n="tts.desc">把回复念出来。系统语音离线可用，其它引擎需要填地址与密钥。</p></div>
               <div class="form-col">
                 <label><span data-i18n="tts.engine">引擎</span><select id="s-tts-provider">
+                  <option value="none" data-i18n="provider.none">（无）</option>
                   <option value="web" data-i18n="tts.provider.web">系统语音（离线）</option>
                   <option value="openai" data-i18n="tts.provider.openai">OpenAI 兼容 TTS</option>
                   <option value="fish" data-i18n="tts.provider.fish">Fish Audio</option>
@@ -827,6 +834,7 @@
               <div class="set-group-head"><h3 data-i18n="stt.title">语音输入</h3><p data-i18n="stt.desc">单次识别用这里；持续对话用对话页的实时语音。</p></div>
               <div class="form-col">
                 <label><span data-i18n="stt.engine">引擎</span><select id="s-stt-provider">
+                  <option value="none" data-i18n="provider.none">（无）</option>
                   <option value="openai" data-i18n="stt.provider.openai">Whisper</option>
                   <option value="xiaomi" data-i18n="stt.provider.xiaomi">小米 MiMo ASR</option>
                   <option value="web" data-i18n="stt.provider.web">浏览器识别（实验）</option>

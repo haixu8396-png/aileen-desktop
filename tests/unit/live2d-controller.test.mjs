@@ -49,8 +49,11 @@ const BASE_2 = 'http://127.0.0.1:1/models/m2/m2';
 
 function makeStorage() {
   const data = new Map();
+  // 照真 localStorage 实现：迁移老存档要靠 length / key(i) 枚举键
   return {
     data,
+    get length() { return data.size; },
+    key: (i) => (i >= 0 && i < data.size ? [...data.keys()][i] : null),
     getItem: (k) => (data.has(String(k)) ? data.get(String(k)) : null),
     setItem: (k, v) => { data.set(String(k), String(v)); },
     removeItem: (k) => { data.delete(String(k)); },
@@ -58,10 +61,19 @@ function makeStorage() {
 }
 
 function makeNet(files) {
+  // 端口不敏感：真实环境里本地静态服务每次启动随机端口，
+  // 配置文件的「同一条路径」在不同端口下都要能取到
+  const normalize = (u) => String(u).replace(/127\.0\.0\.1:\d+/, '127.0.0.1:1');
+  const table = new Map();
+  for (const [k, v] of Object.entries(files)) table.set(normalize(k), v);
   const net = {
-    files: new Map(Object.entries(files)),
+    files: table,
     hits: [],
-    async get(url) { net.hits.push(url); return net.files.has(url) ? net.files.get(url) : null; },
+    async get(url) {
+      net.hits.push(url);
+      const k = normalize(url);
+      return table.has(k) ? table.get(k) : null;
+    },
   };
   return net;
 }
@@ -319,6 +331,103 @@ describe('controller：状态持久化', () => {
     expect(ctl.hiddenParts.size).toBe(0);
   });
 
+  it('存档键用稳定标识（相对 models/ 的路径），不带端口', async () => {
+    const { ctl, storage } = makeController();
+    const cm = makeCoreModel({ params: PARAMS, parts: PARTS });
+    await ctl.load({ url: URL_1, key: 'm1/m1.model3.json' }, cm);
+    await ctl.setHotkeyActive(ctl.hotkeys.find((h) => h.name === '校服'), true);
+    ctl.hidePart(ctl.parts[0]);
+    const keys = [...storage.data.keys()];
+    expect(keys).toEqual(['aileen.live2d.v2.m1/m1.model3.json']);
+    expect(keys[0]).not.toMatch(/:\d+\//);
+    expect(JSON.parse(storage.getItem(keys[0])).activeExpressions).toEqual(['校服.exp3.json']);
+  });
+
+  it('换端口重开（同一个模型）也能读回上一次的热键/部件状态', async () => {
+    const files = {
+      [BASE_1 + '.vtube.json']: VTUBE_1,
+      [BASE_1 + '.cdi3.json']: CDI3_1,
+      [DIR_1 + '校服.exp3.json']: { Parameters: [{ Id: 'SchoolUniform', Value: 1 }] },
+    };
+    const storage = makeStorage();
+    const net = makeNet(files);
+    const modelA = { url: URL_1, key: 'm1/m1.model3.json' };
+    const ctlA = createLive2DController({ fetchJson: net.get, storage });
+    await ctlA.load(modelA, makeCoreModel({ params: PARAMS, parts: PARTS }));
+    await ctlA.setHotkeyActive(ctlA.hotkeys.find((h) => h.name === '校服'), true);
+    ctlA.hidePart(ctlA.parts[0]);
+
+    // 模拟下次启动：URL 换了端口（key 不变），新的控制器实例
+    const urlB = URL_1.replace('127.0.0.1:1', '127.0.0.1:50999');
+    const ctlB = createLive2DController({ fetchJson: net.get, storage });
+    const cmB = makeCoreModel({ params: PARAMS, parts: PARTS });
+    const r = await ctlB.load({ url: urlB, key: 'm1/m1.model3.json' }, cmB);
+    expect(r.restored).toEqual({ expressions: 1, parts: 1 });
+    ctlB.apply(cmB);
+    expect(cmB.state.values[0]).toBe(1);
+    expect(cmB.state.opacities[0]).toBe(0);
+  });
+
+  it('带随机端口的老存档（0.7.6 之前）能迁移到新键，且老键被清掉', async () => {
+    const storage = makeStorage();
+    // 老格式：整个 URL 当键（端口 55048），同一个模型
+    storage.setItem('aileen.live2d.v2.http://127.0.0.1:55048/models/m1/m1.model3.json', JSON.stringify({
+      version: 2,
+      activeExpressions: ['校服.exp3.json'],
+      hiddenParts: ['Part64'],
+    }));
+    // 另一个模型的存档不能跟着串味
+    storage.setItem('aileen.live2d.v2.http://127.0.0.1:55048/models/m2/m2.model3.json', JSON.stringify({
+      version: 2, activeExpressions: ['m2.exp3.json'], hiddenParts: [],
+    }));
+    const net = makeNet({
+      [BASE_1 + '.vtube.json']: VTUBE_1,
+      [BASE_1 + '.cdi3.json']: CDI3_1,
+      [DIR_1 + '校服.exp3.json']: { Parameters: [{ Id: 'SchoolUniform', Value: 1 }] },
+    });
+    const ctl = createLive2DController({ fetchJson: net.get, storage });
+    const cm = makeCoreModel({ params: PARAMS, parts: PARTS });
+    const r = await ctl.load({ url: URL_1, key: 'm1/m1.model3.json' }, cm);
+    expect(r.restored).toEqual({ expressions: 1, parts: 1 });
+    expect(ctl.active.has('校服.exp3.json')).toBe(true);
+    expect(ctl.isPartHidden('Part64')).toBe(true);
+    // 迁移完：老键删掉、新键写好了、别的模型的键没被动
+    expect(storage.getItem('aileen.live2d.v2.http://127.0.0.1:55048/models/m1/m1.model3.json')).toBe(null);
+    expect(storage.getItem('aileen.live2d.v2.m1/m1.model3.json')).toBeTruthy();
+    expect(storage.getItem('aileen.live2d.v2.http://127.0.0.1:55048/models/m2/m2.model3.json')).toBeTruthy();
+  });
+
+  it('状态落盘走主进程（durable）：localStorage 丢了也能恢复', async () => {
+    // 模拟「上次强杀没写盘」：localStorage 空的，但主进程设置文件里有
+    const storage = makeStorage();
+    const savedRemote = {};
+    const persist = {
+      load: async (id) => savedRemote[id] || null,
+      save: async (id, state) => { savedRemote[id] = Object.assign({}, state); return true; },
+    };
+    const net = makeNet({
+      [BASE_1 + '.vtube.json']: VTUBE_1,
+      [BASE_1 + '.cdi3.json']: CDI3_1,
+      [DIR_1 + '校服.exp3.json']: { Parameters: [{ Id: 'SchoolUniform', Value: 1 }] },
+    });
+    const model = { url: URL_1, key: 'm1/m1.model3.json' };
+
+    // 第一次：打开热键 → 写入 durable（localStorage 内容随后被"丢掉"）
+    const ctlA = createLive2DController({ fetchJson: net.get, storage, persist });
+    await ctlA.load(model, makeCoreModel({ params: PARAMS, parts: PARTS }));
+    await ctlA.setHotkeyActive(ctlA.hotkeys.find((h) => h.name === '校服'), true);
+    expect(savedRemote['m1/m1.model3.json'].activeExpressions).toEqual(['校服.exp3.json']);
+    storage.data.clear();
+
+    // 第二次（= 强杀后重开）：localStorage 空，只能靠 durable
+    const ctlB = createLive2DController({ fetchJson: net.get, storage, persist });
+    const cmB = makeCoreModel({ params: PARAMS, parts: PARTS });
+    const r = await ctlB.load(model, cmB);
+    expect(r.restored.expressions).toBe(1);
+    ctlB.apply(cmB);
+    expect(cmB.state.values[0]).toBe(1);
+  });
+
   it('切换模型：激活与隐藏记录不串味，旧模型的配置缓存清空', async () => {
     const net = makeNet({
       [BASE_1 + '.vtube.json']: VTUBE_1,
@@ -432,6 +541,6 @@ describe('controller：快照与错误', () => {
     const cm = makeCoreModel({ params: PARAMS, parts: PARTS });
     await ctl.load({ url: URL_1 }, cm);
     expect(ctl.saveState()).toBe(false);
-    expect(ctl.readState()).toEqual({ activeExpressions: [], hiddenParts: [] });
+    await expect(ctl.readState()).resolves.toEqual({ activeExpressions: [], hiddenParts: [] });
   });
 });

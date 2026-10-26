@@ -86,12 +86,43 @@ const CHANNELS = {
   'overlay:hitArea': v.args(v.optional(OVERLAY_RECT)),
   'overlay:setIgnore': v.args(v.bool()),
   'overlay:interactive': v.args(v.bool()),
-  'overlay:setModel': v.args(v.optional(v.str({ max: 1000, allowEmpty: true }))),
+  // 渲染层实际传的是 { url, name, key }（stage.js 的 syncOverlayModel）；
+  // 之前这里写成「一个字符串」，只是那条通道当时没走校验，一改校验就会把模型同步整个打死。
+  'overlay:setModel': v.args(v.optional(v.object({
+    url: v.optional(v.str({ max: 1000, allowEmpty: true })),
+    name: v.optional(v.str({ max: 200, allowEmpty: true })),
+    key: v.optional(v.str({ max: 500, allowEmpty: true })),
+  }))),
+  // Live2D 热键/部件状态的落盘（localStorage 在 file:// 下不保证落盘，改走设置文件）
+  // 展台「上次用多大」：打开时按它恢复，不再自动重新适配
+  'live2d:getLayout': v.args(v.object({
+    modelKey: v.str({ max: 300 }),
+  })),
+  'live2d:setLayout': v.args(v.object({
+    modelKey: v.str({ max: 300 }),
+    scale: v.num({ min: 0.000001, max: 64 }),
+    fx: v.num({ min: -1, max: 2 }),
+    fy: v.num({ min: -1, max: 2 }),
+    drawn: v.optional(v.arr(v.num({ min: 0, max: 100000 }), { max: 2 })),
+  })),
+  'live2d:getState': v.args(v.object({
+    modelKey: v.str({ max: 300 }),
+  })),
+  'live2d:setState': v.args(v.object({
+    modelKey: v.str({ max: 300 }),
+    activeExpressions: v.optional(v.arr(v.str({ max: 200 }), { max: 400 })),
+    hiddenParts: v.optional(v.arr(v.str({ max: 200 }), { max: 400 })),
+  })),
   'overlay:getState': v.NO_ARGS,
   'overlay:resize': v.args(v.object({
     dw: v.optional(v.num({ min: -2000, max: 2000 })),
     dh: v.optional(v.num({ min: -2000, max: 2000 })),
   }, { allowUnknown: true })),
+  // 拖右下角把手改大小：给绝对宽高，主进程照样过 clampOverlaySize
+  'overlay:resizeTo': v.args(v.object({
+    width: v.num({ min: 100, max: 4000 }),
+    height: v.num({ min: 100, max: 4000 }),
+  })),
   'overlay:reset': v.NO_ARGS,
   // 设置里的「展台大小」：绝对宽高（主进程还会再钳一次）
   'overlay:setSize': v.args(v.object({

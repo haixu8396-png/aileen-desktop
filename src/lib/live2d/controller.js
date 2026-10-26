@@ -21,10 +21,18 @@ import {
 
 const CLIENTS = {
   // localStorage 里存的键（不同模型必须隔离）
-  stateKey: (modelUrl) => 'aileen.live2d.v2.' + String(modelUrl || ''),
-  legacyHotkeysKey: (modelUrl) => 'aileen.hotkeys.' + String(modelUrl || ''),
-  legacyPartsKey: (modelUrl) => 'aileen.parts.' + String(modelUrl || ''),
+  //
+  // ⚠️ 这里**不能**用模型 URL 当键：展台模型的 URL 带着本地静态服务的端口，
+  // 而那个端口是 `listen(0)` 每次启动随机分配的（实测 55048 → 50614 → 49276…）。
+  // 用 URL 当键 = 每开一次应用就是一份新存档，用户看到的就是「热键状态记不住、时好时坏」。
+  // 所以键用「相对 models/ 的稳定路径」（主进程 scanModels 给的 file 字段）。
+  stateKey: (id) => 'aileen.live2d.v2.' + String(id || ''),
+  legacyHotkeysKey: (id) => 'aileen.hotkeys.' + String(id || ''),
+  legacyPartsKey: (id) => 'aileen.parts.' + String(id || ''),
 };
+
+/** 老存档（用整个 URL 当键）长这样：aileen.live2d.v2.http://127.0.0.1:55048/models/x/y.model3.json */
+const LEGACY_URL_PREFIXES = ['aileen.live2d.v2.http://', 'aileen.live2d.v2.https://', 'aileen.hotkeys.http://', 'aileen.hotkeys.https://', 'aileen.parts.http://', 'aileen.parts.https://'];
 
 function safeParse(raw, dflt) {
   try {
@@ -35,13 +43,18 @@ function safeParse(raw, dflt) {
   }
 }
 
-export function createLive2DController({ fetchJson, storage } = {}) {
+export function createLive2DController({ fetchJson, storage, persist } = {}) {
   const store = storage || (typeof localStorage !== 'undefined' ? localStorage : null);
   const getJson = typeof fetchJson === 'function' ? fetchJson : async () => null;
+  // 落盘适配器（主进程写设置文件）。localStorage 只在「正常退出」时才保证写盘，
+  // 强杀 / 崩溃就丢 —— 所以状态以它为准，localStorage 当缓存和老数据来源。
+  const durable = persist && typeof persist === 'object' ? persist : null;
+  let durablePending = null;
 
   const ctl = {
     // 模型与表
     modelUrl: '',
+    modelKey: '',      // 稳定标识（相对 models/ 的路径）；存档键用它，不用带随机端口的 URL
     dirUrl: '',
     paramTable: buildParamTable(null),
     partTable: buildPartTable(null),
@@ -82,6 +95,7 @@ export function createLive2DController({ fetchJson, storage } = {}) {
    */
   ctl.reset = () => {
     ctl.modelUrl = '';
+    ctl.modelKey = '';
     ctl.dirUrl = '';
     ctl.paramTable = buildParamTable(null);
     ctl.partTable = buildPartTable(null);
@@ -98,7 +112,8 @@ export function createLive2DController({ fetchJson, storage } = {}) {
 
   /**
    * 挂上模型：建表 → 读 .vtube.json / .cdi3.json → 恢复上次的状态。
-   * @param {{ url:string, name?:string }} model
+   * @param {{ url:string, name?:string, key?:string }} model
+   *        key = 相对 models/ 的稳定路径（主进程 scanModels 的 file）；没有就退回 url
    * @param {object} coreModel 引擎 coreModel
    * @returns {Promise<{ hotkeys:number, parts:number, restored:{ expressions:number, parts:number }, errors:object[] }>}
    */
@@ -108,6 +123,7 @@ export function createLive2DController({ fetchJson, storage } = {}) {
     const gen = (ctl._loadGen += 1);      // 加载代际：旧的加载不许覆盖新模型
     if (!model || !model.url || !coreModel) return { hotkeys: 0, parts: 0, restored: { expressions: 0, parts: 0 }, errors: ctl.errors };
     ctl.modelUrl = String(model.url);
+    ctl.modelKey = String(model.key || '') || ctl.modelUrl;
     ctl.dirUrl = modelDirUrl(ctl.modelUrl);
     ctl.paramTable = buildParamTable(coreModel);
     ctl.partTable = buildPartTable(coreModel);
@@ -130,7 +146,7 @@ export function createLive2DController({ fetchJson, storage } = {}) {
 
     // --- 恢复上次状态（必须是「真的恢复」，不能只恢复按钮） ---
     const restored = { expressions: 0, parts: 0 };
-    const saved = ctl.readState();
+    const saved = await ctl.readState();
     for (const file of saved.activeExpressions) {
       const hk = ctl.hotkeys.find((h) => h.file === file);
       if (!hk) continue;
@@ -149,41 +165,146 @@ export function createLive2DController({ fetchJson, storage } = {}) {
   };
 
   // ---------------- 持久化 ----------------
-  ctl.readState = () => {
-    const empty = { activeExpressions: [], hiddenParts: [] };
-    if (!store || !ctl.modelUrl) return empty;
-    const raw = store.getItem(CLIENTS.stateKey(ctl.modelUrl));
-    if (raw) {
-      const v = safeParse(raw, null);
-      if (v && typeof v === 'object') {
-        return {
-          activeExpressions: Array.isArray(v.activeExpressions) ? v.activeExpressions.filter((x) => typeof x === 'string') : [],
-          hiddenParts: Array.isArray(v.hiddenParts) ? v.hiddenParts.filter((x) => typeof x === 'string') : [],
-        };
-      }
-    }
-    // 旧版本的键（aileen.hotkeys.* / aileen.parts.*）迁移一次
-    const legacyE = safeParse(store.getItem(CLIENTS.legacyHotkeysKey(ctl.modelUrl)), []);
-    const legacyP = safeParse(store.getItem(CLIENTS.legacyPartsKey(ctl.modelUrl)), []);
+  /**
+   * 当前模型的存档标识：优先用主进程给的稳定 key（相对 models/ 的路径），
+   * 没有 key 的老调用点才退回 URL（会带随机端口，属于已知的退化情况）。
+   */
+  ctl.stateId = () => String(ctl.modelKey || ctl.modelUrl || '');
+
+  /** URL 里 /models/ 之后的那段（迁移老存档时用它做「同一个模型」的判据） */
+  function urlTail(url) {
+    const u = String(url || '');
+    const i = u.indexOf('/models/');
+    return i >= 0 ? u.slice(i) : '';
+  }
+
+  function parseState(v) {
+    if (!v || typeof v !== 'object') return null;
     return {
-      activeExpressions: Array.isArray(legacyE) ? legacyE.filter((x) => typeof x === 'string') : [],
-      hiddenParts: Array.isArray(legacyP) ? legacyP.filter((x) => typeof x === 'string') : [],
+      activeExpressions: Array.isArray(v.activeExpressions) ? v.activeExpressions.filter((x) => typeof x === 'string') : [],
+      hiddenParts: Array.isArray(v.hiddenParts) ? v.hiddenParts.filter((x) => typeof x === 'string') : [],
     };
+  }
+
+  /**
+   * 迁移「用整个 URL 当键」的老存档（0.7.6 之前写下的，键里带随机端口）。
+   * 判据：键以 http(s):// 开头的老前缀，且 URL 尾部（/models/... 之后）和当前模型一致。
+   * 迁移完把老键删掉，避免以后两份存档各说各话。
+   */
+  /** 列出 storage 里所有键（浏览器 localStorage 用 length/key；单测替身也照这个实现） */
+  function storeKeys() {
+    const out = [];
+    try {
+      if (store && typeof store.length === 'number' && typeof store.key === 'function') {
+        for (let i = 0; i < store.length; i += 1) {
+          const k = store.key(i);
+          if (typeof k === 'string' && k) out.push(k);
+        }
+        return out;
+      }
+      for (const k of Object.keys(store || {})) {
+        if (typeof k === 'string' && k.startsWith('aileen.')) out.push(k);
+      }
+    } catch (err) { /* 隐私模式 / 半实现的对象：当没有老存档 */ }
+    return out;
+  }
+
+  ctl.migrateLegacyState = () => {
+    const out = { activeExpressions: [], hiddenParts: [], migratedKeys: [] };
+    if (!store) return out;
+    const tail = urlTail(ctl.modelUrl);
+    for (const k of storeKeys()) {
+      if (!LEGACY_URL_PREFIXES.some((p) => k.startsWith(p))) continue;
+      if (tail && !k.endsWith(tail)) continue;      // 不是这个模型的，别动
+      const v = safeParse(store.getItem(k), null);
+      let a = [];
+      let p = [];
+      if (k.startsWith('aileen.live2d.v2.')) {
+        const parsed = parseState(v);
+        if (!parsed) continue;
+        a = parsed.activeExpressions;
+        p = parsed.hiddenParts;
+      } else if (k.startsWith('aileen.hotkeys.')) {
+        if (!Array.isArray(v)) continue;
+        a = v.filter((x) => typeof x === 'string');
+      } else if (k.startsWith('aileen.parts.')) {
+        if (!Array.isArray(v)) continue;
+        p = v.filter((x) => typeof x === 'string');
+      } else continue;
+      for (const x of a) if (!out.activeExpressions.includes(x)) out.activeExpressions.push(x);
+      for (const x of p) if (!out.hiddenParts.includes(x)) out.hiddenParts.push(x);
+      out.migratedKeys.push(k);
+    }
+    if (out.migratedKeys.length) {
+      try {
+        for (const k of out.migratedKeys) store.removeItem(k);
+      } catch (err) { /* 隐私模式删不掉就留着，不影响读取 */ }
+    }
+    return out;
+  };
+
+  /** 只读 localStorage（同步），给调试/自检用 */
+  ctl.readStateLocal = () => {
+    const empty = { activeExpressions: [], hiddenParts: [] };
+    if (!store || !ctl.stateId()) return empty;
+    const raw = store.getItem(CLIENTS.stateKey(ctl.stateId()));
+    if (raw) {
+      const parsed = parseState(safeParse(raw, null));
+      if (parsed) return parsed;
+    }
+    return empty;
+  };
+
+  /**
+   * 读存档：主进程设置文件优先，localStorage 兜底，最后才迁移「带随机端口」的老键。
+   * 三个来源都空就是空（不要编一个「有状态」出来）。
+   */
+  ctl.readState = async () => {
+    const empty = { activeExpressions: [], hiddenParts: [] };
+    if (!ctl.stateId()) return empty;
+    if (durable && typeof durable.load === 'function') {
+      try {
+        const remote = parseState(await durable.load(ctl.stateId()));
+        if (remote && (remote.activeExpressions.length || remote.hiddenParts.length)) return remote;
+      } catch (err) { /* 主进程没起来 / 通道还没注册：退回本地 */ }
+    }
+    const local = ctl.readStateLocal();
+    if (local.activeExpressions.length || local.hiddenParts.length) return local;
+    // 老存档（用整个 URL 当键，带随机端口）→ 迁移到稳定键
+    const legacy = ctl.migrateLegacyState();
+    if (legacy.migratedKeys.length) {
+      const value = { version: 2, activeExpressions: legacy.activeExpressions, hiddenParts: legacy.hiddenParts };
+      try { store.setItem(CLIENTS.stateKey(ctl.stateId()), JSON.stringify(value)); } catch (err) { /* 写不进去下次再迁 */ }
+      ctl.saveState();   // 顺手把它写进设置文件，以后不依赖 localStorage
+      return { activeExpressions: legacy.activeExpressions, hiddenParts: legacy.hiddenParts };
+    }
+    return empty;
   };
 
   ctl.saveState = () => {
-    if (!store || !ctl.modelUrl) return false;
-    try {
-      store.setItem(CLIENTS.stateKey(ctl.modelUrl), JSON.stringify({
-        version: 2,
-        activeExpressions: [...ctl.active],
-        hiddenParts: [...ctl.hiddenParts.keys()],
-      }));
-      return true;
-    } catch (err) {
-      pushError('state', '保存状态失败：' + ((err && err.message) || err));
-      return false;
+    const id = ctl.stateId();
+    if (!id) return false;
+    const snapshot = {
+      activeExpressions: [...ctl.active],
+      hiddenParts: [...ctl.hiddenParts.keys()],
+    };
+    let localOk = false;
+    if (store) {
+      try {
+        store.setItem(CLIENTS.stateKey(id), JSON.stringify(Object.assign({ version: 2 }, snapshot)));
+        localOk = true;
+      } catch (err) {
+        pushError('state', 'localStorage 写入失败：' + ((err && err.message) || err));
+      }
     }
+    // 落盘到主进程设置文件：localStorage 只在正常退出时才写盘，靠不住
+    if (durable && typeof durable.save === 'function') {
+      try {
+        const p = durable.save(id, snapshot);
+        if (p && typeof p.catch === 'function') p.catch(() => { /* 主进程写失败不影响本次运行 */ });
+      } catch (err) { /* 同上 */ }
+    }
+    return localOk;
   };
 
   // ---------------- 表达式 ----------------

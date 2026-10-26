@@ -128,8 +128,10 @@ export class TTS {
     // 连续 enqueue 两条时第二条会在 playing 还是 false 的时候又发起一次 _next() ——
     // 结果两条同时开口（而且令牌会被后者覆盖，前一条永远完不成）。
     this.playing = true;
-    this._provider = item.settings.tts.provider || 'web';
+    this._provider = item.settings.tts.provider || 'none';
     try {
+      // 「（无）」= 用户明确不要语音：什么都不播，直接按完成推进队列（别让它卡在 playing 上）
+      if (this._provider === 'none') { this._finishCurrent(token); return; }
       if (this._provider === 'web') this._speakWeb(item.text, item.settings, token);
       else await this._speakRemote(item.text, item.settings, token);
     } catch (err) {
@@ -234,7 +236,7 @@ export class TTS {
    * 这里只把「要读什么、用哪家」送上去，拿回音频字节再解码播放。
    */
   async _speakRemote(text, settings, token) {
-    const provider = (settings.tts && settings.tts.provider) || 'openai';
+    const provider = (settings.tts && settings.tts.provider) || 'none';
     const bytes = await window.api.ttsFetchAudio({ provider, text });
     if (!bytes) throw new Error('TTS 没有返回音频数据');
     let buf = bytes;

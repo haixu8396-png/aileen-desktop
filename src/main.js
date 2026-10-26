@@ -430,7 +430,11 @@ function bindComposer() {
         if (btn) btn.disabled = false;
         toast(t('chat.recognized'));
       };
-      stt.onError = (err) => toast(t('stt.failed', { msg: (err && err.message) || err }), true);
+      stt.onError = (err) => {
+        // 「（无）」不是故障，是用户没选引擎 —— 直接说清楚，别把错误码糊到界面上
+        const msg = err && err.code === 'stt.noProvider' ? t('stt.noProvider') : ((err && err.message) || err);
+        toast(t('stt.failed', { msg }), true);
+      };
       stt.onState = (on) => mic.classList.toggle('recording', on);
       stt.start(getSettings());
     };
@@ -543,6 +547,7 @@ function bindStageSection() {
 function bindPages() {
   const on = (id, fn) => { const el = $(id); if (el) el.onclick = fn; };
   on('btn-new-chat', () => { clearMessagesAndToast(); });
+  on('btn-persona-studio', () => openPersonaStudio());
   on('btn-new-card', () => openCharModal(null, null));
   on('btn-import-card', () => importCard());
   on('btn-edit-current-card', () => { if (state.current) openCharModal(state.current.data, state.current.file); });

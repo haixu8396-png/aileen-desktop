@@ -137,7 +137,8 @@ export function currentStageModel() {
 export function syncOverlayModel() {
   try {
     const m = currentStageModel();
-    window.api.overlaySetModel(m ? { url: m.url, name: m.name } : null);
+    // key 用模型相对 models/ 的路径（url 里带随机端口，不能拿来当存档键）
+    window.api.overlaySetModel(m ? { url: m.url, name: m.name, key: m.file || m.url } : null);
     pushStageScale(stageScale());
   } catch (err) { /* 展台不可用不影响主流程 */ }
 }

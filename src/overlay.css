@@ -109,6 +109,23 @@ body {
   touch-action: none;
 }
 html[data-theme='dark'] #ov-grip { background: rgba(241, 234, 240, 0.12); }
+/* 右下角拖角改大小：三条斜线，和浏览器窗口右下角一个意思 */
+#ov-resize {
+  align-self: flex-end;
+  width: 20px; height: 20px; margin-top: 2px;
+  display: flex; align-items: flex-end; justify-content: flex-end; gap: 2px;
+  padding: 3px; border-radius: 8px;
+  cursor: nwse-resize; touch-action: none;
+  opacity: 0.34; transition: opacity var(--ov-dur) ease, background var(--ov-dur) ease;
+}
+#ov-resize span {
+  display: block; width: 2px; border-radius: 1px; background: var(--ov-text-soft);
+  transform: rotate(45deg);
+}
+#ov-resize span:nth-child(1) { height: 5px; }
+#ov-resize span:nth-child(2) { height: 9px; }
+#ov-resize span:nth-child(3) { height: 13px; }
+#ov-ui:hover #ov-resize, #ov-resize:hover { opacity: 0.85; background: var(--ov-accent-soft); }
 #ov-grip:hover { background: var(--ov-accent-soft); }
 #ov-grip:active { cursor: grabbing; }
 #ov-grip span { width: 3px; height: 10px; border-radius: 2px; background: var(--ov-text-soft); display: block; }

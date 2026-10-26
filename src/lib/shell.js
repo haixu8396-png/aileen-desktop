@@ -5,7 +5,7 @@
 // 不直接调 IPC（除了外壳自己的显示偏好），业务由 main.js / pages.js 装配。
 // ============================================================
 import { getSettings, saveSettings, setSettingsCache } from './settings.js';
-import { $ } from './dom.js';
+import { $, toast } from './dom.js';
 import { applyIcons } from './icons.js';
 import { t } from './i18n.js';
 
@@ -155,6 +155,20 @@ export function bindAppearanceControls() {
       setSettingsCache(next);
       applyAppearance(next.appearance);
       await saveSettings(next);
+    };
+  }
+  // 时间感知（设置 → 外观与常规）：让角色知道现在几点
+  const ta = $('s-time-awareness');
+  if (ta) {
+    ta.checked = !(getSettings().general && getSettings().general.timeAwareness === false);
+    ta.onchange = async () => {
+      const s = getSettings();
+      const next = Object.assign({}, s, {
+        general: Object.assign({}, s.general, { timeAwareness: !!ta.checked }),
+      });
+      setSettingsCache(next);
+      await saveSettings(next);
+      toast(ta.checked ? t('general.timeOn') : t('general.timeOff'));
     };
   }
   // 跟随系统时，系统主题变了要跟着变

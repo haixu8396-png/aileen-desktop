@@ -877,5 +877,12 @@
   "overlay.fitNow": "按当前姿势适配",
   "overlay.fitClipHint": "道具超出画面了，点上面的按钮重新适配",
   "overlay.fitDone": "已按当前姿势适配",
-  "overlay.fitFailed": "适配失败：模型还没准备好"
+  "overlay.fitFailed": "适配失败：模型还没准备好",
+  "overlay.resizeTip": "拖动调整展台大小",
+  "provider.none": "（无）",
+  "stt.noProvider": "还没有选语音识别引擎（设置 → 语音识别里选一个，或保持「（无）」）",
+  "general.timeAwareness": "时间感知",
+  "general.timeAwarenessDesc": "让角色知道现在几点、今天几号（接在人格之后，不会改人格）。",
+  "general.timeOn": "时间感知已打开",
+  "general.timeOff": "时间感知已关闭"
 }

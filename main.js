@@ -897,8 +897,52 @@ function registerOverlayIpc() {
     broadcastOverlayState();
     return overlayInteractive;
   });
-  handle('overlay:setModel', (_e, model) => {
-    overlayModel = model && model.url ? { url: String(model.url), name: String(model.name || '') } : null;
+  // Live2D 热键 / 部件状态（按模型分开存）—— 落在设置文件里，退出方式再粗暴也不会丢
+  // 展台「上次用多大」：打开时按它恢复，所以不用每次都重新测量适配
+  validatedHandle('live2d:getLayout', (_e, payload) => {
+    const key = String((payload && payload.modelKey) || '');
+    if (!key) return null;
+    const byModel = (readSettings().live2dLayout || {}).byModel || {};
+    return byModel[key] || null;
+  });
+  validatedHandle('live2d:setLayout', (_e, payload) => {
+    const key = String((payload && payload.modelKey) || '');
+    if (!key) return false;
+    const next = {
+      scale: Number(payload.scale),
+      fx: Number(payload.fx),
+      fy: Number(payload.fy),
+      drawn: Array.isArray(payload.drawn) ? payload.drawn.map((n) => Math.round(Number(n) || 0)) : null,
+      updatedAt: Date.now(),
+    };
+    if (!Number.isFinite(next.scale) || next.scale <= 0) return false;
+    const cur = (readSettings().live2dLayout || {}).byModel || {};
+    writeSettings({ live2dLayout: { byModel: Object.assign({}, cur, { [key]: next }) } });
+    return true;
+  });
+  validatedHandle('live2d:getState', (_e, payload) => {
+    const key = String((payload && payload.modelKey) || '');
+    if (!key) return null;
+    const byModel = (readSettings().live2dState || {}).byModel || {};
+    return byModel[key] || null;
+  });
+  validatedHandle('live2d:setState', (_e, payload) => {
+    const key = String((payload && payload.modelKey) || '');
+    if (!key) return false;
+    const next = {
+      activeExpressions: Array.isArray(payload.activeExpressions) ? payload.activeExpressions : [],
+      hiddenParts: Array.isArray(payload.hiddenParts) ? payload.hiddenParts : [],
+      updatedAt: Date.now(),
+    };
+    const cur = (readSettings().live2dState || {}).byModel || {};
+    writeSettings({ live2dState: { byModel: Object.assign({}, cur, { [key]: next }) } });
+    return true;
+  });
+  validatedHandle('overlay:setModel', (_e, model) => {
+    // key：相对 models/ 的稳定路径。展台用它当 localStorage 键 —— 不能用 url（端口每次随机）
+    overlayModel = model && model.url
+      ? { url: String(model.url), name: String(model.name || ''), key: String(model.key || model.file || '') }
+      : null;
     if (overlayWin && !overlayWin.isDestroyed()) overlayWin.webContents.send('overlay:model', overlayModel);
     return true;
   });
@@ -947,6 +991,13 @@ function registerOverlayIpc() {
     const dw = Math.round((payload && payload.dw) || 0);
     const dh = Math.round((payload && payload.dh) || 0);
     return resizeOverlayBy(dw, dh);
+  });
+  // 拖右下角把手改大小：和 −/＋ 走同一个入口（clampOverlaySize），落盘靠 persistOverlayBounds 的防抖
+  handle('overlay:resizeTo', async (_e, payload) => {
+    const width = Math.round(Number(payload && payload.width) || 0);
+    const height = Math.round(Number(payload && payload.height) || 0);
+    if (!width || !height) return null;
+    return setOverlaySize(width, height);
   });
   handle('overlay:reset', async () => {
     if (!overlayWin || overlayWin.isDestroyed()) return null;

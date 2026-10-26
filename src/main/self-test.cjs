@@ -1501,7 +1501,10 @@ win.webContents.on('did-finish-load', () => {
                 ? (!!pt && (pt.count > 0 || 'skipped:no-cdi3'))
                 : 'skipped:no-model-installed';
               if (rep.modelsAvailable && pt && pt.count > 0) {
-                const target = (pt.names || []).find((n) => /衣服|body|dress/i.test(n)) || (pt.names || [])[0];
+                // 状态现在是持久化的：先把上一轮遗留的隐藏清掉，否则「点一下」可能是「显示」而不是「隐藏」
+              await w.webContents.executeJavaScript('window.__AILEEN_PARTS_RESET ? window.__AILEEN_PARTS_RESET() : null');
+              await new Promise((r) => setTimeout(r, 250));
+              const target = (pt.names || []).find((n) => /衣服|body|dress/i.test(n)) || (pt.names || [])[0];
                 const beforeOpacity = await w.webContents.executeJavaScript('window.__AILEEN_PART_OPACITY(' + JSON.stringify(target) + ')');
                 const hiddenOn = await w.webContents.executeJavaScript('window.__AILEEN_PART_TOGGLE(' + JSON.stringify(target) + ')');
                 await new Promise((r) => setTimeout(r, 350));
@@ -1517,6 +1520,49 @@ win.webContents.on('did-finish-load', () => {
                 rep.partToggleOk = 'skipped:no-cdi3';
               }
             } catch (err) { rep.partPanelOk = 'err:' + String((err && err.message) || err); }
+            // 鼠标拖右下角把手改展台大小（用户要的「手动拖边框」）：
+            // 原生 resizable 仍然是关的（会和鼠标穿透打架），所以拖的是渲染层把手 → overlay:resizeTo
+            try {
+              // 先把窗口缩到 420×600 再拖：否则在本机（窗口已经贴到 92% 屏高）高度会被 clamp 住，
+              // 拖角只能变宽 —— 那不是功能坏了，是没余量。和拖动那条用例同一个思路。
+              const originSize = getOverlayBounds();
+              await overlay.setSize(420, 600);
+              await new Promise((r) => setTimeout(r, 400));
+              const b0 = getOverlayBounds();
+              const gripExists = await w.webContents.executeJavaScript('!!document.getElementById("ov-resize")');
+              if (b0 && gripExists) {
+                await w.webContents.executeJavaScript(`(function(){
+                  var g = document.getElementById('ov-resize');
+                  var mk = function (type, x, y) {
+                    return new PointerEvent(type, { pointerId: 7, pointerType: 'mouse', bubbles: true, cancelable: true, screenX: x, screenY: y, clientX: x, clientY: y });
+                  };
+                  g.dispatchEvent(mk('pointerdown', 100, 100));
+                  g.dispatchEvent(mk('pointermove', 100 + 110, 100 + 90));
+                  g.dispatchEvent(mk('pointerup', 100 + 110, 100 + 90));
+                  return true;
+                })()`);
+                await new Promise((r) => setTimeout(r, 700));
+                const b1 = getOverlayBounds();
+                const stats = await w.webContents.executeJavaScript('window.__AILEEN_OVERLAY_RESIZE_STATS ? window.__AILEEN_OVERLAY_RESIZE_STATS() : null');
+                rep.resizeHandleProbe = { gripExists, before: b0, after: b1, stats };
+                // 拖动应该让窗口变大（±40px 容差：会被 clampOverlaySize / 工作区钳一次）
+                rep.resizeHandleOk = !!gripExists
+                  && !!b1
+                  && b1.width >= b0.width + 40
+                  && b1.height >= b0.height + 30
+                  && !!(stats && stats.calls >= 1);
+                // 还原成拖之前的大小，别把后面的门禁带歪
+                await overlay.setSize(
+                  (originSize && originSize.width) || 400,
+                  (originSize && originSize.height) || 640,
+                );
+                await new Promise((r) => setTimeout(r, 300));
+              } else {
+                rep.resizeHandleProbe = { gripExists, before: b0 };
+                rep.resizeHandleOk = 'skipped:no-overlay';
+              }
+            } catch (err) { rep.resizeHandleOk = 'err:' + String((err && err.message) || err); }
+
             // Live2D 兼容层：这几个门禁看的是「引擎里的真实状态」，不是按钮亮没亮
             try {
               const pw = await w.webContents.executeJavaScript('window.__AILEEN_L2D_TEST_PARAM_WRITE ? window.__AILEEN_L2D_TEST_PARAM_WRITE() : null');
@@ -1538,6 +1584,18 @@ win.webContents.on('did-finish-load', () => {
               const st = await w.webContents.executeJavaScript('window.__AILEEN_L2D_TEST_STATE ? window.__AILEEN_L2D_TEST_STATE() : null');
               rep.live2dStateProbe = st;
               rep.live2dStateOk = rep.modelsAvailable ? !!(st && st.ok) : 'skipped:no-model-installed';
+
+              // 打开时不要自动适配：走存档恢复，而且**不能触发测量**
+              const lr = await w.webContents.executeJavaScript('window.__AILEEN_L2D_TEST_LAYOUT_RESTORE ? window.__AILEEN_L2D_TEST_LAYOUT_RESTORE() : null');
+              rep.layoutRestoreProbe = lr;
+              rep.layoutRestoreOk = rep.modelsAvailable ? !!(lr && lr.ok) : 'skipped:no-model-installed';
+              if (rep.modelsAvailable && lr && lr.ok === false && lr.error) rep.errors.push('layout restore: ' + lr.error);
+
+              // 热键/部件状态「下次打开还记不记得」：存档键不能带随机端口，重开与老存档都要能恢复
+              const ps = await w.webContents.executeJavaScript('window.__AILEEN_L2D_TEST_PERSIST ? window.__AILEEN_L2D_TEST_PERSIST() : null');
+              rep.persistProbe = ps;
+              rep.persistOk = rep.modelsAvailable ? !!(ps && ps.ok) : 'skipped:no-model-installed';
+              if (rep.modelsAvailable && ps && ps.ok === false && ps.error) rep.errors.push('persist: ' + ps.error);
 
               // 道具出框：**不自动改比例**，点「按当前姿势适配」才改（用户明确要求手动）
               const pf = await w.webContents.executeJavaScript('window.__AILEEN_L2D_TEST_PROP_FIT ? window.__AILEEN_L2D_TEST_PROP_FIT() : null');

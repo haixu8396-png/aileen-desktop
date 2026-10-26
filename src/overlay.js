@@ -152,6 +152,80 @@ window.__AILEEN_OVERLAY_DRAG_STATS = () => Object.assign({
 /** 主进程的超时兜底会来问一句「人是不是还按着把手」 */
 window.__AILEEN_OVERLAY_DRAGGING = () => dragActive;
 
+// ---------------- 右下角拖角改大小 ----------------
+// 原生 resizable 是关掉的（和鼠标穿透/焦点打架），所以「用鼠标拖边框改大小」走渲染层把手：
+// 拖 `#ov-resize` → 换算成绝对宽高 → 交给主进程的 clampOverlaySize + setBounds（和 −/＋ 同一个入口）。
+// 高频 pointermove 用 rAF 合并 + 同一时刻只发一个（和拖动位置那套一样的道理）。
+const resizeGrip = document.getElementById('ov-resize');
+let resizeDrag = null;
+let resizeRaf = 0;
+let resizeInFlight = false;
+let resizeWant = null;
+let resizeCalls = 0;
+
+function sendResizeNow() {
+  resizeRaf = 0;
+  const want = resizeWant;
+  resizeWant = null;
+  if (!want || resizeInFlight) return;
+  resizeInFlight = true;
+  resizeCalls += 1;
+  Promise.resolve(window.api.overlayResizeTo(want))
+    .catch(() => { /* 窗口可能已经销毁 */ })
+    .then(() => {
+      resizeInFlight = false;
+      if (resizeWant) sendResizeNow();
+    });
+}
+
+function queueResize(width, height) {
+  resizeWant = {
+    width: Math.max(160, Math.round(width)),
+    height: Math.max(200, Math.round(height)),
+  };
+  if (!resizeRaf) resizeRaf = requestAnimationFrame(sendResizeNow);
+}
+
+if (resizeGrip) {
+  resizeGrip.addEventListener('pointerdown', (e) => {
+    e.preventDefault();
+    if (resizeDrag) return;
+    resizeDrag = {
+      id: e.pointerId,
+      w0: window.innerWidth,
+      h0: window.innerHeight,
+      x0: e.screenX,
+      y0: e.screenY,
+      last: { w: window.innerWidth, h: window.innerHeight },
+    };
+    showTools();
+    try { resizeGrip.setPointerCapture(e.pointerId); } catch (err) { /* 没捕获也能拖 */ }
+  });
+  resizeGrip.addEventListener('pointermove', (e) => {
+    if (!resizeDrag || e.pointerId !== resizeDrag.id) return;
+    const w = resizeDrag.w0 + (e.screenX - resizeDrag.x0);
+    const h = resizeDrag.h0 + (e.screenY - resizeDrag.y0);
+    resizeDrag.last = { w, h };
+    queueResize(w, h);
+  });
+  const endResize = (e) => {
+    if (!resizeDrag || (e && e.pointerId !== undefined && e.pointerId !== resizeDrag.id)) return;
+    const d = resizeDrag;
+    resizeDrag = null;
+    try { resizeGrip.releasePointerCapture(d.id); } catch (err) { /* ignore */ }
+    // 松手补一次最终尺寸（防止最后一帧还没发出去）
+    if (d.last) queueResize(d.last.w, d.last.h);
+    setTimeout(() => { reportHitArea(); syncStageSize(true); }, 60);
+    showTools();
+  };
+  resizeGrip.addEventListener('pointerup', endResize);
+  resizeGrip.addEventListener('pointercancel', endResize);
+  resizeGrip.addEventListener('lostpointercapture', () => { if (resizeDrag) endResize(null); });
+}
+
+/** 自检：拖角改大小的调用次数（确认高频移动被合并了） */
+window.__AILEEN_OVERLAY_RESIZE_STATS = () => ({ active: !!resizeDrag, calls: resizeCalls });
+
 // ---------------- 工具按钮 ----------------
 document.getElementById('ov-smaller').onclick = () => { window.api.overlayResize({ dw: -40, dh: -64 }); showTools(); };
 document.getElementById('ov-bigger').onclick = () => { window.api.overlayResize({ dw: 40, dh: 64 }); showTools(); };
@@ -309,6 +383,9 @@ function measureContentBox(W, H, canvas) {
   return { box, scale: s, clipped: true };
 }
 
+// 测量次数（自检用）：打开时走「按存档恢复」这条路，不允许偷偷再量一遍
+let fitMeasureCount = 0;
+
 /** 直接落位（不做动画） */
 function applyTransformNow(scale, x, y) {
   modelObj.scale.set(scale);
@@ -361,6 +438,7 @@ function layoutToContent({ animate = false } = {}) {
   const offsetY = Number(hq.offsetY) || 0;
   const from = { s: modelObj.scale.x, x: modelObj.position.x, y: modelObj.position.y };
 
+  fitMeasureCount += 1;
   const probed = measureContentBox(W, H, canvas);
   let target = null;
   if (probed.box) {
@@ -410,12 +488,97 @@ function layoutToContent({ animate = false } = {}) {
   };
   const slider = document.getElementById('ov-scale');
   if (slider && document.activeElement !== slider) slider.value = String(zoom.toFixed(2));
+  // 这次是「真的量过算过」的结果 —— 存下来，下次打开直接按它恢复，不再自动适配
+  scheduleLayoutSave(400);
   return true;
 }
 
-/** 设置/尺寸变化时的即时布局（保留老名字，调用点很多） */
-function applyModelLayout() {
+// ---------------- 「上次用多大」的存档 ----------------
+// 用户明确要求：**打开展台不要自动重新适配**。所以打开时先按存档恢复（不测量、不重算），
+// 只有第一次（没存档）或用户点「按当前姿势适配」/改设置时，才真的重新量一遍。
+let savedLayout = null;      // { scale, fx, fy, drawn }
+let layoutSaveTimer = null;
+
+function layoutModelKey() {
+  return String((currentModel && (currentModel.key || currentModel.url)) || '');
+}
+
+/** 从主进程设置文件里读这个模型上次的比例（读不到就是 null） */
+async function loadSavedLayout() {
+  const key = layoutModelKey();
+  savedLayout = null;
+  if (!key || !window.api || !window.api.live2dGetLayout) return null;
+  try {
+    const v = await window.api.live2dGetLayout({ modelKey: key });
+    if (v && Number(v.scale) > 0 && Number.isFinite(Number(v.fx)) && Number.isFinite(Number(v.fy))) {
+      savedLayout = {
+        scale: Number(v.scale),
+        fx: Number(v.fx),
+        fy: Number(v.fy),
+        drawn: Array.isArray(v.drawn) ? v.drawn : null,
+      };
+    }
+  } catch (err) { /* 主进程没起来就退回自动适配一次 */ }
+  return savedLayout;
+}
+
+// 自检临时改基准比例时置位：不允许把测试用的布局写成用户的存档
+let layoutPersistSuppressed = false;
+
+/** 把当前变换存下来（防抖：改尺寸/拖动时不要每次写设置） */
+function scheduleLayoutSave(delay = 500) {
+  if (layoutPersistSuppressed) return false;
+  const key = layoutModelKey();
+  if (!key || !modelObj || !window.api || !window.api.live2dSetLayout) return false;
+  if (layoutSaveTimer) clearTimeout(layoutSaveTimer);
+  layoutSaveTimer = setTimeout(() => {
+    layoutSaveTimer = null;
+    if (!modelObj) return;
+    const W = stageBox.clientWidth || window.innerWidth;
+    const H = stageBox.clientHeight || window.innerHeight;
+    if (!W || !H) return;
+    const payload = {
+      modelKey: key,
+      scale: modelObj.scale.x,
+      fx: modelObj.position.x / W,
+      fy: modelObj.position.y / H,
+      drawn: drawnBox ? [Math.round(drawnBox.w), Math.round(drawnBox.h)] : undefined,
+    };
+    savedLayout = { scale: payload.scale, fx: payload.fx, fy: payload.fy, drawn: payload.drawn || null };
+    try {
+      Promise.resolve(window.api.live2dSetLayout(payload)).catch(() => { /* 写不进就下次再说 */ });
+    } catch (err) { /* ignore */ }
+  }, Math.max(0, Number(delay) || 0));
+  return true;
+}
+
+/** 按存档恢复（**不测量**）；没有存档返回 false，让调用方退回自动适配一次 */
+function applySavedLayout() {
+  if (!pixiApp || !modelObj || !savedLayout) return false;
+  const W = stageBox.clientWidth || window.innerWidth;
+  const H = stageBox.clientHeight || window.innerHeight;
+  if (!W || !H) return false;
+  const s = Number(savedLayout.scale);
+  if (!(s > 0)) return false;
+  applyTransformNow(s, savedLayout.fx * W, savedLayout.fy * H);
+  if (savedLayout.drawn) drawnBox = { w: savedLayout.drawn[0], h: savedLayout.drawn[1] };
+  try { pixiApp.renderer.render(pixiApp.stage); } catch (err) { /* 渲染器刚销毁 */ }
+  window.__AILEEN_FIT_DEBUG = {
+    fill: clampFill((Number(hq.fit) || 0.95) * (Number(hq.zoom) || 1)),
+    scale: Number(s.toFixed(5)),
+    stage: [Math.round(W), Math.round(H)],
+    restored: true,
+    pos: [Math.round(savedLayout.fx * W), Math.round(savedLayout.fy * H)],
+    drawn: savedLayout.drawn ? savedLayout.drawn.slice() : null,
+    hq: { fit: hq.fit, zoom: hq.zoom, offsetY: hq.offsetY, quality: hq.quality, lod: hq.lod, mask: hq.mask },
+  };
+  return true;
+}
+
+/** 布局入口：默认**先按存档恢复**（打开/改窗口大小），不会自动重新适配 */
+function applyModelLayout({ refit = false } = {}) {
   if (layoutTween) { cancelAnimationFrame(layoutTween); layoutTween = 0; }
+  if (!refit && applySavedLayout()) return true;
   return layoutToContent({ animate: false });
 }
 
@@ -476,7 +639,23 @@ function refitToContent({ animate = true } = {}) {
 //   · Overwrite / Add / Multiply 三种 Blend 按激活顺序叠加（和 VTS 一致）；
 //   · 关掉 / 清空时把参数还原成「我们记录的基线」，模型不会卡在换好的形态上；
 //   · 状态按模型分开存（localStorage 键里带 modelUrl），换模型不会串味。
-const l2d = createLive2DController({ fetchJson: (url) => fetchJson(url) });
+const l2d = createLive2DController({
+  fetchJson: (url) => fetchJson(url),
+  // 状态落盘走主进程（设置文件），localStorage 只当缓存：
+  // file:// 下的 localStorage 只在正常退出时才落盘，强杀/崩溃就丢，用户看到的就是「热键记不住」
+  persist: {
+    load: (modelKey) => (window.api && window.api.live2dGetState
+      ? window.api.live2dGetState({ modelKey })
+      : Promise.resolve(null)),
+    save: (modelKey, state) => (window.api && window.api.live2dSetState
+      ? window.api.live2dSetState({
+        modelKey,
+        activeExpressions: state.activeExpressions,
+        hiddenParts: state.hiddenParts,
+      })
+      : Promise.resolve(false)),
+  },
+});
 
 /** 取 JSON：模型目录里的配置（vtube/cdi3/exp3）都是外部数据，读不到就返回 null */
 async function fetchJson(url) {
@@ -819,11 +998,14 @@ async function renderStage(model) {
     m.anchor.set(0.5, 0.5);
     app.stage.addChild(m);    bindModelHooks();
     applyPhysicsSetting();
+    // 打开时**先按存档恢复**（不测量、不重算）；没有存档才自动适配一次（第一次用这个模型）
+    await loadSavedLayout();
     applyModelLayout();
     scheduleIdleMotion();
     // 热键 + 部件：一次加载（含上次的状态恢复），状态全在 controller 里
     loadLive2DState(model).catch((err) => pushStageError('live2d-state', err));
     // 尺寸在第一帧之前可能还是 0（窗口刚显示），补两次重排
+    // 窗口刚显示时尺寸可能还是 0：这里只按存档恢复（或必要时重排），不重新适配
     setTimeout(() => { if (gen === stageGen) applyModelLayout(); }, 120);
     setTimeout(() => { if (gen === stageGen) applyModelLayout(); }, 480);
   } catch (err) {
@@ -850,7 +1032,8 @@ function applyLive2DConfig(next, prev) {
     catch (err) { /* ignore */ }
   }
   applyPhysicsSetting();
-  applyModelLayout();
+  // 用户自己改了占比/偏移 → 才重新量一次（refit）
+  applyModelLayout({ refit: true });
   scheduleIdleMotion();
   return true;
 }
@@ -1155,7 +1338,7 @@ if (document.getElementById('ov-scale')) {
   slider.oninput = (e) => {
     const v = Math.min(1.25, Math.max(0.4, Number(e.target.value) || 1));
     hq.zoom = v;
-    applyModelLayout();
+    applyModelLayout({ refit: true });
     // 落盘（live2d.zoom）：下次开窗口还是这个大小；主进程会再推一次配置回来
     Promise.resolve(window.api.overlaySetZoom(v)).catch(() => { /* 主窗口没开 */ });
     reportHitArea();
@@ -1218,7 +1401,7 @@ if (typeof window.api.onOverlaySession === 'function') {
       if (Number.isFinite(v)) {
         // 主窗口的「角色大小」滑块 = 精细控制里的 zoom（0.4~1.25）
         hq.zoom = Math.min(1.25, Math.max(0.4, v));
-        applyModelLayout();
+        applyModelLayout({ refit: true });
         const sc = document.getElementById('ov-scale');
         if (sc) sc.value = String(hq.zoom);
         reportHitArea();
@@ -1329,6 +1512,8 @@ window.__AILEEN_PARTS = () => ({
   names: (l2d.parts || []).slice(0, 80).map((p) => p.name),
   ids: (l2d.parts || []).slice(0, 80).map((p) => p.id),
 });
+// 自检：把「被隐藏的部件」全部恢复（持久化之后，上一轮的隐藏会留到这一轮）
+window.__AILEEN_PARTS_RESET = () => { clearParts(); return [...l2d.hiddenParts.keys()]; };
 window.__AILEEN_PART_TOGGLE = (key) => {
   const list = l2d.parts || [];
   const p = list.find((x) => x.id === key) || list.find((x) => x.label === key) || list.find((x) => x.name === key);
@@ -1494,6 +1679,12 @@ window.__AILEEN_L2D_TEST_PROP_FIT = async (name) => {
     }
     const rows = [];
     let judged = null;
+    // 用户可能把占比调到 >1（主动出血），那种情况下「手动适配后被裁」是预期结果，
+    // 不能拿来判假。这里临时用「刚好铺满」的基准跑，跑完还原（并且不写存档）。
+    const hqBackup = { fit: hq.fit, zoom: hq.zoom, offsetY: hq.offsetY };
+    layoutPersistSuppressed = true;
+    hq.fit = 0.95;
+    hq.zoom = 1;
     for (const hk of tries) {
       l2d.clearHotkeys();
       refitToContent({ animate: false });
@@ -1527,7 +1718,12 @@ window.__AILEEN_L2D_TEST_PROP_FIT = async (name) => {
     }
     if (!judged) judged = rows[0] || null;
     l2d.clearHotkeys();
-    refitToContent({ animate: false });
+    // 还原基准比例 + 用户自己的布局存档（整个测试期间没有写入任何存档）
+    Object.assign(hq, hqBackup);
+    layoutPersistSuppressed = false;
+    savedLayout = null;
+    await loadSavedLayout();
+    applyModelLayout();
     await waitFrames(2);
     return {
       ok: !!(judged && judged.toggleOk && judged.afterClipped === false && judged.autoResized === false),
@@ -1649,20 +1845,121 @@ window.__AILEEN_L2D_TEST_PART_RESTORE = () => {
   } catch (err) { return { ok: false, error: String((err && err.message) || err) }; }
 };
 
-/** ⑤ 状态持久化：存一次 → 读回来一致；换模型必须清空（不能串味） */
-window.__AILEEN_L2D_TEST_STATE = () => {
+/**
+ * 「打开时不要自动适配」的引擎级验证。
+ *
+ * 用户明确要求：打开展台不要重新算比例。所以打开走「按存档恢复」这条路：
+ * 不测量、不重算，直接把上次的比例和位置套上去。
+ * 这里模拟一次打开（清掉内存里的存档 → 重新从设置文件读 → 应用），要求：
+ *   ① 真的走的是恢复路径（回归到存档里的 scale）
+ *   ② **没有触发测量**（fitMeasureCount 不变）—— 这条才是「不自动适配」的硬证据
+ */
+window.__AILEEN_L2D_TEST_LAYOUT_RESTORE = async () => {
   try {
-    const out = { modelUrl: l2d.modelUrl, hasStore: true };
-    const saved = l2d.readState();
+    if (!modelObj) return { ok: false, error: 'no-model' };
+    const before = { scale: modelObj.scale.x, x: modelObj.position.x, y: modelObj.position.y };
+    // ① 先用当前状态写一条存档（相当于用户上次调好的样子）
+    scheduleLayoutSave(0);
+    await waitFrames(3);
+    if (!savedLayout) return { ok: false, error: 'no-saved-layout' };
+    const saved = { scale: savedLayout.scale, fx: savedLayout.fx, fy: savedLayout.fy };
+    // ② 把模型改成一个明显不同的比例（模拟「刚打开、比例还没摆」）
+    applyTransformNow(before.scale * 0.6, before.x, before.y);
+    const measures0 = fitMeasureCount;
+    // ③ 模拟打开：清掉内存 → 从设置文件重新读 → 应用
+    savedLayout = null;
+    await loadSavedLayout();
+    const restored = applyModelLayout();
+    await waitFrames(2);
+    const measures = fitMeasureCount - measures0;
+    const after = { scale: modelObj.scale.x, x: modelObj.position.x, y: modelObj.position.y };
+    const close = (a, b) => Math.abs(a - b) < 1e-6;
+    return {
+      ok: !!restored && measures === 0 && close(after.scale, saved.scale),
+      restored: !!restored,
+      measures,
+      savedScale: saved.scale,
+      scaleBeforeDisturb: before.scale,
+      scaleAfterRestore: after.scale,
+      posAfter: [Math.round(after.x), Math.round(after.y)],
+    };
+  } catch (err) { return { ok: false, error: String((err && err.message) || err) }; }
+};
+
+/** ⑤ 状态持久化：存一次 → 读回来一致；换模型必须清空（不能串味） */
+window.__AILEEN_L2D_TEST_STATE = async () => {
+  try {
+    const out = { modelUrl: l2d.modelUrl, stateId: l2d.stateId ? l2d.stateId() : null, hasStore: true };
+    const saved = await l2d.readState();
     out.saved = saved;
     const beforeActive = [...l2d.active];
     const beforeHidden = [...l2d.hiddenParts.keys()];
     l2d.saveState();
-    const again = l2d.readState();
+    const again = await l2d.readState();
     out.roundTrip = JSON.stringify(again.activeExpressions.slice().sort()) === JSON.stringify(beforeActive.slice().sort())
       && JSON.stringify(again.hiddenParts.slice().sort()) === JSON.stringify(beforeHidden.slice().sort());
     out.ok = out.roundTrip === true;
     return out;
+  } catch (err) { return { ok: false, error: String((err && err.message) || err) }; }
+};
+
+/**
+ * 「下次打开还记不记得」的引擎级验证（这一版修的真 bug）。
+ *
+ * 背景：模型 URL 里带本地静态服务的端口，而端口是每次启动随机分配的（listen(0)）。
+ * 以前拿整个 URL 当 localStorage 键 → 每次开应用都是一份新存档，
+ * 用户看到的就是「热键状态记不住、时好时坏」。
+ * 现在键用相对 models/ 的稳定路径，并且能迁移带端口的老存档。
+ *
+ * 验证三件事：① 存档键里不能有端口；② 模拟重开应用后状态要回来；
+ * ③ 把存档改名成「带假端口的老键」再 load，也要能迁移回来（老用户存档不能丢）。
+ */
+window.__AILEEN_L2D_TEST_PERSIST = async () => {
+  try {
+    const cm = coreModelOf();
+    const list = (l2d.hotkeys || []).filter((h) => h.supported && h.kind === 'toggle-expression');
+    if (!cm || !list.length) return { ok: false, error: 'no-model-or-hotkey' };
+    const hk = list.find((h) => /school uniform/i.test(h.name)) || list[0];
+    const key = l2d.modelKey || '';
+    const url = l2d.modelUrl;
+    const model = { url, key, name: (currentModel && currentModel.name) || '' };
+
+    // ① 打开一个热键 → 存档
+    l2d.clearHotkeys();
+    const opened = await l2d.setHotkeyActive(hk, true);
+    const savedId = l2d.stateId();
+    const keyHasPort = /:\d{2,5}\//.test(String(savedId)) || /:\d{2,5}\//.test(String(key));
+
+    // ② 模拟重开应用：清空内存 → 用同一个模型重新 load
+    l2d.reset();
+    await l2d.load(model, cm);
+    const restoredAfterReload = l2d.active.has(hk.file);
+
+    // ③ 模拟老存档（键里带随机端口）→ 必须迁移回来，且老键被清掉。
+    // 自己写老键（状态取自 durable 的 readState），不依赖 localStorage 里原来有没有东西。
+    let restoredFromLegacy = false;
+    let legacySkipped = false;
+    try {
+      const state = await l2d.readState();
+      const legacyKey = 'aileen.live2d.v2.http://127.0.0.1:6553/models/' + key;
+      localStorage.removeItem('aileen.live2d.v2.' + savedId);
+      localStorage.setItem(legacyKey, JSON.stringify({ version: 2, activeExpressions: state.activeExpressions, hiddenParts: state.hiddenParts }));
+      l2d.clearHotkeys();
+      l2d.reset();
+      await l2d.load(model, cm);
+      restoredFromLegacy = l2d.active.has(hk.file) && localStorage.getItem(legacyKey) === null;
+    } catch (err) { legacySkipped = true; /* 隐私模式写不进 localStorage */ }
+
+    l2d.clearHotkeys();
+    return {
+      ok: !!opened.ok && !keyHasPort && restoredAfterReload && (restoredFromLegacy || legacySkipped),
+      name: hk.name,
+      savedId,
+      keyHasPort,
+      restoredAfterReload,
+      restoredFromLegacy,
+      legacySkipped,
+    };
   } catch (err) { return { ok: false, error: String((err && err.message) || err) }; }
 };
 

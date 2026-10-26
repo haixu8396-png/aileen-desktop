@@ -115,6 +115,35 @@ describe('人格门禁（硬要求）', () => {
     expect(() => assertPersonaFirst('', [{ role: 'system', content: 'x' }])).toThrow(/人格为空/);
   });
 
+  it('时间感知：开了就要把当前时间接在人格之后（人格仍然是第 0 段）', async () => {
+    const eng = createContextEngine({ getSettings: () => ({ general: { timeAwareness: true }, language: 'zh' }) });
+    const out = await eng.buildContext({
+      card: { name: '小满', system_prompt: '你是小满。', personality: 'p' },
+      query: '几点了',
+      messages: [],
+      now: new Date(2026, 9, 26, 9, 5),
+    });
+    const sys = out.messages.find((m) => m.role === 'system');
+    expect(sys).toBeTruthy();
+    expect(sys.content.startsWith('你是小满。')).toBe(true);
+    expect(sys.content).toContain('2026-10-26');
+    expect(sys.content).toContain('09:05');
+    expect(sys.content).toMatch(/星期/);
+  });
+
+  it('时间感知：关掉就不出现时间（人格不受影响）', async () => {
+    const eng = createContextEngine({ getSettings: () => ({ general: { timeAwareness: false }, language: 'zh' }) });
+    const out = await eng.buildContext({
+      card: { name: '小满', system_prompt: '你是小满。' },
+      query: 'hi',
+      messages: [],
+      now: new Date(2026, 9, 26, 9, 5),
+    });
+    const sys = out.messages.find((m) => m.role === 'system');
+    expect(sys.content).not.toContain('2026-10-26');
+    expect(sys.content.startsWith('你是小满。')).toBe(true);
+  });
+
   it('assertPersonaFirst：人格不在第一段就抛错', () => {
     const persona = '你是星野空';
     expect(() => assertPersonaFirst(persona, [{ role: 'system', content: '你是星野空，另外…' }])).not.toThrow();

@@ -118,7 +118,8 @@ function embedConfig() {
   const s = getSettings() || {};
   const e = s.embedding || {};
   return {
-    enabled: e.enabled !== false,
+    // provider = 'none' = 「不用嵌入模型」（用户要的「（无）」）：和取消勾选等价，检索退化成关键词匹配
+    enabled: e.provider !== 'none' && e.enabled !== false,
     baseUrl: e.baseUrl || '',
     model: e.model || '',
     batchSize: e.batchSize || 16,
@@ -215,6 +216,8 @@ export function lastError() {
 }
 export function createRetrievalAdapters() {
   return {
+    // 上下文引擎读「时间感知」开关和界面语言都通过它（渲染层拿到的设置是脱敏副本，够用）
+    getSettings: () => getSettings() || {},
     memory: {
       async search(query, opts = {}) {
         const { memory } = ensureEngines();
