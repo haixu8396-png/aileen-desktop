@@ -11,10 +11,14 @@
 //
 // 绝不做的事：child_process.exec(拼接字符串)。命令一律 spawn(程序, 参数数组)。
 // ============================================================
-import nodePath from 'node:path';
-import util from '../../shared/util.cjs';
+// 绝对不要在这里 `import nodePath from 'node:path'`：
+// 渲染层是浏览器 bundle，Vite 会把 node:path 换成 stub，调用时抛
+// `nodePath.resolve is not a function` —— 真机上表现为「写文件 / 打补丁 /
+// 列目录 / 读文件全部同一个内部错误」，而单测跑在 Node 上完全正常（抓不到）。
+// 路径运算统一走 shared/path-util.cjs（纯 JS，渲染层与主进程都能用）。
+import pathUtil from '../../shared/path-util.cjs';
 
-const { isInsidePath } = util;
+const { resolve: pathResolve, join: pathJoin, relative: pathRelative, isInside } = pathUtil;
 
 /** 允许执行的程序（白名单）。不在表里的一律拒绝。 */
 export const COMMAND_WHITELIST = [
@@ -77,8 +81,8 @@ export function resolveInsideWorkspace(workspace, target) {
   if (typeof target !== 'string') throw new Error('路径必须是字符串');
   const raw = target.trim() === '' ? '.' : target.trim();
   if (raw.includes('\0')) throw new Error('路径含非法字符');
-  const abs = nodePath.resolve(root, raw);
-  if (!isInsidePath(abs, root)) {
+  const abs = pathResolve(root, raw);
+  if (!isInside(abs, root)) {
     const e = new Error('路径越界（不在工作区内）：' + raw);
     e.code = 'OUTSIDE_WORKSPACE';
     throw e;
@@ -140,11 +144,15 @@ function isDirEntry(entry) {
  *   workspace  工作区绝对路径
  *   bridge     宿主注入的能力：{ readFile, writeFile, readdir, stat, spawn, git, screenCapture }
  *   isSensitive 可选：判断某个绝对路径是否属于「敏感（不许读/写）」名单
+ *   fullAccess 可选：完全放开时不再限制「必须落在 workspace 内」（敏感名单照旧拒绝），
+ *              并且不再用命令白名单拦跑命令 —— 用户显式选择了「不要再问」，
+ *              再拿白名单静默拦下来只会变成另一种「说不清为什么不行」。
  */
 export function createExecutor(deps) {
   const workspace = String((deps && deps.workspace) || '');
   const bridge = (deps && deps.bridge) || {};
   const isSensitive = typeof (deps && deps.isSensitive) === 'function' ? deps.isSensitive : () => false;
+  const fullAccess = !!(deps && deps.fullAccess);
   const running = new Set();
 
   function need(name) {
@@ -154,7 +162,13 @@ export function createExecutor(deps) {
   }
 
   function guard(target) {
-    return resolveInsideWorkspace(workspace, target);
+    if (!fullAccess) return resolveInsideWorkspace(workspace, target);
+    // 完全放开：相对路径仍然相对 workspace，绝对路径原样用；
+    // 唯一例外是敏感名单（凭据 / 密钥 / 设置文件），一律拒绝。
+    if (!workspace) throw new Error('未绑定 workspace');
+    const raw = String(target == null ? '' : target).trim() || '.';
+    if (raw.includes('\0')) throw new Error('路径含非法字符');
+    return pathResolve(workspace, raw);
   }
 
   function denySensitive(abs) {
@@ -286,11 +300,15 @@ export function createExecutor(deps) {
     },
 
     async runCommand({ command, args = [], timeoutMs = 60000 } = {}) {
-      const check = checkCommand(command, args);
-      if (!check.ok) {
-        const e = new Error('命令被策略拒绝：' + check.why);
-        e.code = check.code;
-        throw e;
+      // 完全放开时不做命令白名单拦截（仍然不经 shell、参数数组直传）。
+      // 严格模式下照旧：白名单 + 参数黑名单 + 危险参数一律拒绝。
+      if (!fullAccess) {
+        const check = checkCommand(command, args);
+        if (!check.ok) {
+          const e = new Error('命令被策略拒绝：' + check.why);
+          e.code = check.code;
+          throw e;
+        }
       }
       need('spawn');
       const ms = Math.max(1000, Math.min(600000, Number(timeoutMs) || 60000));
@@ -463,7 +481,7 @@ export const TOOL_METHOD_ALIASES = {
   keyboard_press: 'keyboardPress',
 };
 
-function joinPath(a, b) { return nodePath.join(a, b); }
+function joinPath(a, b) { return pathJoin(a, b); }
 function relPath(root, abs) {
-  try { return nodePath.relative(root, abs).replace(/\\/g, '/') || '.'; } catch { return abs; }
+  try { return (pathRelative(root, abs) || '.').replace(/\\/g, '/'); } catch { return abs; }
 }

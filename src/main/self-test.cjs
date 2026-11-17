@@ -451,7 +451,10 @@ win.webContents.on('did-finish-load', () => {
             && dashDetail.personaFound === true
             && dashDetail.personaFirst === true
             && dashDetail.assertOk === true
-            && dashDetail.personaChars > 20
+            // 人格「有内容」不能只量角色卡上的 personality 字段：
+            // 用内置提示词拼装的角色（卡片 personality 很短/为空）也是合法状态，
+            // 这时真正的证据是拼出来的 system prompt 有实质内容 + 人格仍在第一段。
+            && (dashDetail.personaChars > 20 || (dashDetail.builtInPrompt === true && dashDetail.promptChars > 200))
             && dashDetail.toolCount >= 17
             && dashDetail.cardHiddenBeforeRun === true
             && dashDetail.cardVisibleDuringRun === true
@@ -495,6 +498,24 @@ win.webContents.on('did-finish-load', () => {
             && after.panelHiddenAfterClose === true
             && after.cardHiddenAfterReset === true;
         } catch (err) { window.__AILEEN_ERRORS.push('agentTest: ' + String((err && err.message) || err)); }
+        // 行为断言⑬b：完整权限真的不再问 + 活动卡按需才挂（用户报过「开了完整权限还弹」）
+        let agentAuthOk = false;
+        let agentAuthDetail = null;
+        try {
+          agentAuthDetail = typeof window.__AILEEN_PROBE_AGENT_AUTH === 'function'
+            ? await window.__AILEEN_PROBE_AGENT_AUTH()
+            : { ok: false, error: '探针未挂载' };
+          agentAuthOk = !!(agentAuthDetail && agentAuthDetail.ok === true);
+        } catch (err) { window.__AILEEN_ERRORS.push('agentAuth: ' + String((err && err.message) || err)); }
+        // 行为断言⑬c：文件工具真的能读写（真机上 executor 曾因 node:path stub 全废）
+        let agentFsOk = false;
+        let agentFsDetail = null;
+        try {
+          agentFsDetail = typeof window.__AILEEN_PROBE_AGENT_FS === 'function'
+            ? await window.__AILEEN_PROBE_AGENT_FS()
+            : { ok: false, error: '探针未挂载' };
+          agentFsOk = !!(agentFsDetail && agentFsDetail.ok === true);
+        } catch (err) { window.__AILEEN_ERRORS.push('agentFs: ' + String((err && err.message) || err)); }
         // 行为断言：弹层收起之后必须还能从输入区再打开（曾经「收起就找不回来」）
         let panelReopenOk = false;
         let panelReopenDetail = null;
@@ -885,6 +906,10 @@ win.webContents.on('did-finish-load', () => {
           studioDetail,
           agentOk,
           agentDetail,
+          agentAuthOk,
+          agentAuthDetail,
+          agentFsOk,
+          agentFsDetail,
           panelReopenOk,
           panelReopenDetail,
           dashOk,

@@ -89,6 +89,7 @@ export const AUTH_REASON = {
   MEDIUM_ASK: 'medium-ask',
   HIGH_ASK: 'high-ask',
   TRUST_AUTO: 'trust-auto',
+  TRUST_FULL: 'trust-full',
   TRUST_EXPIRED: 'trust-expired',
   TRUST_REVOKED: 'trust-revoked',
   TRUST_IRREVERSIBLE: 'trust-irreversible',
@@ -172,6 +173,15 @@ export function normalizeAuthorization(raw, { now = Date.now() } = {}) {
     maxRisk,
     /** 是否允许自动执行 HIGH（非不可逆）：默认否，必须显式打开 */
     allowHighRisk: r.allowHighRisk === true,
+    /**
+     * 完全放开：用户显式选择「不要再问我任何审批」。
+     *
+     * 这不是默认值，也不是「信任模式」的隐藏副作用 —— 必须单独打开，
+     * 界面上有独立的风险提示。打开后逐次审批全部取消（含删除 / push /
+     * 装包 / 非白名单命令 / 工作区之外的路径），只剩两条硬拒绝：
+     * 敏感目标（凭据、设置文件）会被直接拒绝，不再弹窗。
+     */
+    fullAccess: r.fullAccess === true,
     tools,
     workspace,
     expiresAt,
@@ -306,6 +316,12 @@ export function decideAuthorized({
       if (level === RISK.MEDIUM) return out(cfg.requireMedium ? 'ask' : 'allow', AUTH_REASON.TRUST_EXPIRED);
       return out('ask', AUTH_REASON.TRUST_EXPIRED);
     }
+    // 完全放开：不再逐次打断。敏感目标由**拒绝**兜底（不弹窗），
+    // 因为弹窗本身就是用户明确要求取消的东西。
+    if (a.fullAccess) {
+      if (sensitive) return out('deny', AUTH_REASON.TRUST_SENSITIVE, { irreversible });
+      return out('allow', AUTH_REASON.TRUST_FULL);
+    }
     if (!inScope) return out('ask', AUTH_REASON.TRUST_OUT_OF_SCOPE, { outOfScope: true, irreversible });
     if (irreversible) return out('ask', AUTH_REASON.TRUST_IRREVERSIBLE, { irreversible: true });
     if (sensitive) return out('ask', AUTH_REASON.TRUST_SENSITIVE, { irreversible });
@@ -353,6 +369,7 @@ export function authSummary(auth, now = Date.now()) {
     workspace: a.workspace,
     maxRisk: a.maxRisk,
     allowHighRisk: a.allowHighRisk,
+    fullAccess: a.fullAccess,
   };
 }
 

@@ -395,6 +395,9 @@ function normalizeAuthorizationCfg(raw) {
     mode,
     scope,
     allowHighRisk: r.allowHighRisk === true,
+    // 完整权限：显式打开后不再逐次询问（含删除 / 跑命令 / 工作区之外的路径）。
+    // 只在 trust 模式下有意义；凭据与设置文件在任意配置下都拒绝访问。
+    fullAccess: r.fullAccess === true,
     tools: Array.isArray(r.tools)
       ? r.tools.map((x) => String(x)).filter((x) => x && x.length <= 64).slice(0, 64)
       : null,

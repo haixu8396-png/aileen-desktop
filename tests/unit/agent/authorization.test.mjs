@@ -241,6 +241,78 @@ describe('决策：完全信任', () => {
   });
 });
 
+// 用户反馈：「完整权限」打开了还是照样弹审批。
+// 真实原因：信任模式 + allowHighRisk 只放开「非不可逆 + 非危险命令 + 范围内」，
+// 而 `delete_path` / 非白名单命令 / 工作区之外的路径依然要问。
+// 现在有独立的 fullAccess（「不再询问任何审批」），这一组把它的行为钉住。
+describe('完整权限（fullAccess）', () => {
+  const trust = (extra) => Object.assign({ mode: AUTH_MODE.TRUST, workspace: 'D:/work' }, extra || {});
+  const full = over => trust(Object.assign({ allowHighRisk: true, fullAccess: true }, over || {}));
+
+  it('删除 / push / 装包 / shell 都不再询问', () => {
+    for (const tool of ALWAYS_CONFIRM_TOOLS) {
+      const r = decide({ riskLevel: RISK.HIGH, tool, args: { path: 'a.txt' }, auth: full() });
+      expect(r.decision).toBe('allow');
+      expect(r.reason).toBe(AUTH_REASON.TRUST_FULL);
+    }
+  });
+
+  it('非白名单命令 / 危险参数也不再询问（用户已明确要求别拦）', () => {
+    const r = decide({
+      riskLevel: RISK.HIGH, tool: 'run_command',
+      args: { command: 'powershell', args: ['-c', 'Get-ChildItem'] },
+      auth: full(),
+    });
+    expect(r.decision).toBe('allow');
+    expect(r.reason).toBe(AUTH_REASON.TRUST_FULL);
+  });
+
+  it('写工作区之外的路径（例如桌面）不再询问', () => {
+    const r = decide({
+      riskLevel: RISK.MEDIUM, tool: 'write_file',
+      args: { path: 'C:/Users/me/Desktop/game.html' },
+      workspace: 'D:/AileenData',
+      auth: full(),
+    });
+    expect(r.decision).toBe('allow');
+    expect(r.reason).toBe(AUTH_REASON.TRUST_FULL);
+    expect(r.outOfScope).toBe(false);
+  });
+
+  it('敏感目标直接拒绝（不弹窗：弹窗正是用户要求取消的东西）', () => {
+    const r = decide({
+      riskLevel: RISK.MEDIUM, tool: 'write_file',
+      args: { path: 'D:/AileenData/data/settings.json' },
+      auth: full(),
+    });
+    expect(r.decision).toBe('deny');
+    expect(r.reason).toBe(AUTH_REASON.TRUST_SENSITIVE);
+  });
+
+  it('撤销 / 过期优先于完整权限', () => {
+    const revoked = revokeAuthorization(full(), NOW);
+    expect(decide({ riskLevel: RISK.HIGH, tool: 'delete_path', args: {}, auth: revoked }).decision).toBe('ask');
+
+    const persistent = normalizeAuthorization(full({ scope: AUTH_SCOPE.PERSISTENT }), { now: NOW });
+    const expired = decide({
+      riskLevel: RISK.HIGH, tool: 'delete_path', args: {},
+      auth: persistent, now: NOW + DEFAULT_TRUST_TTL_MS + 1,
+    });
+    expect(expired.decision).toBe('ask');
+  });
+
+  it('默认关闭：不写 fullAccess 就还是逐项审批', () => {
+    expect(normalizeAuthorization({ mode: AUTH_MODE.TRUST, allowHighRisk: true }, { now: NOW }).fullAccess).toBe(false);
+    const r = decide({ riskLevel: RISK.HIGH, tool: 'delete_path', args: { path: 'a.txt' }, auth: trust({ allowHighRisk: true }) });
+    expect(r.decision).toBe('ask');
+  });
+
+  it('authSummary 会带上 fullAccess，界面据此显示开关状态', () => {
+    expect(authSummary(full(), NOW).fullAccess).toBe(true);
+    expect(authSummary(trust(), NOW).fullAccess).toBe(false);
+  });
+});
+
 describe('工具分类与重试策略', () => {
   it('只读工具集合固定', () => {
     for (const t of ['read_file', 'list_files', 'search_files', 'git_status', 'git_diff', 'screen_capture']) {

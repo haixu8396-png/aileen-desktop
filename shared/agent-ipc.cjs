@@ -173,14 +173,29 @@ function registerAgentIpc(deps) {
     return path.resolve(fallback);
   }
 
-  /** 绝对路径必须落在 workspace 内，且不是敏感路径 */
+  /** 完全放开（用户在设置里显式打开）：路径不再被 workspace 边界挡住 */
+  function fullAccessEnabled() {
+    try {
+      const s = getSettings() || {};
+      const auth = (s.agent && s.agent.authorization) || {};
+      return auth.fullAccess === true && auth.revokedAt == null;
+    } catch {
+      return false;
+    }
+  }
+
+  /** 绝对路径必须落在 workspace 内，且不是敏感路径；完全放开时只剩敏感名单 */
   function resolveSafe(target) {
     const root = workspaceRoot();
     const raw = String(target == null ? '' : target).trim() || '.';
     if (raw.includes('\0')) throw new Error('路径含非法字符');
     const abs = path.resolve(root, raw);
-    if (!isInsidePath(abs, root)) throw new Error('路径越界（不在工作区内）');
     if (isSensitivePath(abs)) throw new Error('该路径属于敏感文件（凭据 / 密钥 / 设置），Agent 不允许访问');
+    if (fullAccessEnabled()) return abs;
+    if (!isInsidePath(abs, root)) {
+      throw new Error('路径越界（不在工作区内）：' + raw + '。当前工作区是 ' + root
+        + '，要么用相对路径，要么让用户在设置里把工作目录改成目标目录。');
+    }
     return abs;
   }
 

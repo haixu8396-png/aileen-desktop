@@ -256,8 +256,9 @@ const CHANNELS = {
     to: v.optional(v.str({ max: 500, allowEmpty: false })),
   }, { allowUnknown: true })),
 
-  // ---- Agent（电脑控制 / 编码）----  'agent:workspace': v.NO_ARGS,
+  // ---- Agent（电脑控制 / 编码）----
   // 让用户挑一个工作目录：没有参数，返回 { workspace } 或 null
+  'agent:workspace': v.NO_ARGS,
   'agent:chooseWorkspace': v.NO_ARGS,
   'agent:cursor': v.NO_ARGS,
   'agent:fs': v.args(v.object({

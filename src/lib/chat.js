@@ -686,9 +686,10 @@ export async function sendWithAgent(userContent, opts = {}) {
 
   setBusy(true);
   state.abortCtrl = new AbortController();
-  // 这一轮的活动卡先挂进对话里：Agent 干活的每一步都长在这条消息上，
-  // 不另开侧边控制台（用户明确要求过）。
-  beginAgentTurn(userContent);
+  const authorization = normalizeAuthorization(agentCfg.authorization || {}, { now: Date.now() });
+  // 活动卡**不在这里挂**：用户要的是「模型自己判断需不需要动手」。
+  // 只是回答问题时不该冒出一张任务卡；第一次真的要调工具时再挂（见 agent-ui 的 ensureCard）。
+  beginAgentTurn(userContent, { mount: false });
 
   const started = startRun({
     task: userContent,
@@ -699,9 +700,12 @@ export async function sendWithAgent(userContent, opts = {}) {
     llm: createAgentLlm(getSettings),
     bridge: createAgentBridge(),
     isSensitive: isSensitivePath,
+    // 完全放开：路径不再被 workspace 边界挡住（敏感名单照旧拒绝），
+    // 命令也不用白名单拦 —— 否则「完整权限」还是会静默失败。
+    fullAccess: authorization.fullAccess === true,
     permissionConfig: { requireMedium: agentCfg.requireMedium !== false },
     // 0.8：授权（模式 / 范围 / 有效期）+ 预算 + 恢复策略，全部来自设置
-    authorization: normalizeAuthorization(agentCfg.authorization || {}, { now: Date.now() }),
+    authorization,
     maxRounds: agentCfg.maxRounds,
     roundBudget: agentCfg.roundBudget,
     maxRetries: agentCfg.maxRetries,

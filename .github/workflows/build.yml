@@ -93,6 +93,8 @@ jobs:
           if (-not $diag.searchFilterOk) { throw '界面：角色搜索没有真正过滤列表' }
           if (-not $diag.hScrollOk) { throw ('页面出现横向滚动条（内容比视口宽，右侧会被切掉）→ ' + ($diag.hScrollDetail | ConvertTo-Json -Compress)) }
           if (-not $diag.agentOk) { throw ('Agent 权限弹层或对话内活动卡不可用→ ' + ($diag.agentDetail | ConvertTo-Json -Compress)) }
+          if (-not $diag.agentAuthOk) { throw ('「完整权限」还在弹审批，或活动卡没有按需才挂 → ' + ($diag.agentAuthDetail | ConvertTo-Json -Compress)) }
+          if (-not $diag.agentFsOk) { throw ('Agent 的文件工具写不了/读不了（真机 bundle 里路径运算可能又用了 node:path）→ ' + ($diag.agentFsDetail | ConvertTo-Json -Compress)) }
           if (-not $diag.panelReopenOk) { throw ('Agent 权限弹层收起后无法再打开 → ' + ($diag.panelReopenDetail | ConvertTo-Json -Compress)) }
           if (-not $diag.dashOk) { throw ('对话内 Agent 活动卡或角色人格保留断言失败 → ' + ($diag.dashDetail | ConvertTo-Json -Compress)) }
           if (-not $diag.toggleOk) { throw ('电脑控制开关没有立刻生效 / 输入区按钮不同步 → ' + ($diag.toggleDetail | ConvertTo-Json -Compress)) }
@@ -245,6 +247,8 @@ jobs:
           if (-not $diag.searchFilterOk) { throw '界面：角色搜索没有真正过滤列表' }
           if (-not $diag.hScrollOk) { throw ('页面出现横向滚动条（内容比视口宽，右侧会被切掉）→ ' + ($diag.hScrollDetail | ConvertTo-Json -Compress)) }
           if (-not $diag.agentOk) { throw ('Agent 权限弹层或对话内活动卡不可用→ ' + ($diag.agentDetail | ConvertTo-Json -Compress)) }
+          if (-not $diag.agentAuthOk) { throw ('「完整权限」还在弹审批，或活动卡没有按需才挂 → ' + ($diag.agentAuthDetail | ConvertTo-Json -Compress)) }
+          if (-not $diag.agentFsOk) { throw ('Agent 的文件工具写不了/读不了（真机 bundle 里路径运算可能又用了 node:path）→ ' + ($diag.agentFsDetail | ConvertTo-Json -Compress)) }
           if (-not $diag.panelReopenOk) { throw ('Agent 权限弹层收起后无法再打开 → ' + ($diag.panelReopenDetail | ConvertTo-Json -Compress)) }
           if (-not $diag.dashOk) { throw ('对话内 Agent 活动卡或角色人格保留断言失败 → ' + ($diag.dashDetail | ConvertTo-Json -Compress)) }
           if (-not $diag.toggleOk) { throw ('电脑控制开关没有立刻生效 / 输入区按钮不同步 → ' + ($diag.toggleDetail | ConvertTo-Json -Compress)) }

@@ -109,13 +109,58 @@ function mouseScript(action, x, y) {
   return header + '\n[A.N]::mouse_event(' + flags.down + ',0,0,0,0)\n[A.N]::mouse_event(' + flags.up + ',0,0,0,0)';
 }
 
-/** 键盘输入的脚本：文字走 base64，避免引号与中文被 PowerShell 吃掉 */
+/**
+ * SendKeys 的**元字符**：+ ^ % ~ ( ) { } [ ]
+ *
+ * 它们在 SendKeys 里有特殊含义（修饰键 / 分组 / 快捷键语法），直接发过去
+ * 会被当成按键指令而不是文字。真机踩过：让 Agent 往记事本里「敲」一段 HTML，
+ * 代码里的 `{` `}` 让 SendKeys 当成按键组，敲到一半就炸了。
+ */
+const SENDKEYS_META = /[+^%~()[\]{}]/;
+
+/** 把一段纯文本转成 SendKeys 能原样打出来的写法 */
+function escapeSendKeys(text) {
+  let out = '';
+  for (const ch of String(text == null ? '' : text)) {
+    if (ch === '\r') continue;
+    if (ch === '\n') { out += '{ENTER}'; continue; }
+    if (ch === '\t') { out += '{TAB}'; continue; }
+    if (SENDKEYS_META.test(ch)) out += '{' + ch + '}';
+    else out += ch;
+  }
+  return out;
+}
+
+/**
+ * 键盘输入的脚本：文字走 base64，避免引号与中文被 PowerShell 吃掉。
+ *
+ * 两条路：
+ *   · 短、纯单行的文字 → SendKeys（不碰剪贴板，快）
+ *   · 长文本 / 带换行 / 带元字符（代码基本都带）→ 先写剪贴板再 Ctrl+V
+ *     剪贴板这条路没有长度限制，也不会被任何元字符语义影响。
+ */
 function typeScript(text) {
-  const b64 = Buffer.from(String(text), 'utf8').toString('base64');
-  return [
+  const raw = String(text == null ? '' : text);
+  const b64 = Buffer.from(raw, 'utf8').toString('base64');
+  const head = [
     'Add-Type -AssemblyName System.Windows.Forms',
     "$t = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('" + b64 + "'))",
-    '[System.Windows.Forms.SendKeys]::SendWait($t)',
+  ];
+  const needClipboard = raw.length > 80 || /[\r\n\t]/.test(raw) || SENDKEYS_META.test(raw);
+  if (needClipboard) {
+    return head.concat([
+      'Set-Clipboard -Value $t',
+      'Start-Sleep -Milliseconds 120',
+      "[System.Windows.Forms.SendKeys]::SendWait('^v')",
+      'Start-Sleep -Milliseconds 200',
+    ]).join('\n');
+  }
+  // 短文本也走 base64：原文不进脚本（引号 / 中文 / 元字符都不会被 PowerShell 吃掉）
+  const escapedB64 = Buffer.from(escapeSendKeys(raw), 'utf8').toString('base64');
+  return [
+    'Add-Type -AssemblyName System.Windows.Forms',
+    "$e = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('" + escapedB64 + "'))",
+    '[System.Windows.Forms.SendKeys]::SendWait($e)',
   ].join('\n');
 }
 
@@ -163,6 +208,7 @@ module.exports = {
   clampCoord,
   normalizeKey,
   toSendKeys,
+  escapeSendKeys,
   runPwsh,
   mouseScript,
   typeScript,

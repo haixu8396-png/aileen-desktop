@@ -150,6 +150,7 @@ export function runAgent(deps = {}) {
     workspace: run.workspace,
     bridge: deps.bridge || {},
     isSensitive: deps.isSensitive,
+    fullAccess: authCurrent && authCurrent.fullAccess === true,
   });
 
   let cancelled = false;

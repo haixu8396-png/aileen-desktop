@@ -79,6 +79,62 @@ describe('Workspace 边界', () => {
   });
 });
 
+// 用户反馈：让它「写个小游戏放桌面」，结果全部文件工具报错。
+// 根因之一是工作区默认在用户数据目录，桌面在工作区之外 —— 边界把写入挡住了。
+// 完整权限（fullAccess）是用户显式选择的「不要再问」，这里钉住它的范围：
+// 工作区之外可写，但敏感文件仍然拒绝。
+describe('完整权限下的执行器', () => {
+  const outside = () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'aileen-outside-'));
+    return dir;
+  };
+
+  it('工作区之外的绝对路径可以写（例如桌面）', async () => {
+    const dir = outside();
+    try {
+      const target = path.join(dir, 'game.html');
+      const e = ex({ fullAccess: true });
+      await e.writeFile({ path: target, content: '<html>ok</html>' });
+      expect(fs.readFileSync(target, 'utf8')).toContain('ok');
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('敏感文件照样拒绝访问', async () => {
+    const e = ex({ fullAccess: true, isSensitive: (p) => path.basename(p) === 'settings.json' });
+    fs.writeFileSync(path.join(root, 'settings.json'), '{}', 'utf8');
+    await expect(e.readFile({ path: 'settings.json' })).rejects.toThrow(/敏感文件/);
+  });
+
+  it('严格模式（默认）仍然拦工作区之外的路径', async () => {
+    const dir = outside();
+    try {
+      const e = ex();
+      await expect(e.writeFile({ path: path.join(dir, 'game.html'), content: 'x' })).rejects.toThrow(/越界/);
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('完全放开时不再用命令白名单拦（仍未经 shell）', async () => {
+    const calls = [];
+    const e = createExecutor({
+      workspace: root,
+      bridge: {
+        ...realBridge(),
+        spawn: async ({ command, args }) => {
+          calls.push([command, args]);
+          return { done: Promise.resolve({ exitCode: 0, stdout: 'ok', stderr: '', timedOut: false }) };
+        },
+      },
+      fullAccess: true,
+    });
+    await expect(e.runCommand({ command: 'pwsh', args: ['-NoProfile', '-c', 'echo ok'] })).resolves.toContain('ok');
+    expect(calls[0][0]).toBe('pwsh');
+  });
+});
+
 describe('文件工具', () => {
   it('read_file 带行号，并提示还有多少行没读完', async () => {
     const out = await ex().readFile({ path: 'src/a.js' });

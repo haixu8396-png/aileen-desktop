@@ -89,17 +89,22 @@ export function handleAgentEvent(type, payload) {
     case AGENT_EVENT.TEXT:
       break;
     case AGENT_EVENT.TOOL_CALL:
+      // 第一次真要动手了：这时候才把活动卡挂进对话
+      ensureAgentCard();
       step('tool', t('agent.logCalling', { name: payload.name })
         + (payload.riskLevel ? ' [' + payload.riskLevel + ']' : '')
         + (payload.reason ? ' · ' + payload.reason : ''));
       break;
     case AGENT_EVENT.TOOL_RETRY:
+      ensureAgentCard();
       step('warn', t('agent.logRetry', { name: payload.name, n: payload.attempt }) + ' · ' + String(payload.error || ''));
       break;
     case AGENT_EVENT.TOOL_RESULT:
+      ensureAgentCard();
       step(payload.ok ? 'ok' : 'err', (payload.ok ? '✓ ' : '✗ ') + String(payload.summary || '').slice(0, 400), !!payload.ok);
       break;
     case AGENT_EVENT.APPROVAL_REQUEST:
+      ensureAgentCard();
       setAgentApproval(payload || {});
       patchAgentUi({ status: AGENT_STATUS.WAITING_APPROVAL });
       step('warn', payload && payload.batch
@@ -126,6 +131,7 @@ export function handleAgentEvent(type, payload) {
       step('info', t('agent.logCheckpoint'));
       break;
     case AGENT_EVENT.NOTICE:
+      if (payload && (payload.level === 'warn' || payload.level === 'error')) ensureAgentCard();
       step(payload && payload.level === 'error' ? 'err' : 'warn', String((payload && payload.message) || ''));
       break;
     case AGENT_EVENT.STATUS:
@@ -367,12 +373,33 @@ function updateControls() {
   renderControls();
 }
 
-/** 对话开始时由 chat.js 调：挂上这一轮的活动卡 */
-export function beginAgentTurn(task) {
+/**
+ * 对话开始时由 chat.js 调。
+ *
+ * `mount: false` 表示**先不挂卡**：用户要的是「模型自己判断需不需要动手」，
+ * 只是回答问题的那种回合不该冒出一张任务卡。第一次真的要调工具 / 要审批时，
+ * handleAgentEvent 会调 ensureAgentCard() 把它挂上去。
+ */
+export function beginAgentTurn(task, opts = {}) {
   resetAgentUi();
   patchAgentUi({ running: true, status: AGENT_STATUS.PLANNING, task: String(task || '') });
-  mountCard(task);
+  if (opts.mount !== false) mountCard(task);
   return card;
+}
+
+/** 需要时才把活动卡挂进对话（第一次工具调用 / 审批请求） */
+export function ensureAgentCard() {
+  if (card && card.isConnected) return card;
+  return mountCard(currentTaskForCard());
+}
+
+/** 当前这一轮的任务文本（挂卡时当标题用） */
+function currentTaskForCard() {
+  try {
+    return String(agentUiState().task || '');
+  } catch {
+    return '';
+  }
 }
 
 /** chat.js 把这次 run 的控制器与状态总线交进来（暂停 / 继续 / 取消 / 审批 + Live2D 表现都要它们） */
@@ -531,9 +558,10 @@ export function renderPanel() {
   const auth = normalizeAuthorization(agent.authorization || {}, { now: Date.now() });
   const sum = authSummary(auth, Date.now());
   const enabled = agent.computerUse === true;
-  const full = sum.mode === AUTH_MODE.TRUST && sum.allowHighRisk === true;
+  const fullAccess = sum.mode === AUTH_MODE.TRUST && sum.fullAccess === true;
   if ($('ap-enabled')) $('ap-enabled').checked = enabled;
-  if ($('ap-full')) $('ap-full').checked = full;
+  if ($('ap-full')) $('ap-full').checked = fullAccess;
+  if ($('ag-full-access')) $('ag-full-access').checked = fullAccess;
   if ($('ap-skipwrite')) $('ap-skipwrite').checked = agent.requireMedium === false;
   renderRecent();
   refreshWorkspacePath();
@@ -774,9 +802,10 @@ export function initAgentUI() {
   if ($('ap-full')) {
     $('ap-full').addEventListener('change', () => {
       const on = !!$('ap-full').checked;
+      // 「完整权限」= 真的不再问任何审批（含删除 / 命令 / 工作区之外的路径）
       saveAuth(on
-        ? { mode: AUTH_MODE.TRUST, scope: 'task', allowHighRisk: true }
-        : { mode: AUTH_MODE.MANUAL, scope: 'task', allowHighRisk: false });
+        ? { mode: AUTH_MODE.TRUST, scope: 'task', allowHighRisk: true, fullAccess: true }
+        : { mode: AUTH_MODE.MANUAL, scope: 'task', allowHighRisk: false, fullAccess: false });
     });
   }
   if ($('ap-skipwrite')) {
@@ -793,7 +822,12 @@ export function initAgentUI() {
   if ($('ag-auth-mode')) {
     $('ag-auth-mode').addEventListener('change', () => {
       const mode = $('ag-auth-mode').value;
-      saveAuth({ mode, scope: $('ag-auth-persist') && $('ag-auth-persist').checked ? 'persistent' : 'task' });
+      saveAuth({
+        mode,
+        scope: $('ag-auth-persist') && $('ag-auth-persist').checked ? 'persistent' : 'task',
+        // 离开「完全信任」时把「完整权限」一起关掉，免得留下一个看不见的放行开关
+        fullAccess: mode === AUTH_MODE.TRUST ? undefined : false,
+      });
     });
   }
   if ($('ag-auth-persist')) {
@@ -804,12 +838,27 @@ export function initAgentUI() {
   if ($('ag-allow-high')) {
     $('ag-allow-high').addEventListener('change', () => saveAuth({ allowHighRisk: !!$('ag-allow-high').checked }));
   }
+  // 完整权限：独立开关（不是「信任模式」的副作用），关掉时回到逐项审批
+  if ($('ag-full-access')) {
+    $('ag-full-access').addEventListener('change', async () => {
+      const on = !!$('ag-full-access').checked;
+      if (on && typeof confirm === 'function') {
+        if (!confirm(t('agent.fullAccessConfirm'))) {
+          $('ag-full-access').checked = false;
+          return;
+        }
+      }
+      await saveAuth(on
+        ? { mode: AUTH_MODE.TRUST, scope: 'task', allowHighRisk: true, fullAccess: true }
+        : { fullAccess: false });
+    });
+  }
   if ($('ag-require-medium')) {
     $('ag-require-medium').addEventListener('change', () => saveAgentField({ requireMedium: !!$('ag-require-medium').checked }));
   }
   if ($('ag-auth-revoke')) {
     $('ag-auth-revoke').addEventListener('click', async () => {
-      await saveAuth({ mode: AUTH_MODE.MANUAL, scope: 'task', allowHighRisk: false, revokedAt: Date.now() });
+      await saveAuth({ mode: AUTH_MODE.MANUAL, scope: 'task', allowHighRisk: false, fullAccess: false, revokedAt: Date.now() });
       toast(t('agent.revoked'));
     });
   }

@@ -45,6 +45,7 @@ export function startRun(opts = {}) {
     workspace: opts.workspace,
     bridge: opts.bridge || {},
     isSensitive: opts.isSensitive,
+    fullAccess: opts.fullAccess === true,
   });
 
   const tools = opts.tools || buildAgentTools({ specs: registry.list(), executor });

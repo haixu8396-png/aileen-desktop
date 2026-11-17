@@ -24,6 +24,17 @@ describe('设置归一化：模型类型的默认值', () => {
     expect(normalizeSettings({}, {}).general.timeAwareness).toBe(true);
     expect(normalizeSettings({ general: { timeAwareness: false } }, {}).general.timeAwareness).toBe(false);
   });
+
+  // 「完整权限」必须能存进设置文件 —— 保存时被白名单丢掉的话，
+  // 用户打开开关、下次跑任务又变回逐项审批，看起来就是「开了没用」。
+  it('完整权限（fullAccess）会被保留，默认关闭', () => {
+    expect(normalizeSettings({}, {}).agent.authorization.fullAccess).toBe(false);
+    const s = normalizeSettings({
+      agent: { authorization: { mode: 'trust', allowHighRisk: true, fullAccess: true } },
+    }, {});
+    expect(s.agent.authorization.fullAccess).toBe(true);
+    expect(s.agent.authorization.mode).toBe('trust');
+  });
 });
 
 describe('设置归一化：Live2D 状态存档', () => {

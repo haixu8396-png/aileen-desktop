@@ -2,6 +2,39 @@
 
 本项目所有重要改动都会记录在此，版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [0.7.8] - 2026-11-18
+
+> 这一轮全按用户反馈改：Agent「完整权限」打开了还在弹审批、**文件工具四条路全废（渲染层 `node:path`）**、往记事本敲代码被花括号炸掉、以及「打开 Agent 时应该让模型自己判断需不需要动手」。
+
+### 🪪 完整权限（`fullAccess`）：真的不再弹审批
+
+- 用户反馈：**「完整权限没用」**。实测确认：老实现里 `trust + allowHighRisk` 只放开「非不可逆 + 非危险命令 + 工作区内」，所以 `delete_path`、非白名单命令（`powershell` 之类）、工作区之外的路径**照样 ask**。
+- 现在多了独立的 `agent.authorization.fullAccess`（设置 → Agent 与安全 → 完整权限；输入区 Agent 弹层里的「完整权限」开关也写它）。打开后逐次审批全部取消：删除 / 跑命令 / 装包 / 工作区外的绝对路径都直接执行。
+- 唯一保留的硬拒绝：**敏感目标**（凭据、密钥、`settings.json`）直接 deny，不弹窗 —— 弹窗正是用户要求取消的东西。
+- 撤销 / 过期优先于完整权限；关掉开关或点「恢复最安全模式」会一起清掉它。
+- 新门禁 `agentAuthOk`：删除放行、工作区外写入放行、敏感文件 deny、只开「信任 + HIGH」时删除仍要问、`fullAccess` 能存进设置文件、活动卡按需才挂。
+
+### 🧨 「让它写个小游戏放桌面」为什么全失败（真原因）
+
+1. **文件工具本身是坏的 —— `nodePath.resolve is not a function`**（最硬的一条）：`src/agent/executor.js` 顶部写着 `import nodePath from 'node:path'`，而渲染层是浏览器 bundle，Vite 把 `node:path` 换成 stub → `write_file` / `apply_patch` / `list_files` / `read_file` **全部**在 `resolveInsideWorkspace()` 里抛同一个内部错误。单测跑在 Node 上，`node:path` 正常，所以一直是绿的、抓不到。现在换成自己写的纯 JS 路径工具 `shared/path-util.cjs`（`resolve / join / relative / dirname / basename / isInside`，Windows 大小写不敏感与 `..` 归一化都有单测），并加了两道**真的会红**的保护：单测 `renderer-node-imports.test.mjs` 禁止 `src/` 里再出现 `from 'node:...'`（4 个既有例外登记在案），自检门禁 `agentFsOk` 走真实 bundle + 真实 IPC 桥跑一遍「写 → 读 → 列目录 → 打补丁」。
+2. **键盘输入把代码敲炸**：`typeScript()` 把文字直接丢给 SendKeys，而 `{ } ( ) [ ] ^ % + ~` 在 SendKeys 里是**语法字符**，HTML/JS 的花括号被当成按键组。现在短文本逐字符转义（`{`→`{{}`、`}`→`{}}`…），长文本/带换行/带元字符的一律走**剪贴板 + Ctrl+V**；原文仍 base64 传、不进 PowerShell。
+3. **Agent 可能根本没跑**：对话只在 `computerUse`（电脑控制）打开时才走 Agent；关着的时候是普通聊天，模型手里没有任何工具（它却会编出「文件工具报错」这类话）。系统提示词现在写死：只有工具返回成功才算做成，工具报错要说原文。
+4. **工作区会把桌面挡在外面**：默认工作区是 `D:\AileenData\data`；越界报错以前只有一句「路径越界」，现在带上**当前工作区 + 三种出路**（相对路径 / 改工作目录 / 打开完整权限）。
+5. **`run_command` 的 `-e/--exec` 护栏保持不动**：`node -e`、`python -c` 这类「把代码当参数传进去」的参数在严格模式下继续拒绝（用户自己也说这条护栏不绕）；只有用户显式打开完整权限才会放行。
+
+### 🧠 模型自主判断需不需要 Agent
+
+- 活动卡改成**按需挂载**：只是回答问题的那种回合不再冒出一张 Agent 任务卡；第一次真的调工具（或要审批、有 warn 级提示）时才挂。
+- Agent 的系统提示词新增两条硬规矩：①「只是聊天/解释/给建议就不要调用任何工具」；②「只有工具返回成功才算做成，工具报错要说出报错原文，不许把没试过说成试过但坏了」；③ 写文件一律用 `write_file`，不要用键盘模拟往记事本里敲代码。
+
+### 🔧 顺手修的
+
+- `agent:workspace` 的 IPC 校验规则**被注释在同一行**（`// ---- Agent ----  'agent:workspace': v.NO_ARGS,`），等于这条通道一直没走参数校验；已恢复成独立一行。
+- `settings.agentDesc` 三语文案跟着更新（说明默认仍逐次确认、只有完整权限才全部取消）。
+- 新增单测：`desktop-input.test.mjs`（SendKeys 转义 / 剪贴板路径）、`path-util.test.mjs`（12 项路径运算）、`renderer-node-imports.test.mjs`（禁止渲染层 import Node 内置模块）、`authorization.test.mjs` 的「完整权限」一组、`agent-executor.test.mjs` 的 fullAccess 一组、`util.test.mjs` 的 `fullAccess` 存盘。
+- 验证：`npm test` **61 文件 / 930 项全过**、lint 166 文件、build 通过；真机自检（`AILEEN_SELFTEST_QUIET=1`）`agentFsOk=true`（工作区 `D:\AileenData\data`：写/读/列目录/打补丁全过、`..` 越界拦住）、`agentAuthOk=true`（`deleteAllow:allow · outsideAllow:allow · sensitiveDeny:deny · trustOnlyDelete:ask · persistFullAccess:true · card 0→0→1→0`）、`agentOk`/`dashOk`/`toggleOk` 全 true、`errors=[]`；安装版同步后同样 `agentFsOk=true` / `agentAuthOk=true`。
+- 自检门禁的一处纠偏：`dashOk` 以前只量角色卡上的 `personality` 字段长度（>20），换个「人格字段很短但用内置提示词拼装」的角色就假红；现在改成「人格字段够长 **或** 内置提示词拼出来有实质内容（`promptChars > 200`）且人格仍在第一段」。
+
 ## [0.7.7] - 2026-10-26
 
 > 这一轮全按用户反馈改：Live2D 热键「记不住」的真根因、鼠标拖边框改展台大小、模型类型的「（无）」选项、时间感知开关、人设生成室入口。

@@ -691,6 +691,129 @@ window.__AILEEN_PROBE_COPY = async () => {
   }
 };
 
+// 自检钩子：完整权限（fullAccess）要真的不再弹审批；活动卡要「按需」才挂
+//
+// 用户反馈过两件事，这条钩子把它们一起钉住：
+//   1. 打开了「完整权限」还是照样弹审批 —— 旧实现只放行「非不可逆 + 范围内」，
+//      删除 / 非白名单命令 / 工作区之外的路径仍然 ask。
+//   2. 只是回答问题的回合也冒出一张 Agent 活动卡 —— 现在改成第一次工具调用才挂。
+window.__AILEEN_PROBE_AGENT_AUTH = async () => {
+  const out = { ok: false };
+  try {
+    const [authMod, events, utilMod] = await Promise.all([
+      import('./agent/authorization.js'),
+      import('./agent/events.js'),
+      import('../shared/util.cjs'),
+    ]);
+    const normalizeSettings = (utilMod.default && utilMod.default.normalizeSettings) || utilMod.normalizeSettings;
+    const now = Date.now();
+    const cfg = { requireMedium: true };
+    const full = authMod.normalizeAuthorization({ mode: 'trust', allowHighRisk: true, fullAccess: true }, { now });
+    const decide = (over) => authMod.decideAuthorized(Object.assign({
+      workspace: 'D:/w', auth: full, config: cfg, now,
+    }, over)).decision;
+
+    out.deleteAllow = decide({ riskLevel: 'HIGH', tool: 'delete_path', args: { path: 'a.txt' } });
+    out.outsideAllow = decide({ riskLevel: 'MEDIUM', tool: 'write_file', args: { path: 'C:/Users/me/Desktop/g.html' } });
+    out.sensitiveDeny = decide({ riskLevel: 'MEDIUM', tool: 'write_file', args: { path: 'D:/AileenData/data/settings.json' } });
+
+    // 只开「信任 + HIGH」时，删除仍然要问 —— 完整权限是独立的一档，不是它的副作用
+    const trustOnly = authMod.normalizeAuthorization({ mode: 'trust', allowHighRisk: true }, { now });
+    out.trustOnlyDelete = authMod.decideAuthorized({
+      riskLevel: 'HIGH', tool: 'delete_path', args: { path: 'a.txt' }, workspace: 'D:/w', auth: trustOnly, config: cfg, now,
+    }).decision;
+
+    // 设置文件里要存得住（存不住 = 下次又是逐项审批，看起来就是「开了没用」）
+    out.persistFullAccess = normalizeSettings({
+      agent: { authorization: { mode: 'trust', fullAccess: true } },
+    }, getSettings()).agent.authorization.fullAccess;
+
+    // 活动卡：只回答问题时不该出现
+    resetAgentRun();
+    out.cardBefore = document.querySelectorAll('.agent-card').length;
+    beginAgentTurn('probe', { mount: false });
+    out.cardAfterBegin = document.querySelectorAll('.agent-card').length;
+    handleAgentEvent(events.AGENT_EVENT.TOOL_CALL, { name: 'write_file', riskLevel: 'MEDIUM' });
+    out.cardAfterTool = document.querySelectorAll('.agent-card').length;
+    resetAgentRun();
+    out.cardAfterReset = document.querySelectorAll('.agent-card').length;
+
+    out.ok = out.deleteAllow === 'allow'
+      && out.outsideAllow === 'allow'
+      && out.sensitiveDeny === 'deny'
+      && out.trustOnlyDelete === 'ask'
+      && out.persistFullAccess === true
+      && out.cardBefore === 0
+      && out.cardAfterBegin === 0
+      && out.cardAfterTool === 1
+      && out.cardAfterReset === 0;
+  } catch (err) {
+    out.error = String((err && err.message) || err);
+  }
+  return out;
+};
+
+// 自检钩子：文件工具必须真的能读写（真机上曾经四条路全废）
+//
+// 真事故：`src/agent/executor.js` 里 `import nodePath from 'node:path'`，
+// 浏览器 bundle 拿到的是 stub，写文件 / 打补丁 / 列目录 / 读文件全部抛
+// `nodePath.resolve is not a function`。单测跑在 Node 上全绿，所以必须有这一条
+// **走真实 bundle + 真实 IPC 桥**的门禁。
+window.__AILEEN_PROBE_AGENT_FS = async () => {
+  const out = { ok: false };
+  const NAME = '_aileen-selftest-agent-fs.txt';
+  const CONTENT = 'aileen-fs-ok';
+  try {
+    const [executorMod, bridgeMod] = await Promise.all([
+      import('./agent/executor.js'),
+      import('./lib/agent-bridge.js'),
+    ]);
+    const ws = ((await window.api.agentWorkspace()) || {}).workspace || '';
+    out.workspace = ws;
+    if (!ws) {
+      out.error = '没有工作区';
+      return out;
+    }
+
+    // ① 纯路径运算（事故现场）：工作区内放行、`..` 越界必须被拒
+    try {
+      out.inside = executorMod.resolveInsideWorkspace(ws, NAME);
+      out.insideOk = /_aileen-selftest-agent-fs\.txt$/.test(out.inside);
+    } catch (err) { out.insideError = String((err && err.message) || err); }
+    try {
+      executorMod.resolveInsideWorkspace(ws, '../escape.txt');
+      out.outsideBlocked = false;
+    } catch (err) {
+      out.outsideBlocked = String((err && err.message) || err).includes('越界');
+    }
+
+    // ② 真实读写：executor → agent-bridge → 主进程 agent:fs
+    const ex = executorMod.createExecutor({
+      workspace: ws,
+      bridge: bridgeMod.createAgentBridge(),
+      isSensitive: bridgeMod.isSensitivePath,
+    });
+    await ex.writeFile({ path: NAME, content: CONTENT });
+    out.writeOk = true;
+    out.readOk = String(await ex.readFile({ path: NAME })).includes(CONTENT);
+    out.listOk = String(await ex.listFiles({ path: '.', depth: 1 })).includes(NAME);
+    try {
+      await ex.applyPatch({ path: NAME, old: CONTENT, new: 'AILEEN-FS-OK' });
+      out.patchOk = String(await ex.readFile({ path: NAME })).includes('AILEEN-FS-OK');
+    } catch (err) { out.patchError = String((err && err.message) || err); }
+
+    out.ok = out.insideOk === true
+      && out.outsideBlocked === true
+      && out.writeOk === true
+      && out.readOk === true
+      && out.listOk === true
+      && out.patchOk === true;
+  } catch (err) {
+    out.error = String((err && err.message) || err);
+  }
+  return out;
+};
+
 // 自检钩子：把标记解析器跑一遍，证明它在打包产物里真的可用
 window.__AILEEN_PROBE_MARKERS = () => {
   let text = '';

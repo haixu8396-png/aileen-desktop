@@ -1079,7 +1079,9 @@
                 <div class="agent-line"><span class="agent-label" data-i18n="agent.authState">当前授权</span><span id="ag-auth-badge" class="auth-badge"></span></div>
                 <label class="check"><input id="ag-auth-persist" type="checkbox" /> <span data-i18n="agent.authPersist">保持 30 分钟（否则仅本次任务）</span></label>
                 <label class="check"><input id="ag-allow-high" type="checkbox" /> <span data-i18n="agent.allowHigh">也自动执行 HIGH 风险操作</span></label>
+                <label class="check"><input id="ag-full-access" type="checkbox" /> <span data-i18n="agent.fullAccess">完整权限：不再询问任何审批（含删除、命令、工作区之外的路径）</span></label>
                 <p id="ag-trust-warn" class="hint warn hidden" data-i18n="agent.trustWarn">完全信任仍会单独确认不可逆或危险操作，也不会离开授权的工作区。</p>
+                <p class="hint warn" data-i18n="agent.fullAccessWarn">打开「完整权限」后 Agent 能直接改任意文件、跑任意命令、写工作区之外的目录（例如桌面）。凭据与设置文件仍然拒绝访问。只在你信任这一轮任务时打开。</p>
                 <label class="check"><input id="ag-require-medium" type="checkbox" /> <span data-i18n="agent.requireMedium">写文件或打补丁前先问我</span></label>
                 <div class="row-btns">
                   <button id="ag-auth-revoke" class="ghost small-btn" data-i18n="agent.revoke">恢复最安全模式</button>
