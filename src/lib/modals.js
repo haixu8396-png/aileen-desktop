@@ -14,6 +14,7 @@ import { $, toast } from './dom.js';
 import { escapeHtml } from './markdown.js';
 import { t } from './i18n.js';
 import { accentList, applyAppearance, flashSaved, gotoSettings } from './shell.js';
+import { probeCapabilities, readCapabilities, capabilitySummary } from './web.js';
 
 // ---------------- API Key 字段 ----------------
 //
@@ -76,6 +77,44 @@ export function fillLlm() {
   $('s-llm-model').value = s.llm.model || '';
   $('s-llm-temp').value = s.llm.temperature ?? 0.8;
   $('s-llm-max').value = s.llm.maxTokens ?? 1024;
+  refreshWebCapability();
+}
+
+/** 把「模型原生联网」能力状态显示出来（未知也要显示，不许留空） */
+export async function refreshWebCapability() {
+  const el = $('llm-web-cap');
+  if (!el) return null;
+  const cap = await readCapabilities();
+  const s = capabilitySummary(cap);
+  el.textContent = s.text;
+  el.className = 'auth-badge web-cap-' + s.status;
+  el.title = s.docs ? s.docs : '';
+  return s;
+}
+
+/** 真探针：按官方请求形状发一次最小请求，结果决定「支持/不支持/未知」 */
+export async function probeWebCapability() {
+  if (!hasApiKey('llm')) {
+    toast(t('char.genNeedKey'));
+    return null;
+  }
+  const el = $('llm-web-cap');
+  if (el) el.textContent = t('llm.webProbing');
+  try {
+    const cap = await probeCapabilities();
+    const s = capabilitySummary(cap);
+    if (el) {
+      el.textContent = s.text;
+      el.className = 'auth-badge web-cap-' + s.status;
+      el.title = s.docs || '';
+    }
+    toast(s.text);
+    return cap;
+  } catch (err) {
+    toast(String((err && err.message) || err), true);
+    await refreshWebCapability();
+    return null;
+  }
 }
 
 export function openLlmModal() {
@@ -572,6 +611,7 @@ export function initSettingsPage() {
   const wire = (id, fn) => { const el = $(id); if (el) el.onclick = () => fn().catch((err) => toast(errText(err), true)); };
   wire('btn-llm-fetch', fetchLlmModels);
   wire('btn-llm-test', testLlmConnection);
+  wire('btn-llm-web-probe', probeWebCapability);
   wire('btn-tts-fetch', fetchTtsVoices);
   wire('btn-stt-fetch', fetchSttModels);
   wire('btn-embed-fetch', fetchEmbeddingModels);

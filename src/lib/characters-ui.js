@@ -2,7 +2,8 @@
 // 角色卡 UI 控制器：列表、右键/更多菜单、编辑器、快捷更换模型语音
 // ============================================================
 import { getSettings, deepMerge, hasApiKey } from './settings.js';
-import { emptyCard, cardFileName } from './characters.js';
+import { emptyCard, cardFileName, normalizeCard } from './characters.js';
+import { renderPersonaEditor, applyCollectedPersona, bindPersonaEditor } from './persona-ui.js';
 import { escapeHtml } from './markdown.js';
 import { state, hooks, tts } from './state.js';
 import { $, toast, scrollBottom, avatarUrl } from './dom.js';
@@ -272,7 +273,8 @@ export function populateVoiceSelect() {
 
 export function openCharModal(card, file) {
   state.editorReturnPage = currentPage();
-  state.editorCard = card ? deepMerge(emptyCard(), card) : emptyCard();
+  // 读卡时统一迁移到 v2（幂等，旧文字全部保留）
+  state.editorCard = card ? normalizeCard(deepMerge(emptyCard(), card)) : emptyCard();
   state.editorFile = file || null;
   $('char-modal-title').textContent = state.editorFile ? t('char.edit', { name: state.editorCard.name }) : t('char.new');
   $('f-name').value = state.editorCard.name || '';
@@ -297,6 +299,9 @@ export function openCharModal(card, file) {
   if (m) m.textContent = state.editorCard.model || t('char.noModel');
   if (v) v.textContent = state.editorCard.voice || t('char.noVoice');
   $('f-delete').classList.toggle('hidden', !state.editorFile);
+  // 结构化人格（v2）：填表 + 绑定口头禅/情绪/Prompt 预览的按钮
+  bindPersonaEditor();
+  renderPersonaEditor(state.editorCard);
   // 人设生成室默认收起：它是编辑页里的可选工具，不抢正文
   const wrap = $('persona-wrap');
   if (wrap) wrap.open = false;
@@ -388,6 +393,9 @@ export function saveCharModal() {
   card.first_mes = $('f-first').value.trim();
   card.mes_example = $('f-example').value.trim();
   card.system_prompt = $('f-system').value.trim();
+  // 结构化人格：从表单读回（全空就不写空壳，旧卡不会被覆盖成空白）
+  applyCollectedPersona(card);
+  card.spec = 'aileen-card-v2';
   card.model = $('f-model').value;
   card.voice = $('f-voice').value;
   card.updatedAt = Date.now();

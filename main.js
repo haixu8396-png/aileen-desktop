@@ -23,8 +23,12 @@ const { attachSelfTest } = require('./src/main/self-test.cjs');
 const { startStaticServer } = require('./src/main/server/static-server.cjs');
 const { createSettingsStore } = require('./src/main/storage/settings-store.cjs');
 const { createCheckpointStore } = require('./src/main/storage/checkpoint-store.cjs');
+const { createAuditLog } = require('./src/main/storage/audit-log.cjs');
 const { registerEmbeddingIpc } = require('./shared/embedding-ipc.cjs');
 const { registerStoreIpc } = require('./shared/store-ipc.cjs');
+const { registerWebIpc } = require('./shared/web-ipc.cjs');
+// 授权策略与命令策略：主进程这一侧是**最终判定**，渲染层的判断只是提前给人话错误
+const authz = require('./shared/authz.cjs');
 
 const APP_ROOT = __dirname;
 const DIST_INDEX = path.join(APP_ROOT, 'dist', 'index.html');
@@ -1672,6 +1676,14 @@ function registerIpc() {
 
   registerOverlayIpc();
   registerMcIpc();
+  // Agent 审计：append-only JSONL（<userData>/agent/agent-audit-YYYY-MM-DD.jsonl）
+  // 只记「授权决定 + 目标摘要」，不记文件正文、剪贴板内容或任何密钥。
+  const agentAudit = createAuditLog({
+    dir: path.join(USER_DATA_DIR, 'agent'),
+    log: (...args) => console.warn('[agent-audit]', ...args),
+  });
+  try { agentAudit.prune(); } catch { /* 清理失败不影响启动 */ }
+
   // Coding Agent 的工具能力：文件、命令、git、截屏全在主进程执行，
   // 渲染层只送「要做什么」。workspace 边界与敏感路径在这里兜底。
   registerAgentIpc({
@@ -1679,6 +1691,35 @@ function registerIpc() {
     handle: validatedHandle,
     getSettings: readSettings,
     defaultWorkspace: () => DATA_DIR,
+    // 授权策略（主进程最终判定）+ 一次性凭证 + 审计
+    authz,
+    audit: agentAudit,
+    // HIGH / CRITICAL 的原生确认框：渲染层的卡片是体验层，
+    // 「用户真的点过同意」只有主进程自己能证明。
+    confirmAction: async ({ capability, risk, summary }) => {
+      // 自检无人值守：不弹窗（现有门禁不会触发 HIGH，这里只是防挂起）
+      if (process.env.AILEEN_SELFTEST) return true;
+      const labels = {
+        'exec.run': '执行命令',
+        'window.control': '切换窗口',
+        'app.launch': '启动应用 / 打开链接',
+        'input.pointer': '操作鼠标',
+        'input.keyboard': '模拟键盘输入',
+      };
+      const what = labels[capability] || capability;
+      const res = await dialog.showMessageBox({
+        type: 'warning',
+        buttons: ['允许这次', '拒绝'],
+        defaultId: 1,
+        cancelId: 1,
+        noLink: true,
+        title: 'AILEEN 授权确认',
+        message: 'AILEEN 想' + what,
+        detail: (summary ? '目标：' + summary + '\n' : '')
+          + '风险等级：' + risk + '\n\n只对这一次、这一个目标有效（批准一次用一次）。',
+      });
+      return !!res && res.response === 0;
+    },
     // 主进程自己要用到的 Electron 能力（打开外链）
     electron: { shell },
     // 鼠标坐标：screen 的坐标是**逻辑像素**，而 SetCursorPos 要物理像素，
@@ -1696,23 +1737,48 @@ function registerIpc() {
         size: disp && disp.size ? { width: Math.round(disp.size.width * scale), height: Math.round(disp.size.height * scale) } : null,
       };
     },
-    // 截屏能力：复用 desktopCapturer，给 Agent 一个「看一眼」的手段
-    captureScreen: async ({ withData } = {}) => {
+    // 截屏能力：复用 desktopCapturer，给 Agent 一个「看一眼」的手段。
+    // 关键一条：必须把**真实屏幕分辨率与缩放**一起告诉模型。
+    // 以前只回缩略图尺寸（480×300），模型按它算坐标，点哪儿都偏。
+    captureScreen: async ({ withData, windowId } = {}) => {
+      const display = screen.getPrimaryDisplay();
+      const logical = display && display.size ? display.size : { width: 0, height: 0 };
+      const scale = (display && display.scaleFactor) || 1;
+      const physical = {
+        width: Math.round((logical.width || 0) * scale),
+        height: Math.round((logical.height || 0) * scale),
+      };
       const sources = await desktopCapturer.getSources({
         types: ['screen', 'window'],
-        thumbnailSize: { width: withData ? 1440 : 480, height: withData ? 900 : 300 },
+        thumbnailSize: withData
+          ? { width: Math.max(1, physical.width || 1280), height: Math.max(1, physical.height || 720) }
+          : { width: 480, height: 300 },
         fetchWindowIcons: false,
       });
       const list = sources.filter((s) => s.thumbnail && !s.thumbnail.isEmpty());
       if (!list.length) throw new Error('没有截到任何屏幕或窗口');
-      const first = list[0];
-      const size = first.thumbnail.getSize();
+      // 优先取主屏（以前取 list[0]，多窗口时可能截到某个窗口的缩略图）
+      const wanted = String(windowId || '');
+      const pick = (wanted && list.find((s) => s.id === wanted))
+        || list.find((s) => /^screen:/.test(s.id))
+        || list[0];
+      const size = pick.thumbnail.getSize();
       return {
         count: list.length,
+        // 图片本身多大（模型按它读像素）
         width: size.width,
         height: size.height,
+        // 真实屏幕信息（坐标请用逻辑像素；mouse/click 也吃逻辑像素）
+        display: {
+          width: logical.width,
+          height: logical.height,
+          scale,
+          physicalWidth: physical.width,
+          physicalHeight: physical.height,
+        },
+        sourceId: pick.id,
         names: list.slice(0, 12).map((s) => s.name),
-        dataUrl: withData ? first.thumbnail.toDataURL() : '',
+        dataUrl: withData ? pick.thumbnail.toDataURL() : '',
       };
     },
     log: (...args) => console.warn('[agent]', ...args),
@@ -1753,6 +1819,14 @@ function registerIpc() {
     handle: validatedHandle,
     dataDir: DATA_DIR,
     log: (...args) => console.log('[store]', ...args),
+  });
+
+  // 联网（R6）：抓网页 + Provider 原生联网能力探针。请求只在主进程发出。
+  registerWebIpc({
+    handle: validatedHandle,
+    getSettings: readSettings,
+    audit: agentAudit,
+    log: (...args) => console.log('[web]', ...args),
   });
 
   // 仅允许打开用户数据目录内的路径（防止渲染层被利用打开任意程序/文件）

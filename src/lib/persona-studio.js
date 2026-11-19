@@ -10,14 +10,18 @@
 // ============================================================
 import { t, getLang } from './i18n.js';
 import { PERSONALITIES, ROLES, GENDERS, RELATIONSHIPS, labelOf } from './archetypes.js';
-import { generatePersonaCard } from './persona.js';
+import { generatePersonaDraft, regeneratePersonaField } from './persona.js';
 import { getSettings, hasApiKey } from './settings.js';
 import { $, toast } from './dom.js';
 import { hooks, state } from './state.js';
 import { openCharModal, applyPersonaToEditor } from './characters-ui.js';
+import { renderPersonaEditor } from './persona-ui.js';
 import { iconSvg } from './icons.js';
 
 const sel = { mode: 'original', personalityId: '', roleId: '', genderId: 'any', relationId: 'any' };
+
+/** 当前草稿（什么都没应用；用户点了「应用到编辑器」才进卡） */
+let studioDraft = null;
 
 /** 原创 / 已有角色两个模式切换：各自只显示自己需要的字段，不摆一堆用不上的东西 */
 export function setStudioMode(mode) {
@@ -135,6 +139,7 @@ export function studioFormOptions() {
     mode: sel.mode,
     charName: ($('pa-char') || {}).value || '',
     work: ($('pa-work') || {}).value || '',
+    version: ($('pa-version') || {}).value || '',
     fidelity: ($('pa-fidelity') || {}).value || 'strict',
     relationId: ($('pa-rel') || {}).value || 'any',
     userName: ($('pa-user') || {}).value || '',
@@ -148,6 +153,122 @@ export function studioFormOptions() {
     age: ($('pa-age') || {}).value || '',
     extra: ($('pa-extra') || {}).value || '',
   };
+}
+
+/** 草稿面板：把「来源 / 事实分级 / 版权自检」摊给用户看，而不是直接写卡 */
+function renderDraftPanel() {
+  const box = $('pa-draft');
+  if (!box) return;
+  if (!studioDraft) { box.classList.add('hidden'); return; }
+  box.classList.remove('hidden');
+  const d = studioDraft;
+  const status = $('pa-draft-status');
+  if (status) {
+    status.textContent = d.status === 'draft' ? t('studio.draftStatus') : '';
+  }
+  const meta = $('pa-draft-meta');
+  if (meta) {
+    const c = d.confidence || {};
+    const bits = [];
+    if (d.sourceCharacter && d.sourceCharacter.name) bits.push(d.sourceCharacter.name);
+    if (d.sourceCharacter && d.sourceCharacter.work) bits.push(d.sourceCharacter.work);
+    bits.push(t('studio.draftFacts', {
+      confirmed: (c.confirmedFacts || []).length,
+      secondary: (c.secondaryClaims || []).length,
+      inferred: (c.inferences || []).length,
+      unknown: (c.unknowns || []).length,
+    }));
+    meta.textContent = bits.join(' · ');
+  }
+  const srcBox = $('pa-draft-sources');
+  if (srcBox) {
+    const list = (d.sourceCharacter && d.sourceCharacter.sources) || [];
+    srcBox.textContent = list.length
+      ? t('studio.draftSources', { n: list.length }) + ' ' + list.map((s) => s.title || s.url).filter(Boolean).join('；')
+      : t('studio.draftNoSources');
+  }
+  const warn = $('pa-draft-warn');
+  if (warn) {
+    const reasons = (d.copyright && d.copyright.reasons) || [];
+    warn.textContent = reasons.length ? t('studio.draftCopyright') + ' ' + reasons.join('；') : '';
+  }
+}
+
+/** 把草稿里某个字段的当前值取出来（给「重生成这个字段」做上下文） */
+function draftFieldValue(field) {
+  const d = studioDraft;
+  if (!d) return '';
+  const legacyKeys = ['description', 'scenario', 'first_mes', 'mes_example'];
+  if (legacyKeys.includes(field)) return String((d.legacy || {})[field] || '');
+  const parts = String(field).split('.');
+  if (parts.length === 2) {
+    const g = (d.persona || {})[parts[0]];
+    const v = g && g[parts[1]];
+    return Array.isArray(v) ? v.join('、') : String(v || '');
+  }
+  return '';
+}
+
+function draftSetField(field, value) {
+  const d = studioDraft;
+  if (!d) return;
+  const legacyKeys = ['description', 'scenario', 'first_mes', 'mes_example'];
+  if (legacyKeys.includes(field)) {
+    d.legacy = Object.assign({}, d.legacy, { [field]: value });
+    return;
+  }
+  const parts = String(field).split('.');
+  if (parts.length === 2) {
+    const group = Object.assign({}, d.persona && d.persona[parts[0]]);
+    group[parts[1]] = parts[1] === 'traits' ? String(value).split(/[、,，]/).map((s) => s.trim()).filter(Boolean) : value;
+    d.persona = Object.assign({}, d.persona, { [parts[0]]: group });
+  }
+}
+
+async function regenerateDraftField() {
+  const fieldSel = $('pa-regen-field');
+  const field = fieldSel ? fieldSel.value : 'description';
+  const btn = $('pa-regen');
+  if (btn) btn.disabled = true;
+  try {
+    const value = await regeneratePersonaField(getSettings(), {
+      field,
+      options: studioFormOptions(),
+      current: draftFieldValue(field),
+    });
+    draftSetField(field, value);
+    renderDraftPanel();
+    toast(t('studio.regenOk'));
+  } catch (err) {
+    toast(String((err && err.message) || err), true);
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
+/** 应用草稿：先开一张空白卡，再写进去 —— 用户仍然要自己按保存 */
+function applyDraft() {
+  const d = studioDraft;
+  if (!d) return;
+  const legacy = d.legacy || {};
+  closePersonaStudio();
+  openCharModal(null, null);
+  applyPersonaToEditor({
+    name: (d.sourceCharacter && d.sourceCharacter.name) || '',
+    description: legacy.description || '',
+    personality: '',
+    scenario: legacy.scenario || '',
+    first_mes: legacy.first_mes || '',
+    mes_example: legacy.mes_example || '',
+  });
+  if (state.editorCard) {
+    state.editorCard.persona = d.persona;
+    state.editorCard.spec = 'aileen-card-v2';
+    renderPersonaEditor(state.editorCard);
+  }
+  studioDraft = null;
+  renderDraftPanel();
+  toast(t('studio.draftApplied'));
 }
 
 export async function generateFromStudio() {
@@ -165,13 +286,13 @@ export async function generateFromStudio() {
   };
   if (btn) { btn.disabled = true; setLabel(t('studio.busy')); }
   try {
-    // 额度和重试策略都在 generatePersonaCard 里（和编辑器那颗生成按钮完全同一套）
-    const p = await generatePersonaCard(s, studioFormOptions());
-    // 先开一张空白卡，再把结果填进去 —— 后面的「改、存」都走已有的编辑器逻辑
-    closePersonaStudio();
-    openCharModal(null, null);
-    applyPersonaToEditor(p);
-    toast(t('char.genOk'));
+    // 联网资料：0.7.9 里由 R6 的能力探针决定能不能拿到；
+    // 拿不到就传空数组，模型会在 unknowns 里如实标注（不编造）。
+    const sources = [];
+    const draft = await generatePersonaDraft(s, studioFormOptions(), { sources });
+    studioDraft = draft;
+    renderDraftPanel();
+    toast(t('studio.draftReady'));
   } catch (err) {
     toast(String((err && err.message) || err), true);
   } finally {
@@ -194,6 +315,15 @@ export function bindPersonaStudio() {
   if (cancel) cancel.onclick = () => closePersonaStudio();
   const gen = $('pa-generate');
   if (gen) gen.onclick = () => { generateFromStudio(); };
+  if ($('pa-draft-apply')) $('pa-draft-apply').onclick = () => applyDraft();
+  if ($('pa-draft-discard')) {
+    $('pa-draft-discard').onclick = () => {
+      studioDraft = null;
+      renderDraftPanel();
+      toast(t('studio.draftDiscarded'));
+    };
+  }
+  if ($('pa-regen')) $('pa-regen').onclick = () => { regenerateDraftField(); };
   const seed = $('pa-seed');
   if (seed) seed.addEventListener('keydown', (e) => { if (e.key === 'Enter') generateFromStudio(); });
   const char = $('pa-char');

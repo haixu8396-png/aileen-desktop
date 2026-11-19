@@ -88,6 +88,9 @@ export const AUTH_REASON = {
   MEDIUM_GRANTED: 'medium-granted',
   MEDIUM_ASK: 'medium-ask',
   HIGH_ASK: 'high-ask',
+  // CRITICAL：不可逆且影响面大（格式化磁盘、清空大量数据、改账户/安全设置）。
+  // 即使打开「完整权限」，也要单独强确认 —— 这是任务书 3.3 的硬要求。
+  CRITICAL_ASK: 'critical-ask',
   TRUST_AUTO: 'trust-auto',
   TRUST_FULL: 'trust-full',
   TRUST_EXPIRED: 'trust-expired',
@@ -157,6 +160,18 @@ export function normalizeAuthorization(raw, { now = Date.now() } = {}) {
     ? r.tools.map((x) => String(x)).filter((x) => x && x.length <= 64).slice(0, 64)
     : null;
 
+  // 授权范围明细：只用来「缩小」范围，不会放宽任何风险等级。
+  // 主进程的最终判定不看这些（渲染层说了不算），它们只影响界面展示与越界重问。
+  const paths = Array.isArray(r.paths)
+    ? r.paths.map((x) => String(x)).filter((x) => x && x.length <= 500).slice(0, 32)
+    : null;
+  const applications = Array.isArray(r.applications)
+    ? r.applications.map((x) => String(x)).filter((x) => x && x.length <= 120).slice(0, 32)
+    : null;
+  const commands = Array.isArray(r.commands)
+    ? r.commands.map((x) => String(x)).filter((x) => x && x.length <= 120).slice(0, 32)
+    : null;
+
   const workspace = String(r.workspace || '').slice(0, 1000);
 
   // 有效期：任务范围内 = 到任务结束（expiresAt 为 null，由任务生命周期决定）；
@@ -183,6 +198,9 @@ export function normalizeAuthorization(raw, { now = Date.now() } = {}) {
      */
     fullAccess: r.fullAccess === true,
     tools,
+    paths,
+    applications,
+    commands,
     workspace,
     expiresAt,
     grantedAt: Number.isFinite(r.grantedAt) ? Number(r.grantedAt) : (mode === AUTH_MODE.TRUST ? now : null),
@@ -299,6 +317,10 @@ export function decideAuthorized({
   // 1) 只读：任何模式都放行
   if (level === RISK.LOW) return out('allow', AUTH_REASON.LOW_RISK);
 
+  // 1.5) CRITICAL：任何模式都要单独确认，**完整权限也不例外**。
+  // 这条放在信任/完整权限分支之前，就是为了让 fullAccess 无法把它降级。
+  if (level === RISK.CRITICAL) return out('ask', AUTH_REASON.CRITICAL_ASK, { irreversible: true });
+
   const irreversible = isAlwaysConfirmTool(name);
   const sensitive = looksSensitiveTarget(args);
   const dangerousCmd = name === 'run_command' && isDangerousCommand(args && args.command, args && args.args);
@@ -366,6 +388,9 @@ export function authSummary(auth, now = Date.now()) {
     expiresAt: a.expiresAt,
     remainingMs: authRemainingMs(a, now),
     tools: a.tools,
+    paths: a.paths,
+    applications: a.applications,
+    commands: a.commands,
     workspace: a.workspace,
     maxRisk: a.maxRisk,
     allowHighRisk: a.allowHighRisk,

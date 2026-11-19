@@ -76,8 +76,15 @@ export function buildTaskMessage({ task, toolContext, extra } = {}) {
 export function buildToolContext({ workspace, screen, windows, cursor } = {}) {
   const lines = [];
   if (workspace) lines.push('- 工作区：' + String(workspace));
-  if (screen && (screen.width || screen.count)) {
-    lines.push('- 屏幕：' + (screen.count || 1) + ' 个可捕获源，主源 ' + (screen.width || '?') + '×' + (screen.height || '?'));
+  if (screen && screen.display && screen.display.width) {
+    // 以前这里报的是缩略图尺寸（480×300）—— 模型按它算坐标，点哪儿都偏。
+    // 现在报真实显示尺寸，并写明「坐标一律用逻辑像素」，与 mouse_move / mouse_click 一致。
+    const d = screen.display;
+    lines.push('- 屏幕：' + d.width + '×' + d.height + ' 逻辑像素'
+      + (d.scale && d.scale !== 1 ? '（系统缩放 ' + d.scale + '×，物理 ' + d.physicalWidth + '×' + d.physicalHeight + '）' : '')
+      + '；鼠标与点击坐标一律用逻辑像素；截图图片像素 ' + (screen.width || '?') + '×' + (screen.height || '?'));
+  } else if (screen && (screen.width || screen.count)) {
+    lines.push('- 屏幕：' + (screen.count || 1) + ' 个可捕获源，截图 ' + (screen.width || '?') + '×' + (screen.height || '?'));
   }
   if (cursor && Number.isFinite(cursor.x)) {
     lines.push('- 鼠标当前位置：(' + cursor.x + ', ' + cursor.y + ')'

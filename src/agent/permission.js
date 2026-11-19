@@ -14,9 +14,12 @@ export const RISK = {
   LOW: 'LOW',
   MEDIUM: 'MEDIUM',
   HIGH: 'HIGH',
+  // CRITICAL：不可逆且影响面大（格式化磁盘、清空大量数据、账户/安全设置、禁用防护）。
+  // 与 HIGH 的区别只有一条：**即使打开「完整权限」也必须单独强确认**。
+  CRITICAL: 'CRITICAL',
 };
 
-export const RISK_ORDER = [RISK.LOW, RISK.MEDIUM, RISK.HIGH];
+export const RISK_ORDER = [RISK.LOW, RISK.MEDIUM, RISK.HIGH, RISK.CRITICAL];
 
 /** 决策结果 */
 export const DECISION = {
@@ -51,6 +54,10 @@ export const TOOL_RISK = {
   git_push: RISK.HIGH,
   package_install: RISK.HIGH,
   shell: RISK.HIGH,
+  // CRITICAL：只在明确属于「几乎不可恢复」的动作上用，别把普通删除升成它
+  format_disk: RISK.CRITICAL,
+  wipe_directory: RISK.CRITICAL,
+  disable_security: RISK.CRITICAL,
 };
 
 export function riskForTool(tool) {
@@ -98,6 +105,7 @@ export function decide({ riskLevel, config, grants } = {}) {
   }
 
   // HIGH：永远要问。「记住」也不放行 —— 这是刻意的。
+  // CRITICAL：同样永远要问，且**完整权限也绕不过**（见 authorization.js）。
   return DECISION.ASK;
 }
 

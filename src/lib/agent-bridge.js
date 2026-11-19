@@ -13,6 +13,37 @@
 // ============================================================
 import { streamChat } from './llm.js';
 
+/**
+ * 动作类能力的授权闸门（渲染层这一侧）。
+ *
+ * 主进程对 fs.write / exec / git commit / 窗口切换 / 启动应用 / 输入注入
+ * 要求一张一次性凭证；凭证只能由这里在「用户已经批准」之后去换。
+ * 主进程会按设置重新判一遍，HIGH / CRITICAL 还会自己弹原生确认框 ——
+ * 也就是说渲染层说了不算，主进程说了才算。
+ *
+ * 拿不到凭证就抛错（错误会作为工具结果回给模型，它不会当成「做成了」）。
+ */
+async function requireGrant(capability, args) {
+  const api = (typeof window !== 'undefined' && window.api) ? window.api : null;
+  if (!api || typeof api.agentGrant !== 'function') return; // 旧 preload / 单测环境：不拦
+  let res = null;
+  try {
+    res = await api.agentGrant({ capability, args: args || {} });
+  } catch (err) {
+    const e = new Error('授权请求失败：' + String((err && err.message) || err));
+    e.code = 'AUTH_ERROR';
+    throw e;
+  }
+  if (!res || res.allowed !== true) {
+    const reason = String((res && res.reason) || 'denied');
+    const e = new Error(reason === 'user-rejected'
+      ? '用户拒绝了这次操作（主进程确认框里选了拒绝）。不要重试，换一个做法或说明做不到。'
+      : '这次操作没有得到授权（' + reason + '）。请让用户在 Agent 权限里批准或切到信任模式。');
+    e.code = reason === 'user-rejected' ? 'USER_REJECTED' : 'AUTH_DENIED';
+    throw e;
+  }
+}
+
 /** executor 的桥接：能力全部来自主进程 */
 export function createAgentBridge() {
   const api = window.api || {};
@@ -26,6 +57,7 @@ export function createAgentBridge() {
       return (res && res.text) || '';
     },
     async writeFile(absPath, text) {
+      await requireGrant('fs.write', { op: 'write', path: absPath });
       return api.agentFs({ op: 'write', path: absPath, text: String(text == null ? '' : text) });
     },
     async stat(absPath) {
@@ -38,6 +70,7 @@ export function createAgentBridge() {
      * 让 executor 的 runningCount 能正确归零；真正的超时终止在主进程做。
      */
     async spawn({ command, args, cwd, timeoutMs }) {
+      await requireGrant('exec.run', { command, args });
       let cancelled = false;
       const done = api.agentExec({ command, args, cwd, timeoutMs })
         .then((r) => (r && typeof r === 'object' ? r : { exitCode: -1, stdout: '', stderr: '' }))
@@ -50,6 +83,8 @@ export function createAgentBridge() {
       return { done, cancel: () => { cancelled = true; } };
     },
     async git({ args, cwd, timeoutMs }) {
+      const list = Array.isArray(args) ? args.map((a) => String(a)) : [];
+      if (list[0] === 'commit') await requireGrant('git.commit', { args: list });
       const res = await api.agentGit({ args, cwd, timeoutMs });
       return (res && res.text) || '';
     },
@@ -57,28 +92,91 @@ export function createAgentBridge() {
       return api.agentScreenshot({ withData: !!withData });
     },
 
+    // ---- 文件操作 ----
+    async copyPath({ path: from, to, overwrite }) {
+      await requireGrant('fs.copy', { op: 'copy', path: from, to });
+      return api.agentFs({ op: 'copy', path: from, to, overwrite: !!overwrite });
+    },
+    async movePath({ path: from, to, overwrite }) {
+      await requireGrant('fs.move', { op: 'move', path: from, to });
+      return api.agentFs({ op: 'move', path: from, to, overwrite: !!overwrite });
+    },
+    async deletePath({ path }) {
+      await requireGrant('fs.delete', { op: 'remove', path });
+      return api.agentFs({ op: 'remove', path });
+    },
+
     // ---- 电脑控制 ----
     async windowList() {
       const res = await api.agentWindow({ op: 'list' });
+      // 新契约带 windows（id/进程/矩形），老契约只有 titles —— 两个都往上抛
+      if (res && Array.isArray(res.windows) && res.windows.length) return res.windows;
       return (res && res.titles) || [];
     },
     async windowFocus({ title }) {
+      await requireGrant('window.control', { op: 'focus', title: String(title || '') });
       return api.agentWindow({ op: 'focus', title });
     },
     async openApplication({ target, isUrl }) {
+      await requireGrant('app.launch', { target: String(target || '') });
       return api.agentOpen({ target, isUrl });
     },
     async mouseMove({ x, y }) {
+      await requireGrant('input.pointer', { op: 'mouseMove', x, y });
       return api.agentInput({ op: 'mouseMove', x, y });
     },
-    async mouseClick({ button, double }) {
-      return api.agentInput({ op: 'mouseClick', button, double });
+    async mouseClick({ button, double, x = null, y = null }) {
+      await requireGrant('input.pointer', { op: 'mouseClick', x, y, button, double: !!double });
+      const payload = { op: 'mouseClick', button, double: !!double };
+      // 只有真的带了坐标才传 x/y（否则和老主进程的行为一致：在当前位置点）
+      if (Number.isFinite(x) && Number.isFinite(y)) { payload.x = x; payload.y = y; }
+      return api.agentInput(payload);
+    },
+    async mouseScroll({ direction, amount, x = null, y = null }) {
+      await requireGrant('input.pointer', { op: 'scroll', x, y, direction, amount });
+      return api.agentInput({ op: 'scroll', direction, amount, x, y });
+    },
+    async mouseDrag({ x, y, toX, toY, button }) {
+      await requireGrant('input.pointer', { op: 'drag', x, y, toX, toY, button });
+      return api.agentInput({ op: 'drag', x, y, toX, toY, button });
+    },
+
+    // ---- 窗口 / UIA / 应用 ----
+    async windowActive() {
+      return api.agentWindow({ op: 'active' });
+    },
+    async windowControl({ op, title }) {
+      await requireGrant('window.control', { op, title });
+      return api.agentWindow({ op, title });
+    },
+    async uiTree({ window, depth, maxNodes }) {
+      return api.agentUia({ op: 'tree', window, depth, maxNodes });
+    },
+    async uiAction({ selector, action, value }) {
+      await requireGrant('desktop.uia.act', { op: 'act', action, selector, value });
+      return api.agentUia({ op: 'act', selector, action, value });
+    },
+    async appList() {
+      return api.agentApp({ op: 'list' });
+    },
+    async appClose({ target }) {
+      await requireGrant('app.control', { op: 'close', target });
+      return api.agentApp({ op: 'close', target });
+    },
+    /** 抓网页：只读公网，LOW，不需要凭证（主进程有 SSRF 防护） */
+    async webFetch({ url }) {
+      if (typeof api.webFetch !== 'function') throw new Error('宿主未提供联网能力');
+      return api.webFetch({ url });
     },
     async keyboardType({ text }) {
-      return api.agentInput({ op: 'keyboardType', text });
+      const s = String(text == null ? '' : text);
+      await requireGrant('input.keyboard', { op: 'keyboardType', text: s });
+      return api.agentInput({ op: 'keyboardType', text: s });
     },
     async keyboardPress({ keys }) {
-      return api.agentInput({ op: 'keyboardPress', keys });
+      const list = Array.isArray(keys) ? keys.map((k) => String(k)) : [];
+      await requireGrant('input.keyboard', { op: 'keyboardPress', keys: list });
+      return api.agentInput({ op: 'keyboardPress', keys: list });
     },
     /** 鼠标当前位置与屏幕尺寸（给模型定位用） */
     async cursor() {

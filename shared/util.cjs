@@ -401,6 +401,16 @@ function normalizeAuthorizationCfg(raw) {
     tools: Array.isArray(r.tools)
       ? r.tools.map((x) => String(x)).filter((x) => x && x.length <= 64).slice(0, 64)
       : null,
+    // 授权范围明细：只用来缩小范围（界面展示 / 越界重问），不放宽任何风险等级
+    paths: Array.isArray(r.paths)
+      ? r.paths.map((x) => String(x)).filter((x) => x && x.length <= 500).slice(0, 32)
+      : null,
+    applications: Array.isArray(r.applications)
+      ? r.applications.map((x) => String(x)).filter((x) => x && x.length <= 120).slice(0, 32)
+      : null,
+    commands: Array.isArray(r.commands)
+      ? r.commands.map((x) => String(x)).filter((x) => x && x.length <= 120).slice(0, 32)
+      : null,
     workspace: asStr(r.workspace, 1000),
     expiresAt: Number.isFinite(r.expiresAt) ? Number(r.expiresAt) : null,
     grantedAt: Number.isFinite(r.grantedAt) ? Number(r.grantedAt) : null,

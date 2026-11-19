@@ -1,0 +1,97 @@
+/* ============================================================
+   Persona v2 编辑器（结构化人格 / 口头禅表 / 情绪映射）
+   只放这一块专用布局，通用表单样式在 base.css。
+   ============================================================ */
+
+.phrase-list,
+.emotion-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+  margin: var(--sp-2) 0;
+}
+
+.phrase-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 132px auto auto;
+  gap: var(--sp-2);
+  align-items: start;
+}
+
+.phrase-row > input,
+.phrase-row > select {
+  min-width: 0;
+}
+
+.phrase-meta {
+  display: flex;
+  gap: var(--sp-1);
+  align-items: center;
+}
+
+.phrase-meta input[type="number"] {
+  width: 64px;
+  min-width: 0;
+}
+
+.emotion-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 140px auto;
+  gap: var(--sp-2);
+  align-items: center;
+}
+
+.emotion-row > input {
+  min-width: 0;
+}
+
+#pv-prompt {
+  font-family: var(--font-mono, monospace);
+  font-size: var(--fs-xs);
+  line-height: 1.6;
+  white-space: pre-wrap;
+}
+
+.agent-approval-scope {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  flex-wrap: wrap;
+  margin: 0 0 var(--sp-1);
+}
+
+/* 人设生成室的草稿预览 */
+.draft-box {
+  margin: var(--sp-3) 0 var(--sp-2);
+  padding: var(--sp-2) var(--sp-3);
+  border: 1px dashed var(--line-strong, var(--line));
+  border-radius: var(--radius-md, 8px);
+  background: var(--surface-2, transparent);
+}
+
+.draft-head {
+  display: flex;
+  align-items: baseline;
+  gap: var(--sp-2);
+  margin-bottom: var(--sp-1);
+}
+
+.draft-box .agc-actions {
+  margin-top: var(--sp-2);
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  flex-wrap: wrap;
+}
+
+.small-select {
+  max-width: 200px;
+  min-width: 0;
+}
+
+@media (max-width: 900px) {
+  .phrase-row,
+  .emotion-row {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

@@ -63,6 +63,7 @@ import { createMarkerParser } from './lib/marker-parser.js';
 import { createReplyPacer } from './lib/reply-pacer.js';
 import { parsePersonaResponse, buildPersonaMessages } from './lib/persona.js';
 import { openPersonaStudio, closePersonaStudio, bindPersonaStudio, studioFormOptions } from './lib/persona-studio.js';
+import { bindKnowledgeGen } from './lib/knowledge-ui.js';
 import { openChessModal, bindChess } from './lib/chess.js';
 import { initAgentUI, injectAgentEvent, setResumeHandler, handleAgentEvent, agentUiSnapshot, toggleAgentPanel, closeAgentPanel, beginAgentTurn, resetAgentRun } from './lib/agent-ui.js';
 import { createToolRegistry, TOOL_SPECS, withBaseExecutors } from './agent/tool-registry.js';
@@ -156,6 +157,7 @@ async function boot() {
   bindMc();
   bindChess();
   bindPersonaStudio();
+  bindKnowledgeGen();
   bindLive2DSettings();
   // 口型同步：TTS 播放时把音量包络转发给展台（展台拿它驱动嘴部参数）。
   // 关掉开关就不接，连 IPC 都不发。

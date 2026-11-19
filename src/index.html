@@ -315,6 +315,95 @@
               </div>
             </details>
 
+            <details class="advanced" id="persona-v2-wrap">
+              <summary data-i18n="pv.menu">结构化人格（称呼 / 语言 / 口头禅 / 情绪 / 关系）</summary>
+              <p class="hint" data-i18n="pv.intro">这些字段是人格的数据源；发给模型的是下面「Prompt 预览」编译出来的文字。旧卡会自动迁移，原来的文字不会被覆盖。</p>
+
+              <div class="set-group-head"><h3 data-i18n="pv.identity">身份与世界观</h3></div>
+              <div class="form-grid">
+                <label><span data-i18n="pv.work">作品 / 出处</span><input id="pv-work" data-i18n-ph="pv.workPh" /></label>
+                <label><span data-i18n="pv.role">身份</span><input id="pv-role" data-i18n-ph="pv.rolePh" /></label>
+                <label class="full"><span data-i18n="pv.world">世界观 / 设定</span><input id="pv-world" data-i18n-ph="pv.worldPh" /></label>
+              </div>
+
+              <div class="set-group-head"><h3 data-i18n="pv.personality">性格</h3></div>
+              <div class="form-grid">
+                <label><span data-i18n="pv.traits">性格特质（用顿号分隔）</span><input id="pv-traits" data-i18n-ph="pv.traitsPh" /></label>
+                <label><span data-i18n="pv.strengths">优点</span><input id="pv-strengths" /></label>
+                <label><span data-i18n="pv.flaws">缺点 / 短板</span><input id="pv-flaws" /></label>
+                <label><span data-i18n="pv.values">在意的东西</span><input id="pv-values" /></label>
+                <label><span data-i18n="pv.temperament">脾气</span><input id="pv-temperament" /></label>
+                <label><span data-i18n="pv.humor">幽默感</span><input id="pv-humor" /></label>
+              </div>
+
+              <div class="set-group-head"><h3 data-i18n="pv.language">说话方式</h3></div>
+              <div class="form-grid">
+                <label><span data-i18n="pv.tone">语气</span><input id="pv-tone" data-i18n-ph="pv.tonePh" /></label>
+                <label><span data-i18n="pv.sentenceStyle">句式</span><input id="pv-sentencestyle" /></label>
+                <label><span data-i18n="pv.vocab">常用词 / 口癖</span><input id="pv-vocab" /></label>
+                <label><span data-i18n="pv.formality">正式程度</span><select id="pv-formality">
+                  <option value="casual" data-i18n="pv.formalCasual">随意</option>
+                  <option value="neutral" data-i18n="pv.formalNeutral">自然</option>
+                  <option value="formal" data-i18n="pv.formalFormal">正式</option>
+                </select></label>
+                <label><span data-i18n="pv.replyLength">一次回复的长度</span><select id="pv-length">
+                  <option value="short" data-i18n="pv.lenShort">短（1~3 句）</option>
+                  <option value="medium" data-i18n="pv.lenMedium">中等</option>
+                  <option value="long" data-i18n="pv.lenLong">长（会展开说）</option>
+                </select></label>
+              </div>
+
+              <div class="set-group-head"><h3 data-i18n="pv.address">称呼规则</h3></div>
+              <div class="form-grid">
+                <label><span data-i18n="pv.selfName">自称</span><input id="pv-selfname" data-i18n-ph="pv.selfNamePh" /></label>
+                <label><span data-i18n="pv.userTerm">怎么称呼你</span><input id="pv-userterm" data-i18n-ph="pv.userTermPh" /></label>
+                <label class="full"><span data-i18n="pv.addrRule">称呼变化规则（什么时候换称呼）</span><input id="pv-addrrule" /></label>
+              </div>
+
+              <div class="set-group-head"><h3 data-i18n="pv.catchphrase">口头禅</h3></div>
+              <p class="hint" data-i18n="pv.catchphraseHint">每轮最多 1 条；带场景标签的只在对应情绪/场景下用；同一句有冷却轮数。代码、命令、路径、JSON 里不会插入。</p>
+              <div id="pv-phrases" class="phrase-list"></div>
+              <div class="agc-actions">
+                <button type="button" id="pv-add-phrase" class="ghost small-btn" data-i18n="pv.addPhrase">+ 加一条口头禅</button>
+              </div>
+
+              <div class="set-group-head"><h3 data-i18n="pv.emotions">情绪与表情映射</h3></div>
+              <p class="hint" id="pv-emotion-hint" data-i18n="pv.emotionHint">情绪 → Live2D 表情名（模型会在合适的时候发 expr 标记，让立绘跟上）。</p>
+              <div id="pv-emotions" class="emotion-list"></div>
+              <div class="agc-actions">
+                <button type="button" id="pv-add-emotion" class="ghost small-btn" data-i18n="pv.addEmotion">+ 加一条情绪映射</button>
+              </div>
+
+              <div class="set-group-head"><h3 data-i18n="pv.backstory">背景与关系</h3></div>
+              <div class="form-grid">
+                <label class="full"><span data-i18n="pv.story">背景故事</span><textarea id="pv-story" rows="3"></textarea></label>
+                <label><span data-i18n="pv.timeline">时间线 / 重要经历</span><input id="pv-timeline" /></label>
+                <label><span data-i18n="pv.stage">关系阶段</span><input id="pv-stage" data-i18n-ph="pv.stagePh" /></label>
+                <label><span data-i18n="pv.boundaries">边界（什么不会做）</span><input id="pv-boundaries" /></label>
+                <label class="full"><span data-i18n="pv.shared">共同经历</span><input id="pv-shared" /></label>
+              </div>
+
+              <div class="set-group-head"><h3 data-i18n="pv.habitsTitle">习惯与互动</h3></div>
+              <div class="form-grid">
+                <label class="full"><span data-i18n="pv.habits">习惯 / 兴趣 / 偏好（一行一条）</span><textarea id="pv-habits" rows="3"></textarea></label>
+                <label><span data-i18n="pv.initiative">主动程度</span><select id="pv-initiative">
+                  <option value="low" data-i18n="pv.initLow">偏被动</option>
+                  <option value="normal" data-i18n="pv.initNormal">正常</option>
+                  <option value="high" data-i18n="pv.initHigh">很主动</option>
+                </select></label>
+                <label><span data-i18n="pv.style">互动方式</span><input id="pv-style" /></label>
+                <label><span data-i18n="pv.intBoundaries">互动边界</span><input id="pv-intboundaries" /></label>
+              </div>
+
+              <div class="set-group-head"><h3 data-i18n="pv.promptTitle">Prompt 预览（编译结果）</h3></div>
+              <div class="form-grid">
+                <label class="full"><textarea id="pv-prompt" rows="8" readonly></textarea></label>
+              </div>
+              <div class="agc-actions">
+                <button type="button" id="pv-prompt-refresh" class="ghost small-btn" data-i18n="pv.refreshPrompt">刷新预览</button>
+              </div>
+            </details>
+
             <details class="advanced" id="persona-wrap">
               <summary data-i18n="studio.menu">人设生成室</summary>
               <!-- 人设生成室：先选原型、再锁定，生成草稿后填入上面的字段，不直接覆盖已写内容 -->
@@ -329,6 +418,7 @@
                   <div class="form-grid">
                     <label><span data-i18n="studio.charName">角色名</span><input id="pa-char" data-i18n-ph="studio.charNamePh" /></label>
                     <label><span data-i18n="studio.work">出自哪部作品</span><input id="pa-work" data-i18n-ph="studio.workPh" /></label>
+                    <label><span data-i18n="studio.version">版本 / 时间线（可选）</span><input id="pa-version" data-i18n-ph="studio.versionPh" /></label>
                     <label><span data-i18n="studio.fidelity">还原程度</span><select id="pa-fidelity">
                       <option value="strict" data-i18n="studio.fidelityStrict">严格还原</option>
                       <option value="loose" data-i18n="studio.fidelityLoose">允许自由发挥</option>
@@ -369,6 +459,30 @@
                     <label><span data-i18n="studio.extra">其他要求</span><input id="pa-extra" data-i18n-ph="studio.extraPh" /></label>
                   </div>
                 </details>
+                <div id="pa-draft" class="draft-box hidden">
+                  <div class="draft-head">
+                    <strong data-i18n="studio.draftTitle">草稿预览（还没有保存）</strong>
+                    <span id="pa-draft-status" class="hint"></span>
+                  </div>
+                  <div id="pa-draft-meta" class="hint"></div>
+                  <div id="pa-draft-sources" class="hint"></div>
+                  <div id="pa-draft-warn" class="hint warn"></div>
+                  <div class="agc-actions">
+                    <select id="pa-regen-field" class="small-select">
+                      <option value="description" data-i18n="studio.regenDescription">一句话简介</option>
+                      <option value="scenario" data-i18n="studio.regenScenario">场景</option>
+                      <option value="first_mes" data-i18n="studio.regenFirst">开场白</option>
+                      <option value="mes_example" data-i18n="studio.regenExample">示例对话</option>
+                      <option value="language.tone" data-i18n="studio.regenTone">语气</option>
+                      <option value="personality.traits" data-i18n="studio.regenTraits">性格特质</option>
+                      <option value="backstory.story" data-i18n="studio.regenStory">背景故事</option>
+                    </select>
+                    <button type="button" id="pa-regen" class="ghost small-btn" data-i18n="studio.regen">重生成这个字段</button>
+                    <span class="spacer"></span>
+                    <button type="button" id="pa-draft-apply" class="primary small-btn" data-i18n="studio.draftApply">应用到编辑器</button>
+                    <button type="button" id="pa-draft-discard" class="ghost small-btn" data-i18n="studio.draftDiscard">丢弃</button>
+                  </div>
+                </div>
                 <div class="set-actions">
                   <span class="spacer"></span>
                   <button id="pa-cancel" data-i18n="char.cancel">取消</button>
@@ -421,6 +535,39 @@
             <p class="mem-note" data-i18n="memory.knowledgeNote">支持 TXT / Markdown / HTML / JSON / PDF。导入后按段落切分并建立索引，检索在本地完成。</p>
             <div id="knowledge-list" class="mem-list"></div>
           </div>
+
+          <details class="mem-block" id="kol-gen">
+            <summary data-i18n="kol.menu">AI 生成知识库（先大纲、后全文）</summary>
+            <p class="mem-note" data-i18n="kol.intro">给一个主题，先生成目录；你确认（可以直接改）之后再逐章写。每章一个 Markdown 文件，带索引、术语表和来源登记。</p>
+            <div class="form-grid">
+              <label class="full"><span data-i18n="kol.topic">主题</span><input id="kol-topic" data-i18n-ph="kol.topicPh" /></label>
+              <label><span data-i18n="kol.audience">读者</span><input id="kol-audience" data-i18n-ph="kol.audiencePh" /></label>
+              <label><span data-i18n="kol.depth">深度</span><select id="kol-depth">
+                <option value="overview" data-i18n="kol.depthOverview">概览</option>
+                <option value="standard" selected data-i18n="kol.depthStandard">标准</option>
+                <option value="deep" data-i18n="kol.depthDeep">深入</option>
+              </select></label>
+              <label><span data-i18n="kol.language">语言</span><select id="kol-lang">
+                <option value="zh" data-i18n="lang.zh">简体中文</option>
+                <option value="en" data-i18n="lang.en">English</option>
+                <option value="ja" data-i18n="lang.ja">日本語</option>
+              </select></label>
+              <label><span data-i18n="kol.chapters">章数</span><input id="kol-chapters" type="number" min="1" max="12" value="4" /></label>
+              <label class="full"><span data-i18n="kol.scope">范围（可选）</span><input id="kol-scope" data-i18n-ph="kol.scopePh" /></label>
+            </div>
+            <div class="agc-actions">
+              <button type="button" id="btn-kol-outline" class="ghost small-btn" data-i18n="kol.outlineBtn">生成大纲</button>
+              <button type="button" id="btn-kol-generate" class="primary small-btn" disabled data-i18n="kol.generateBtn">按大纲生成全文</button>
+              <button type="button" id="btn-kol-refresh" class="ghost small-btn" data-i18n="kol.refreshList">刷新列表</button>
+            </div>
+            <p class="hint" id="kol-outline-summary"></p>
+            <label class="full"><span data-i18n="kol.outline">大纲（可改，JSON）</span><textarea id="kol-outline" rows="8"></textarea></label>
+            <pre class="kol-progress" id="kol-progress"></pre>
+            <div class="mem-block-head">
+              <h3 data-i18n="kol.listTitle">已生成的知识库</h3>
+            </div>
+            <div id="kol-list" class="mem-list"></div>
+          </details>
         </div>
       </div>
     </section>
@@ -742,6 +889,12 @@
                   <label><span data-i18n="llm.maxTokens">最大输出 Token</span><input id="s-llm-max" type="number" min="1" max="8192" /></label>
                 </div>
                 <p class="hint" data-i18n-html="llm.hint"></p>
+                <div class="agent-line">
+                  <span class="agent-label" data-i18n="llm.webCapability">模型原生联网</span>
+                  <span id="llm-web-cap" class="auth-badge" data-i18n="llm.webUnknown">未知（还没检测）</span>
+                  <button id="btn-llm-web-probe" class="ghost small-btn" type="button"><span data-icon="plug"></span><span data-i18n="llm.webProbe">检测联网能力</span></button>
+                </div>
+                <p class="hint" data-i18n="llm.webHint">只有 Provider 官方支持的服务端联网工具才算「支持」。没有原生能力时 AILEEN 不会偷偷改用第三方搜索 API。</p>
               </div>
               <div class="set-actions">
                 <span class="saved-hint" data-i18n="settings.saved">已保存</span>
@@ -1072,12 +1225,13 @@
               <div class="form-col">
                 <label><span data-i18n="agent.authMode">审批模式</span>
                   <select id="ag-auth-mode">
-                    <option value="manual" data-i18n="agent.authManual">每次都要问（最安全）</option>
-                    <option value="batch" data-i18n="agent.authBatch">批量确认</option>
-                    <option value="trust" data-i18n="agent.authTrust">完全信任（受范围限制）</option>
+                    <option value="manual" data-i18n="agent.authManual">手动批准（每次问）</option>
+                    <option value="batch" data-i18n="agent.authBatch">批量批准（一次看完）</option>
+                    <option value="task" data-i18n="agent.authTask">本任务全部批准（任务结束即失效）</option>
+                    <option value="trust" data-i18n="agent.authTrust">完全信任（可跨任务，有期限）</option>
                   </select></label>
                 <div class="agent-line"><span class="agent-label" data-i18n="agent.authState">当前授权</span><span id="ag-auth-badge" class="auth-badge"></span></div>
-                <label class="check"><input id="ag-auth-persist" type="checkbox" /> <span data-i18n="agent.authPersist">保持 30 分钟（否则仅本次任务）</span></label>
+                <label class="check"><input id="ag-auth-persist" type="checkbox" /> <span data-i18n="agent.authPersist">保持 30 分钟（只对「完全信任」有意义）</span></label>
                 <label class="check"><input id="ag-allow-high" type="checkbox" /> <span data-i18n="agent.allowHigh">也自动执行 HIGH 风险操作</span></label>
                 <label class="check"><input id="ag-full-access" type="checkbox" /> <span data-i18n="agent.fullAccess">完整权限：不再询问任何审批（含删除、命令、工作区之外的路径）</span></label>
                 <p id="ag-trust-warn" class="hint warn hidden" data-i18n="agent.trustWarn">完全信任仍会单独确认不可逆或危险操作，也不会离开授权的工作区。</p>

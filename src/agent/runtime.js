@@ -382,9 +382,32 @@ export function runAgent(deps = {}) {
    * 事后校验：只做便宜且可靠的那一种 —— 写完之后把文件读回来看开头对不对。
    * 校验不通过**不判失败**（任务不该因为一次读回失败就整体失败），
    * 而是在工具结果里加一句提示，让模型自己决定要不要重写。
+   *
+   * 0.7.9 起扩到电脑控制：「发送点击 ≠ 任务完成」，动作之后读一次前台窗口，
+   * 和目标不一致就明确写进工具结果（模型会看到，从而重新观察/换做法）。
    */
+  const COMPUTER_TOOLS = new Set([
+    'window_focus', 'window_control', 'open_application', 'ui_action',
+    'mouse_click', 'mouse_move', 'mouse_scroll', 'mouse_drag',
+    'keyboard_type', 'keyboard_press', 'app_close',
+  ]);
+
   async function verifyStep(name, args) {
-    if (name !== 'write_file' && name !== 'apply_patch') return { ok: true, note: '' };
+    if (name !== 'write_file' && name !== 'apply_patch') {
+      if (!COMPUTER_TOOLS.has(name)) return { ok: true, note: '' };
+      if (typeof executor.observe !== 'function') return { ok: true, note: '' };
+      let obs = null;
+      try { obs = await executor.observe(); } catch { obs = null; }
+      const active = obs && obs.active ? obs.active : null;
+      if (!active || !active.title) return { ok: true, note: '' };
+      const seen = String(active.title);
+      const want = String((args && (args.title || args.target)) || '').trim();
+      const state = '【动作后状态】前台窗口：' + seen + (active.process ? '（' + active.process + '）' : '');
+      if (want && seen.toLowerCase().indexOf(want.toLowerCase()) < 0) {
+        return { ok: false, note: state + '；和预期目标「' + want + '」不一致，请重新观察再决定下一步' };
+      }
+      return { ok: true, note: state };
+    }
     if (typeof executor.readFile !== 'function') return { ok: true, note: '' };
     try {
       const want = String((name === 'write_file' ? args.content : args.new) == null ? '' : (name === 'write_file' ? args.content : args.new));

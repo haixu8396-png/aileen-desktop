@@ -262,9 +262,12 @@ const CHANNELS = {
   'agent:chooseWorkspace': v.NO_ARGS,
   'agent:cursor': v.NO_ARGS,
   'agent:fs': v.args(v.object({
-    op: v.oneOf(['list', 'read', 'write', 'stat']),
+    op: v.oneOf(['list', 'read', 'write', 'stat', 'copy', 'move', 'rename', 'remove']),
     path: v.str({ max: 1000, allowEmpty: true }),
     text: v.optional(v.str({ max: 8 * 1024 * 1024 })),
+    // 复制/移动/重命名的目标路径（同样过边界与敏感名单）
+    to: v.optional(v.str({ max: 1000, allowEmpty: true })),
+    overwrite: v.optional(v.bool()),
   }, { allowUnknown: true })),
   'agent:exec': v.args(v.object({
     command: v.commandName(),
@@ -277,22 +280,65 @@ const CHANNELS = {
   }, { allowUnknown: true })),
   'agent:screenshot': v.args(v.object({ withData: v.optional(v.bool()) }, { allowUnknown: true })),
   'agent:window': v.args(v.object({
-    op: v.oneOf(['list', 'focus']),
+    op: v.oneOf(['list', 'focus', 'active', 'minimize', 'maximize', 'restore', 'close']),
     title: v.optional(v.str({ max: 300 })),
+  }, { allowUnknown: true })),
+  // UIA：读控件树 / 按控件执行语义动作
+  'agent:uia': v.args(v.object({
+    op: v.oneOf(['tree', 'act']),
+    window: v.optional(v.str({ max: 300 })),
+    depth: v.optional(v.int({ min: 1, max: 6 })),
+    maxNodes: v.optional(v.int({ min: 10, max: 400 })),
+    action: v.optional(v.str({ max: 40 })),
+    value: v.optional(v.str({ max: 4000 })),
+    selector: v.optional(v.object({
+      name: v.optional(v.str({ max: 300 })),
+      nameContains: v.optional(v.str({ max: 300 })),
+      automationId: v.optional(v.str({ max: 300 })),
+      role: v.optional(v.str({ max: 60 })),
+      index: v.optional(v.int({ min: 0, max: 1000 })),
+    }, { allowUnknown: true })),
+  }, { allowUnknown: true })),
+  // 应用：列进程 / 请求退出
+  'agent:app': v.args(v.object({
+    op: v.oneOf(['list', 'close']),
+    target: v.optional(v.str({ max: 200 })),
   }, { allowUnknown: true })),
   'agent:open': v.args(v.object({
     target: v.str({ max: 500, allowEmpty: false }),
     isUrl: v.optional(v.bool()),
   }, { allowUnknown: true })),
   'agent:input': v.args(v.object({
-    op: v.oneOf(['mouseMove', 'mouseClick', 'keyboardType', 'keyboardPress']),
+    op: v.oneOf(['mouseMove', 'mouseClick', 'keyboardType', 'keyboardPress', 'scroll', 'drag']),
     x: v.optional(v.num({ min: -20000, max: 20000 })),
     y: v.optional(v.num({ min: -20000, max: 20000 })),
+    toX: v.optional(v.num({ min: -20000, max: 20000 })),
+    toY: v.optional(v.num({ min: -20000, max: 20000 })),
     button: v.optional(v.oneOf(['left', 'right', 'middle'])),
     double: v.optional(v.bool()),
+    direction: v.optional(v.oneOf(['up', 'down'])),
+    amount: v.optional(v.num({ min: 1, max: 50 })),
+    steps: v.optional(v.num({ min: 4, max: 40 })),
     text: v.optional(v.str({ max: 4000 })),
     keys: v.optional(v.arr(KEY, { max: 8 })),
   }, { allowUnknown: true })),
+  // 授权凭证：渲染层在用户批准后换取一张一次性票，主进程按设置重新判定。
+  // args 是**原动作的 payload**（用来绑定参数哈希），所以按「不透明对象」收。
+  'agent:grant': v.args(v.object({
+    capability: v.str({ max: 40, allowEmpty: false }),
+    args: v.optional(v.any()),
+  }, { allowUnknown: true })),
+  // 任务结束清空未使用的一次性凭证（无参数）
+  'agent:grantsRevoke': v.NO_ARGS,
+
+  // ---- 联网（R6）：只有主进程能发请求，Key 不出主进程 ----
+  'web:fetch': v.args(v.object({
+    url: v.url(),
+    timeoutMs: v.optional(v.num({ min: 1000, max: 60000 })),
+    maxBytes: v.optional(v.num({ min: 1024, max: 300 * 1024 })),
+  }, { allowUnknown: true })),
+  'web:capabilities': v.NO_ARGS,
+  'web:probe': v.NO_ARGS,
 };
 
 /**

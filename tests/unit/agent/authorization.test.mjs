@@ -311,6 +311,34 @@ describe('完整权限（fullAccess）', () => {
     expect(authSummary(full(), NOW).fullAccess).toBe(true);
     expect(authSummary(trust(), NOW).fullAccess).toBe(false);
   });
+
+  // CRITICAL 是 0.7.9 新增的第四级：不可逆且影响面大。
+  // 它和 HIGH 的唯一区别：**完整权限也不能把它降级**。
+  it('CRITICAL 即使完整权限也要单独确认', () => {
+    const r = decide({ riskLevel: RISK.CRITICAL, tool: 'format_disk', args: {}, auth: full() });
+    expect(r.decision).toBe('ask');
+    expect(r.reason).toBe(AUTH_REASON.CRITICAL_ASK);
+    expect(r.irreversible).toBe(true);
+  });
+
+  it('CRITICAL 在信任 + 允许高风险下也不是自动放行', () => {
+    const r = decide({ riskLevel: RISK.CRITICAL, tool: 'wipe_directory', args: {}, auth: trust({ allowHighRisk: true }) });
+    expect(r.decision).toBe('ask');
+  });
+
+  it('scope 明细（paths / applications / commands）可以存进授权配置，但不会放宽风险', () => {
+    const a = normalizeAuthorization({
+      mode: AUTH_MODE.TRUST,
+      paths: ['D:/Projects/AILEEN'],
+      applications: ['code.exe'],
+      commands: ['npm test'],
+    }, { now: NOW });
+    expect(a.paths).toEqual(['D:/Projects/AILEEN']);
+    expect(a.applications).toEqual(['code.exe']);
+    expect(a.commands).toEqual(['npm test']);
+    // HIGH 不会因为这些范围就自动通过
+    expect(decide({ riskLevel: RISK.HIGH, tool: 'run_command', args: { command: 'npm', args: ['test'] }, auth: a }).decision).toBe('ask');
+  });
 });
 
 describe('工具分类与重试策略', () => {

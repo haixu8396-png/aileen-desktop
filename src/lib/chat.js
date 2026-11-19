@@ -11,6 +11,7 @@ import { createMarkerParser } from './marker-parser.js';
 import { createReplyPacer } from './reply-pacer.js';
 import { buildStyleInstruction } from './style.js';
 import { splitForCompaction, buildContextMessages, buildSummaryRequest, summaryKey, summarizable, DEFAULT_KEEP_TURNS } from './history.js';
+import { personaCatchphraseHint } from './persona-v2.js';
 import { getLive2dModel, stageMotion, stageExpression } from './stage.js';
 import { fillAvatar } from './shell.js';
 import { state, hooks, tts } from './state.js';
@@ -388,9 +389,32 @@ function styleInstruction() {
   return '\n\n' + parts.join('\n\n');
 }
 
+/** 口头禅的冷却记录：phraseId → { turn, at }（只在本次会话内有效） */
+const catchphraseLastUsed = new Map();
+let catchphraseTurn = 0;
+
+/**
+ * 这一轮的口头禅提示。
+ * 只在「回复路径」用它，而且只作为**提示**：模型愿意用就用，不愿意就算了 ——
+ * 生硬地把口头禅拼进回复，比没有更糟（任务书 4.2）。
+ */
+function catchphraseInstruction(card) {
+  const persona = card && card.persona ? card.persona : null;
+  if (!persona) return '';
+  catchphraseTurn += 1;
+  const text = personaCatchphraseHint(persona, {
+    lang: getLang(),
+    turn: catchphraseTurn,
+    now: Date.now(),
+    lastUsed: catchphraseLastUsed,
+    maxPerReply: 1,
+    onPick: (p) => { catchphraseLastUsed.set(p.id, { turn: catchphraseTurn, at: Date.now() }); },
+  });
+  return text ? '\n\n' + text : '';
+}
+
 /** 模型写错标记不该打断说话，全部吞掉 */
-function applyStageMarker(m) {
-  if (!m || !m.value) return;
+function applyStageMarker(m) {  if (!m || !m.value) return;
   try {
     if (m.kind === 'motion') stageMotion(m.value);
     else if (m.kind === 'expr' || m.kind === 'expression' || m.kind === 'emote') stageExpression(m.value);
@@ -494,7 +518,7 @@ export async function runAssistantReply(userContent, forceSpeak, image) {
     query: userContent,
     messages: kept,
     summary,
-    systemExtra: styleInstruction(),
+    systemExtra: styleInstruction() + catchphraseInstruction(cur.data),
   });
   const msgs = ctx.messages;
 
@@ -747,6 +771,13 @@ export async function sendWithAgent(userContent, opts = {}) {
   } catch (err) {    failure = String((err && err.message) || err);
   } finally {
     state.abortCtrl = null;
+    // 任务结束：主进程里还没用掉的一次性凭证作废。
+    // 「本任务全部批准」的语义就是随任务结束失效，不能留一张能过期的票在那边。
+    try {
+      if (window.api && typeof window.api.agentRevokeGrants === 'function') {
+        await window.api.agentRevokeGrants();
+      }
+    } catch { /* 清票失败不影响对话 */ }
   }
 
   // 角色自己的汇报回到对话框；工具日志留在**同一轮的活动卡**里（不另开控制台）

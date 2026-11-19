@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import agentIpc from '../../shared/agent-ipc.cjs';
+import authz from '../../shared/authz.cjs';
 
 const { registerAgentIpc, isSensitivePath, toPlainDirents, runProcess } = agentIpc;
 
@@ -177,9 +178,21 @@ describe('agent:exec 与 agent:screenshot', () => {
     await expect(call('agent:exec', {})).rejects.toThrow(/缺少要执行的命令/);
   });
   it('exec 在 workspace 里跑（cwd 就是工作区）', async () => {
-    const r = await call('agent:exec', { command: process.execPath, args: ['-e', 'console.log(process.cwd())'], timeoutMs: 30000 });
+    // 注意：不能用 `-e`（把代码当参数）。主进程出口处现在一律拒绝这类参数，
+    // 所以这里写一个脚本文件再跑 —— 这也是「真正该用的方式」。
+    const script = path.join(workspace, 'cwd.js');
+    fs.writeFileSync(script, 'console.log(process.cwd());\n', 'utf8');
+    const r = await call('agent:exec', { command: process.execPath, args: [script], timeoutMs: 30000 });
     expect(r.stdout.trim().toLowerCase()).toBe(path.resolve(workspace).toLowerCase());
   }, 60000);
+  it('exec 拒绝 -e 这类「把代码当参数」的调用（主进程出口策略）', async () => {
+    await expect(call('agent:exec', { command: process.execPath, args: ['-e', '1'] }))
+      .rejects.toThrow(/命令被策略拒绝/);
+  });
+  it('exec 拒绝白名单之外的程序', async () => {
+    await expect(call('agent:exec', { command: 'powershell', args: ['-Command', 'whoami'] }))
+      .rejects.toThrow(/不在白名单/);
+  });
   it('screenshot 不带数据时只回尺寸与名字', async () => {
     const r = await call('agent:screenshot', {});
     expect(r.width).toBe(10);
@@ -188,5 +201,161 @@ describe('agent:exec 与 agent:screenshot', () => {
   it('screenshot 需要数据时回 dataUrl', async () => {
     const r = await call('agent:screenshot', { withData: true });
     expect(r.dataUrl).toContain('data:image/png');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 主进程授权闸门：渲染层说了不算，主进程按设置重新判定
+// ---------------------------------------------------------------------------
+
+describe('主进程授权闸门（authz）', () => {
+  let auditRows;
+
+  /**
+   * 用真实的 shared/authz.cjs 注册一套 handler。
+   * confirmAction 是可注入的「用户点没点同意」——生产里是原生确认框。
+   */
+  function registerWithAuthz({ agent = {}, confirm = null } = {}) {
+    handlers = new Map();
+    auditRows = [];
+    registerAgentIpc({
+      handle: (channel, fn) => handlers.set(channel, fn),
+      getSettings: () => ({
+        agent: Object.assign({ workspace, requireMedium: true, authorization: { mode: 'manual' } }, agent),
+      }),
+      defaultWorkspace: () => workspace,
+      authz,
+      audit: { append: (row) => { auditRows.push(row); return { ok: true }; } },
+      confirmAction: confirm || undefined,
+      log: () => {},
+    });
+    return handlers;
+  }
+
+  const g = (capability, args) => handlers.get('agent:grant')({ sender: {} }, { capability, args });
+
+  it('手动模式：写文件没有凭证 → 主进程拒绝（NEEDS_APPROVAL）', async () => {
+    registerWithAuthz();
+    await expect(call('agent:fs', { op: 'write', path: 'a.txt', text: 'hi' }))
+      .rejects.toThrow(/需要先获得批准/);
+    expect(fs.existsSync(path.join(workspace, 'a.txt'))).toBe(false);
+  });
+
+  it('手动模式：批准一次（拿凭证）→ 只能写这一个文件，且凭证用一次就没了', async () => {
+    registerWithAuthz();
+    const r = await g('fs.write', { op: 'write', path: 'a.txt' });
+    expect(r.allowed).toBe(true);
+    const w = await call('agent:fs', { op: 'write', path: 'a.txt', text: 'hi' });
+    expect(w.ok).toBe(true);
+    expect(fs.readFileSync(path.join(workspace, 'a.txt'), 'utf8')).toBe('hi');
+
+    // 同一张票不能再用第二次
+    await expect(call('agent:fs', { op: 'write', path: 'a.txt', text: 'again' }))
+      .rejects.toThrow(/需要先获得批准/);
+    // 换一个路径也不行（凭证绑定参数）
+    await g('fs.write', { op: 'write', path: 'b.txt' });
+    await expect(call('agent:fs', { op: 'write', path: 'c.txt', text: 'x' }))
+      .rejects.toThrow(/需要先获得批准/);
+  });
+
+  it('信任 + 允许高风险：写文件不再要凭证，审计里记 allow', async () => {
+    registerWithAuthz({ agent: { authorization: { mode: 'trust', allowHighRisk: true } } });
+    const w = await call('agent:fs', { op: 'write', path: 'trusted.txt', text: 'ok' });
+    expect(w.ok).toBe(true);
+    const row = auditRows.find((x) => x.capability === 'fs.write' && x.decision === 'allow');
+    expect(row).toBeTruthy();
+    // MEDIUM 在信任模式下按模式放行（HIGH 才走 allowHighRisk 那条分支）
+    expect(row.reason).toBe('medium-allowed-by-mode');
+  });
+
+  it('授权已撤销：直接拒绝，不弹任何确认', async () => {
+    registerWithAuthz({ agent: { authorization: { mode: 'trust', allowHighRisk: true, revokedAt: Date.now() } } });
+    await expect(call('agent:fs', { op: 'write', path: 'x.txt', text: 'x' }))
+      .rejects.toThrow(/授权已失效/);
+  });
+
+  it('HIGH 动作：原生确认框拒绝 → 不发凭证，也不执行', async () => {
+    const asked = [];
+    registerWithAuthz({ confirm: async (info) => { asked.push(info.capability); return false; } });
+    const r = await g('input.keyboard', { op: 'keyboardType', text: 'hello' });
+    expect(r.allowed).toBe(false);
+    expect(r.reason).toBe('user-rejected');
+    expect(asked).toEqual(['input.keyboard']);
+  });
+
+  it('HIGH 动作：凭证绑定参数 —— 换了文字就要重新批准', async () => {
+    let approvalsLeft = 1;
+    registerWithAuthz({ confirm: async () => { approvalsLeft -= 1; return approvalsLeft >= 0; } });
+    const first = await g('input.keyboard', { op: 'keyboardType', text: 'hello' });
+    expect(first.allowed).toBe(true);
+    // 换一段文字：确认框这次不给过 → 拿不到凭证
+    const second = await g('input.keyboard', { op: 'keyboardType', text: 'other' });
+    expect(second.allowed).toBe(false);
+  });
+
+  it('命令策略先于授权：即使拿到凭证，白名单之外的命令也执行不了', async () => {
+    registerWithAuthz({ agent: { authorization: { mode: 'trust', allowHighRisk: true } } });
+    await expect(call('agent:exec', { command: 'powershell', args: ['-Command', 'whoami'] }))
+      .rejects.toThrow(/不在白名单/);
+  });
+
+  it('完整权限：白名单之外的命令放行（这是用户显式打开的）', async () => {
+    registerWithAuthz({ agent: { authorization: { mode: 'trust', allowHighRisk: true, fullAccess: true } } });
+    // 用 node 跑一个 -e 也会被命令策略放行（fullAccess 时跳过白名单与参数黑名单）
+    const r = await call('agent:exec', { command: process.execPath, args: ['-e', 'console.log(42)'], timeoutMs: 30000 });
+    expect(String(r.stdout).trim()).toBe('42');
+  }, 60000);
+
+  it('复制 / 移动：源和目标都要过边界，且各自要一张凭证', async () => {
+    fs.writeFileSync(path.join(workspace, 'src.txt'), 'hello', 'utf8');
+    registerWithAuthz();
+
+    // 没有凭证 → 拒绝
+    await expect(call('agent:fs', { op: 'copy', path: 'src.txt', to: 'dst.txt' }))
+      .rejects.toThrow(/需要先获得批准/);
+
+    await g('fs.copy', { op: 'copy', path: 'src.txt', to: 'dst.txt' });
+    const r = await call('agent:fs', { op: 'copy', path: 'src.txt', to: 'dst.txt' });
+    expect(r.ok).toBe(true);
+    expect(fs.readFileSync(path.join(workspace, 'dst.txt'), 'utf8')).toBe('hello');
+
+    // 目标越界 → 即使有凭证也拒绝（resolveSafe 在 gate 之前）
+    await g('fs.move', { op: 'move', path: 'dst.txt', to: '../escape.txt' });
+    await expect(call('agent:fs', { op: 'move', path: 'dst.txt', to: '../escape.txt' }))
+      .rejects.toThrow(/越界/);
+  });
+
+  it('删除走回收站，且没有凭证不执行', async () => {
+    fs.writeFileSync(path.join(workspace, 'trash-me.txt'), 'x', 'utf8');
+    registerWithAuthz();
+    await expect(call('agent:fs', { op: 'remove', path: 'trash-me.txt' }))
+      .rejects.toThrow(/需要先获得批准/);
+    expect(fs.existsSync(path.join(workspace, 'trash-me.txt'))).toBe(true);
+  });
+
+  it('窗口控制是 HIGH：确认框拒绝就不执行', async () => {
+    registerWithAuthz({ confirm: async () => false });
+    const r = await g('window.control', { op: 'close', title: 'notepad' });
+    expect(r.allowed).toBe(false);
+    // 没有凭证 → 直接拒绝（不会真的去关窗口）
+    await expect(call('agent:window', { op: 'close', title: 'notepad' }))
+      .rejects.toThrow(/需要先获得批准/);
+  });
+
+  it('UIA 读树是 LOW、执行动作是 HIGH', async () => {
+    registerWithAuthz({ confirm: async () => false });
+    const act = await g('desktop.uia.act', { op: 'act', action: 'invoke', selector: { name: 'OK' }, value: '' });
+    expect(act.allowed).toBe(false);
+    await expect(call('agent:uia', { op: 'act', action: 'invoke', selector: { name: 'OK' } }))
+      .rejects.toThrow(/需要先获得批准/);
+  });
+
+  it('任务结束清票：agent:grantsRevoke 之后旧凭证失效', async () => {
+    registerWithAuthz();
+    await g('fs.write', { op: 'write', path: 'revoked.txt' });
+    const revoke = await handlers.get('agent:grantsRevoke')({ sender: {} });
+    expect(revoke.ok).toBe(true);
+    await expect(call('agent:fs', { op: 'write', path: 'revoked.txt', text: 'x' }))
+      .rejects.toThrow(/需要先获得批准/);
   });
 });

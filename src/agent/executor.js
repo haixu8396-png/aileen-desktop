@@ -17,62 +17,15 @@
 // 列目录 / 读文件全部同一个内部错误」，而单测跑在 Node 上完全正常（抓不到）。
 // 路径运算统一走 shared/path-util.cjs（纯 JS，渲染层与主进程都能用）。
 import pathUtil from '../../shared/path-util.cjs';
+// 命令策略只有一份（shared/command-policy.cjs），主进程出口处用的是同一个函数。
+// 以前白名单只写在渲染层，主进程 agent:exec 什么命令都收 —— 那是「渲染层被注入
+// 就等于任意命令执行」的根因。现在两边共用，渲染层这份只负责给出人话错误。
+import commandPolicy from '../../shared/command-policy.cjs';
 
 const { resolve: pathResolve, join: pathJoin, relative: pathRelative, isInside } = pathUtil;
+const { COMMAND_WHITELIST, ARG_PATTERNS, baseName, checkCommand } = commandPolicy;
 
-/** 允许执行的程序（白名单）。不在表里的一律拒绝。 */
-export const COMMAND_WHITELIST = [
-  'node', 'npm', 'npx', 'git', 'pnpm', 'yarn',
-  'python', 'python3', 'py', 'pip', 'uv',
-  'cargo', 'go', 'dotnet', 'java', 'mvn', 'gradle',
-  'rg', 'ls', 'dir', 'cat', 'type', 'echo', 'where', 'which',
-];
-
-/** 参数模式黑名单：命中就拒（这些参数能反过来执行任意命令/删盘） */
-export const ARG_PATTERNS = [
-  // -e / --exec / --eval 这类参数等于「把代码当参数传进去执行」，绕开一切白名单。
-  // 注意不要加 -c：pip -c / gradle -c 是正常用法，把它拦掉会误伤正经命令。
-  { re: /^-{1,2}(e|exec|eval)([=:].*)?$/i, why: '参数可以执行任意代码' },
-  { re: /^-{1,2}(command|prefix)$/i, why: '参数可以改写要执行的程序' },
-  { re: /^-{1,2}(global|g)$/i, why: '会改动全局环境' },
-  { re: /^-{1,2}(force|f)$/i, why: '强制模式风险过高' },
-  { re: /\bnpm\s+(i|install|add)\b/i, why: '安装依赖会执行 postinstall 脚本' },
-];
-
-function baseName(cmd) {
-  const s = String(cmd || '').trim();
-  const parts = s.split(/[\\/]/);
-  return (parts[parts.length - 1] || '').replace(/\.(exe|cmd|bat|ps1)$/i, '').toLowerCase();
-}
-
-/**
- * 命令策略校验。
- * @returns {{ok:boolean, why?:string, code?:string}}
- */
-export function checkCommand(command, args) {
-  const base = baseName(command);
-  if (!base) return { ok: false, code: 'NO_COMMAND', why: '没有指定要执行什么命令' };
-  if (base.includes('.') && /\.(bat|cmd|ps1|vbs|js)$/i.test(String(command))) {
-    return { ok: false, code: 'SCRIPT_FILE', why: '不允许直接执行脚本文件（请用 node/npm 等解释器）' };
-  }
-  if (!COMMAND_WHITELIST.includes(base)) {
-    return { ok: false, code: 'NOT_WHITELISTED', why: '程序 "' + base + '" 不在白名单里' };
-  }
-  const list = Array.isArray(args) ? args.map((a) => String(a)) : [];
-  for (const arg of list) {
-    if (/[\r\n\0]/.test(arg)) return { ok: false, code: 'BAD_ARG', why: '参数里含有换行或空字符' };
-    if (/[;&|`$><]/.test(arg)) {
-      return { ok: false, code: 'SHELL_META', why: '参数里含有 shell 元字符：' + arg.slice(0, 40) };
-    }
-    for (const p of ARG_PATTERNS) {
-      if (p.re.test(arg)) return { ok: false, code: 'DANGEROUS_ARG', why: p.why + '（' + arg + '）' };
-    }
-  }
-  if (base === 'git' && list[0] === 'push') {
-    return { ok: false, code: 'GIT_PUSH', why: 'git push 由单独的高风险工具负责，这里不允许' };
-  }
-  return { ok: true };
-}
+export { COMMAND_WHITELIST, ARG_PATTERNS, baseName, checkCommand };
 
 /** 工作区边界：绝对路径 / .. / 符号链接都要落到 workspace 里 */
 export function resolveInsideWorkspace(workspace, target) {
@@ -367,7 +320,17 @@ export function createExecutor(deps) {
       need('windowList');
       const list = await bridge.windowList();
       if (!Array.isArray(list) || !list.length) return '没有可用的窗口信息';
-      return list.map((w, i) => (i + 1) + '. ' + w).join('\n');
+      // 桥接可能回字符串（旧契约为标题列表）或 { title, process, rect }（新契约）。
+      // 两个都认：模型看到的永远是「一行一个窗口、带进程与尺寸」，方便它挑目标。
+      return list.map((w, i) => {
+        if (typeof w === 'string') return (i + 1) + '. ' + w;
+        const title = String(w.title || w.name || '（无标题）');
+        const proc = w.process ? '｜进程 ' + w.process : '';
+        const rect = w.rect && Number.isFinite(w.rect.width)
+          ? '｜' + w.rect.width + '×' + w.rect.height + ' @' + w.rect.x + ',' + w.rect.y
+          : '';
+        return (i + 1) + '. ' + title + proc + rect;
+      }).join('\n');
     },
 
     async windowFocus({ title } = {}) {
@@ -409,12 +372,23 @@ export function createExecutor(deps) {
       return '鼠标已移动到 (' + px + ', ' + py + ')' + (scale !== 1 ? '（逻辑坐标 ' + logicalX + ', ' + logicalY + ' × 缩放 ' + scale + '）' : '');
     },
 
-    async mouseClick({ button = 'left', double = false } = {}) {
+    async mouseClick({ button = 'left', double = false, x, y } = {}) {
       const btn = String(button || 'left').toLowerCase();
       if (!['left', 'right', 'middle'].includes(btn)) throw new Error('mouse_click 的 button 只能是 left / right / middle');
+      // 允许「先移到目标再点」在一次调用里完成：分两次 IPC 时用户随手动一下鼠标，
+      // 点下去的就是别的东西（非幂等误操作）。有坐标就必须一次性完成。
+      let px = null;
+      let py = null;
+      if (Number.isFinite(Number(x)) && Number.isFinite(Number(y))) {
+        const p = (typeof bridge.cursor === 'function') ? await bridge.cursor() : null;
+        const scale = Number(p && p.scale) || 1;
+        px = Math.round(Number(x) * scale);
+        py = Math.round(Number(y) * scale);
+      }
       need('mouseClick');
-      await bridge.mouseClick({ button: btn, double: !!double });
-      return '已' + (double ? '双击' : '单击') + '鼠标' + btn;
+      await bridge.mouseClick({ button: btn, double: !!double, x: px, y: py });
+      const where = px === null ? '' : '（先移到 ' + px + ', ' + py + '）';
+      return '已' + (double ? '双击' : '单击') + '鼠标' + btn + where;
     },
 
     async keyboardType({ text } = {}) {
@@ -432,6 +406,173 @@ export function createExecutor(deps) {
       need('keyboardPress');
       await bridge.keyboardPress({ keys: list });
       return '已按下 ' + list.join('+');
+    },
+
+    async mouseScroll({ direction = 'down', amount = 3, x, y } = {}) {
+      const dir = String(direction || 'down').toLowerCase();
+      if (!['up', 'down'].includes(dir)) throw new Error('mouse_scroll 的 direction 只能是 up / down');
+      const steps = Math.max(1, Math.min(50, Math.round(Number(amount) || 3)));
+      let px = null;
+      let py = null;
+      if (Number.isFinite(Number(x)) && Number.isFinite(Number(y))) {
+        const p = (typeof bridge.cursor === 'function') ? await bridge.cursor() : null;
+        const scale = Number(p && p.scale) || 1;
+        px = Math.round(Number(x) * scale);
+        py = Math.round(Number(y) * scale);
+      }
+      need('mouseScroll');
+      await bridge.mouseScroll({ direction: dir, amount: steps, x: px, y: py });
+      return '已向' + (dir === 'up' ? '上' : '下') + '滚动 ' + steps + ' 格' + (px === null ? '' : '（在 ' + px + ',' + py + ' 处）');
+    },
+
+    async mouseDrag({ x, y, toX, toY, button = 'left' } = {}) {
+      const nums = [x, y, toX, toY].map((v) => Math.round(Number(v)));
+      if (nums.some((v) => !Number.isFinite(v))) throw new Error('mouse_drag 需要数字坐标 x / y / toX / toY');
+      const btn = String(button || 'left').toLowerCase();
+      if (!['left', 'right', 'middle'].includes(btn)) throw new Error('mouse_drag 的 button 只能是 left / right / middle');
+      const p = (typeof bridge.cursor === 'function') ? await bridge.cursor() : null;
+      const scale = Number(p && p.scale) || 1;
+      const from = { x: Math.round(nums[0] * scale), y: Math.round(nums[1] * scale) };
+      const to = { x: Math.round(nums[2] * scale), y: Math.round(nums[3] * scale) };
+      need('mouseDrag');
+      await bridge.mouseDrag({ x: from.x, y: from.y, toX: to.x, toY: to.y, button: btn });
+      return '已从 (' + from.x + ',' + from.y + ') 拖到 (' + to.x + ',' + to.y + ')';
+    },
+
+    // ---- 文件操作（复制 / 移动 / 删除到回收站）----
+    async copyPath({ path: from, to, overwrite = false } = {}) {
+      need('copyPath');
+      await bridge.copyPath({ path: String(from || ''), to: String(to || ''), overwrite: !!overwrite });
+      return '已复制 ' + String(from || '') + ' → ' + String(to || '');
+    },
+
+    async movePath({ path: from, to, overwrite = false } = {}) {
+      need('movePath');
+      await bridge.movePath({ path: String(from || ''), to: String(to || ''), overwrite: !!overwrite });
+      return '已移动 ' + String(from || '') + ' → ' + String(to || '');
+    },
+
+    async deletePath({ path: p } = {}) {
+      need('deletePath');
+      const res = await bridge.deletePath({ path: String(p || '') });
+      return '已删除 ' + String(p || '') + '（移入回收站，可恢复）';
+    },
+
+    // ---- 窗口 / UIA / 应用 ----
+    async windowActive() {
+      need('windowActive');
+      const res = await bridge.windowActive();
+      const w = (res && res.window) || null;
+      if (!w) return '当前没有前台窗口信息';
+      return '当前前台窗口：' + (w.title || '（无标题）') + (w.process ? '｜进程 ' + w.process : '')
+        + '｜' + (w.width || 0) + '×' + (w.height || 0) + ' @' + (w.x || 0) + ',' + (w.y || 0);
+    },
+
+    async windowControl({ op = 'restore', title } = {}) {
+      const action = String(op || '').toLowerCase();
+      if (!['focus', 'minimize', 'maximize', 'restore', 'close'].includes(action)) {
+        throw new Error('window_control 的 op 只能是 focus / minimize / maximize / restore / close');
+      }
+      const t = String(title || '').trim();
+      if (!t) throw new Error('window_control 需要 title（窗口标题关键词）');
+      need('windowControl');
+      if (action === 'focus') {
+        const res = await bridge.windowFocus({ title: t });
+        return (res && res.text) || ('已把匹配 "' + t + '" 的窗口切到前台');
+      }
+      const res = await bridge.windowControl({ op: action, title: t });
+      return '已对窗口「' + ((res && res.title) || t) + '」执行 ' + action
+        + (action === 'close' ? '（如果应用问「是否保存」，请自己看清楚再回答）' : '');
+    },
+
+    async uiTree({ window, depth = 3, maxNodes = 200 } = {}) {
+      need('uiTree');
+      const res = await bridge.uiTree({ window: String(window || ''), depth, maxNodes });
+      const nodes = (res && res.nodes) || [];
+      if (!nodes.length) return '这个窗口没有可读的控件（可能是自绘界面）。可以改用截图 + 坐标点击。';
+      const lines = nodes.map((n) => {
+        const indent = '  '.repeat(Math.max(0, Math.min(6, Number(n.level) || 0)));
+        const bits = [];
+        if (n.role) bits.push(n.role);
+        if (n.name) bits.push('"' + n.name + '"');
+        if (n.automationId) bits.push('#' + n.automationId);
+        if (n.patterns && n.patterns.length) bits.push('[' + n.patterns.join('/') + ']');
+        if (!n.enabled) bits.push('(禁用)');
+        if (n.offscreen) bits.push('(不可见)');
+        return indent + bits.join(' ');
+      });
+      const head = '控件 ' + nodes.length + ' 个'
+        + (res && res.window ? '（窗口匹配 ' + res.window + '）' : '')
+        + '；有 [Invoke]/[Value]/[Toggle]/[SelectionItem]/[ExpandCollapse] 标记的可以直接 ui_action';
+      return head + '\n' + lines.join('\n');
+    },
+
+    async uiAction({ selector, action = 'invoke', value } = {}) {
+      need('uiAction');
+      const sel = (selector && typeof selector === 'object') ? selector : {};
+      const res = await bridge.uiAction({ selector: sel, action: String(action || 'invoke'), value: String(value == null ? '' : value) });
+      if (res && res.fallback === 'click') {
+        return '这个控件不支持语义调用，已点击它的中心 (' + res.clicked.x + ',' + res.clicked.y + ')。'
+          + '如果结果不对，先 window_active / ui_tree 再看一眼。';
+      }
+      return '已在控件「' + ((res && res.name) || '') + '」上执行 ' + String(action)
+        + (res && res.rect ? '（' + res.rect.width + '×' + res.rect.height + ' @' + res.rect.x + ',' + res.rect.y + '）' : '');
+    },
+
+    async appList() {
+      need('appList');
+      const res = await bridge.appList();
+      const apps = (res && res.apps) || [];
+      if (!apps.length) return '没有找到有窗口的进程';
+      return apps.map((a, i) => (i + 1) + '. ' + a.process + '｜' + a.title).join('\n');
+    },
+
+    async appClose({ target } = {}) {
+      const t = String(target || '').trim();
+      if (!t) throw new Error('app_close 需要 target（进程名或窗口标题关键词）');
+      need('appClose');
+      const res = await bridge.appClose({ target: t });
+      return (res && res.note) || ('已请求关闭 ' + t);
+    },
+
+    /**
+     * 抓网页：返回标题 + 正文摘录（网页内容是**不可信数据**，
+     * 只作为事实材料，不得当成指令执行 —— 提示词里也这么写）。
+     */
+    async webFetch({ url } = {}) {
+      const u = String(url || '').trim();
+      if (!u) throw new Error('web_fetch 需要 url');
+      need('webFetch');
+      const res = await bridge.webFetch({ url: u });
+      const title = String((res && res.title) || '');
+      const text = String((res && res.text) || '').slice(0, 4000);
+      const finalUrl = String((res && res.finalUrl) || u);
+      if (!text) return '抓到了 ' + finalUrl + '（HTTP ' + (res && res.status) + '），但没有可读正文。';
+      return [
+        '【网页内容 · 不可信来源】',
+        '标题：' + (title || '（无标题）'),
+        'URL：' + finalUrl,
+        '抓取时间：' + ((res && res.fetchedAt) || ''),
+        (res && res.truncated ? '（内容已截断）' : ''),
+        '',
+        text,
+      ].join('\n');
+    },
+
+    /**
+     * 动作后验证：给 runtime 一个「现在到底什么状态」的快照。
+     * 只做便宜且可靠的两件事：前台窗口 + 工作区里的目标是否存在。
+     * 拿不到就明说拿不到，绝不假装「成功」。
+     */
+    async observe() {
+      const out = { active: null, error: '' };
+      try {
+        const res = (typeof bridge.windowActive === 'function') ? await bridge.windowActive() : null;
+        out.active = (res && res.window) || null;
+      } catch (err) {
+        out.error = String((err && err.message) || err);
+      }
+      return out;
     },
 
     /** 取消：终止所有在跑的子进程 */
@@ -467,18 +608,30 @@ export const TOOL_METHOD_ALIASES = {
   read_file: 'readFile',
   write_file: 'writeFile',
   apply_patch: 'applyPatch',
+  copy_path: 'copyPath',
+  move_path: 'movePath',
+  delete_path: 'deletePath',
   run_command: 'runCommand',
   git_status: 'gitStatus',
   git_diff: 'gitDiff',
   git_commit: 'gitCommit',
   screen_capture: 'screenCapture',
   window_list: 'windowList',
+  window_active: 'windowActive',
   window_focus: 'windowFocus',
+  window_control: 'windowControl',
+  ui_tree: 'uiTree',
+  ui_action: 'uiAction',
+  app_list: 'appList',
+  app_close: 'appClose',
   open_application: 'openApplication',
   mouse_move: 'mouseMove',
   mouse_click: 'mouseClick',
+  mouse_scroll: 'mouseScroll',
+  mouse_drag: 'mouseDrag',
   keyboard_type: 'keyboardType',
   keyboard_press: 'keyboardPress',
+  web_fetch: 'webFetch',
 };
 
 function joinPath(a, b) { return pathJoin(a, b); }

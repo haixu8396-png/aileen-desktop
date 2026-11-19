@@ -376,3 +376,20 @@ details.advanced[open] summary { margin-bottom: var(--sp-3); }
 .about-row { display: flex; align-items: baseline; gap: var(--sp-3); font-size: var(--fs-sm); }
 .about-k { color: var(--text-secondary); min-width: 90px; flex: none; }
 .about-v { color: var(--text-primary); word-break: break-all; }
+
+/* AI 生成知识库：进度与校验输出 */
+.kol-progress {
+  margin: var(--sp-2) 0;
+  padding: var(--sp-2);
+  min-height: 24px;
+  max-height: 220px;
+  overflow: auto;
+  font-family: var(--font-mono, monospace);
+  font-size: var(--fs-xs);
+  line-height: 1.6;
+  white-space: pre-wrap;
+  background: var(--surface-2, transparent);
+  border-radius: var(--radius-sm, 6px);
+}
+#kol-gen { margin-top: var(--sp-4); }
+#kol-outline { font-family: var(--font-mono, monospace); font-size: var(--fs-xs); }

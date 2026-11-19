@@ -90,23 +90,55 @@ function runPwsh(script, timeoutMs = 15000) {
 }
 
 /** 鼠标动作的 P/Invoke 脚本（坐标与动作都是校验过的数值） */
-function mouseScript(action, x, y) {
-  const header = [
+function mouseHeader() {
+  return [
     'Add-Type -Namespace A -Name N -MemberDefinition @\'',
     '[DllImport("user32.dll")] public static extern bool SetCursorPos(int X, int Y);',
     '[DllImport("user32.dll")] public static extern void mouse_event(uint f, uint dx, uint dy, uint d, int e);',
     '\'@',
   ].join('\n');
-  if (action === 'move') {
-    return header + '\n[A.N]::SetCursorPos(' + x + ', ' + y + ')';
-  }
-  const flags = {
+}
+
+function mouseFlags(action) {
+  return {
     left: { down: '0x0002', up: '0x0004' },
     right: { down: '0x0008', up: '0x0010' },
     middle: { down: '0x0020', up: '0x0040' },
   }[action];
+}
+
+function mouseScript(action, x, y) {
+  const header = mouseHeader();
+  if (action === 'move') {
+    return header + '\n[A.N]::SetCursorPos(' + x + ', ' + y + ')';
+  }
+  const flags = mouseFlags(action);
   if (!flags) throw new Error('未知的鼠标动作：' + action);
   return header + '\n[A.N]::mouse_event(' + flags.down + ',0,0,0,0)\n[A.N]::mouse_event(' + flags.up + ',0,0,0,0)';
+}
+
+/**
+ * 点击脚本：可以在**同一次调用**里先移到坐标再点，并支持双击。
+ *
+ * 为什么必须合并成一次调用：移动与点击拆成两次 IPC 时，两次之间用户把鼠标
+ * 挪走（或别的程序抢焦点），点下去的就是别的东西 —— 这类误操作不可撤销。
+ * 以前 double 参数也只落在返回值里、脚本不认（点了两下变一下），一起修掉。
+ */
+function clickScript({ button = 'left', double = false, x = null, y = null } = {}) {
+  const flags = mouseFlags(String(button || 'left'));
+  if (!flags) throw new Error('未知的鼠标键：' + button);
+  const parts = [mouseHeader()];
+  if (Number.isFinite(x) && Number.isFinite(y)) {
+    parts.push('[A.N]::SetCursorPos(' + Math.round(x) + ', ' + Math.round(y) + ')');
+    parts.push('Start-Sleep -Milliseconds 60');
+  }
+  const click = '[A.N]::mouse_event(' + flags.down + ',0,0,0,0)\n[A.N]::mouse_event(' + flags.up + ',0,0,0,0)';
+  parts.push(click);
+  if (double) {
+    parts.push('Start-Sleep -Milliseconds 90');
+    parts.push(click);
+  }
+  return parts.join('\n');
 }
 
 /**
@@ -203,6 +235,100 @@ function focusWindowScript(title) {
   ].join('\n');
 }
 
+/**
+ * 列窗口（带句柄、进程名、窗口矩形），输出 JSON。
+ *
+ * 以前只有标题字符串：没法指定「第几个窗口」，也没法判断它多大、在哪个屏。
+ * 标题里带引号/中文时也不能拼进命令行 —— 这里输出 JSON，由 Node 侧解析。
+ * 只取前 40 个有标题的主窗口，够用且不会把提示词撑爆。
+ */
+function listWindowsJsonScript() {
+  return [
+    'Add-Type -Namespace A -Name R -MemberDefinition @\'',
+    '[DllImport("user32.dll")] public static extern bool GetWindowRect(IntPtr h, out RECT r);',
+    'public struct RECT { public int Left; public int Top; public int Right; public int Bottom; }',
+    '\'@',
+    '$items = @()',
+    'foreach ($p in (Get-Process | Where-Object { $_.MainWindowHandle -ne 0 -and $_.MainWindowTitle -ne "" } | Select-Object -First 40)) {',
+    '  $r = New-Object A.R+RECT',
+    '  [void][A.R]::GetWindowRect($p.MainWindowHandle, [ref]$r)',
+    '  $items += [pscustomobject]@{',
+    '    id = [int64]$p.MainWindowHandle',
+    '    title = [string]$p.MainWindowTitle',
+    '    process = [string]$p.ProcessName',
+    '    x = [int]$r.Left',
+    '    y = [int]$r.Top',
+    '    width = [int]($r.Right - $r.Left)',
+    '    height = [int]($r.Bottom - $r.Top)',
+    '  }',
+    '}',
+    'if ($items.Count -eq 0) { Write-Output "[]"; exit 0 }',
+    '$items | ConvertTo-Json -Compress -Depth 4',
+  ].join('\n');
+}
+
+/**
+ * 滚轮脚本：mouse_event MOUSEEVENTF_WHEEL(0x0800)，delta 正=向上、负=向下。
+ * 一次滚动量按 Windows 的 WHEEL_DELTA=120 换算，模型给的是「格数」。
+ */
+function scrollScript({ direction = 'down', amount = 3, x = null, y = null } = {}) {
+  const dir = String(direction || 'down').toLowerCase();
+  if (!['up', 'down'].includes(dir)) throw new Error('未知的滚动方向：' + direction);
+  const steps = Math.max(1, Math.min(50, Math.round(Number(amount) || 3)));
+  const delta = (dir === 'up' ? 1 : -1) * 120 * steps;
+  const parts = [mouseHeader()];
+  if (Number.isFinite(x) && Number.isFinite(y)) {
+    parts.push('[A.N]::SetCursorPos(' + Math.round(x) + ', ' + Math.round(y) + ')');
+    parts.push('Start-Sleep -Milliseconds 60');
+  }
+  parts.push('[A.N]::mouse_event(0x0800, 0, 0, ' + delta + ', 0)');
+  return { script: parts.join('\n'), direction: dir, amount: steps, delta };
+}
+
+/**
+ * 拖拽脚本：按下 → 分步移动 → 松开。分步是为了让目标应用收到连续的拖动事件
+ * （一次跳到终点，很多应用只会当成「点了两下」）。
+ */
+function dragScript({ x = 0, y = 0, toX = 0, toY = 0, button = 'left', steps = 12 } = {}) {
+  const flags = mouseFlags(String(button || 'left'));
+  if (!flags) throw new Error('未知的鼠标键：' + button);
+  const fromX = Math.round(Number(x) || 0);
+  const fromY = Math.round(Number(y) || 0);
+  const endX = Math.round(Number(toX) || 0);
+  const endY = Math.round(Number(toY) || 0);
+  const n = Math.max(4, Math.min(40, Math.round(Number(steps) || 12)));
+  return [
+    mouseHeader(),
+    '[A.N]::SetCursorPos(' + fromX + ', ' + fromY + ')',
+    'Start-Sleep -Milliseconds 60',
+    '[A.N]::mouse_event(' + flags.down + ',0,0,0,0)',
+    'Start-Sleep -Milliseconds 40',
+    'for ($i = 1; $i -le ' + n + '; $i++) {',
+    '  [A.N]::SetCursorPos(' + fromX + ' + [int](((' + endX + ' - ' + fromX + ') * $i) / ' + n + '), ' + fromY + ' + [int](((' + endY + ' - ' + fromY + ') * $i) / ' + n + '))',
+    '  Start-Sleep -Milliseconds 15',
+    '}',
+    'Start-Sleep -Milliseconds 40',
+    '[A.N]::mouse_event(' + flags.up + ',0,0,0,0)',
+  ].join('\n');
+}
+
+/**
+ * 删除到回收站（可恢复）。
+ * 为什么不直接 unlink：Agent 删错东西不该是不可恢复的 —— 任务书要求
+ * 「删除优先进入回收站/隔离区；永久删除必须独立确认」。
+ * 走 Microsoft.VisualBasic.FileIO.FileSystem 的 SendToRecycleBin，路径 base64 传入。
+ */
+function recycleScript(absPath, isDirectory = false) {
+  const b64 = Buffer.from(String(absPath), 'utf8').toString('base64');
+  return [
+    'Add-Type -AssemblyName Microsoft.VisualBasic',
+    "$p = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('" + b64 + "'))",
+    isDirectory
+      ? "[Microsoft.VisualBasic.FileIO.FileSystem]::DeleteDirectory($p, 'OnlyErrorDialogs', 'SendToRecycleBin')"
+      : "[Microsoft.VisualBasic.FileIO.FileSystem]::DeleteFile($p, 'OnlyErrorDialogs', 'SendToRecycleBin')",
+  ].join('\n');
+}
+
 module.exports = {
   isWindows,
   clampCoord,
@@ -211,9 +337,14 @@ module.exports = {
   escapeSendKeys,
   runPwsh,
   mouseScript,
+  clickScript,
+  scrollScript,
+  dragScript,
   typeScript,
   pressScript,
   listWindowsScript,
+  listWindowsJsonScript,
   focusWindowScript,
+  recycleScript,
   KEY_WHITELIST,
 };

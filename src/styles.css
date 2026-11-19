@@ -14,6 +14,7 @@
 @import './styles/base.css';
 @import './styles/layout.css';
 @import './styles/pages.css';
+@import './styles/persona.css';
 @import './styles/agent.css';
 
 /* 窄窗口：侧栏收成图标栏，编辑页与设置页改成单列，避免正文被挤没 */

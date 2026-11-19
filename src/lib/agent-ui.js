@@ -214,6 +214,8 @@ function mountCard(task) {
     + '<div class="agent-approval hidden">'
     + '  <div class="agent-approval-head"><span class="agent-risk">HIGH</span><span class="aa-label"></span></div>'
     + '  <p class="agent-approval-text"></p>'
+    + '  <p class="agent-approval-scope hint"><span class="aa-scope"></span>'
+    + '    <button class="link-btn aa-revoke" type="button">' + t('agent.revoke') + '</button></p>'
     + '  <div class="batch-list hidden"></div>'
     + '  <div class="agc-actions">'
     + '    <button class="primary small-btn aa-approve">' + t('agent.approve') + '</button>'
@@ -232,6 +234,14 @@ function mountCard(task) {
   cardEl.querySelector('.aa-reject').onclick = () => decideApproval(false, false);
   cardEl.querySelector('.aa-batch-approve').onclick = () => decideBatch(true);
   cardEl.querySelector('.aa-batch-reject').onclick = () => decideBatch(false);
+  // 审批卡上直接撤销授权：用户在被问的那一刻，最想做的事可能就是「别问了，但也别再放行」
+  cardEl.querySelector('.aa-revoke').onclick = async () => {
+    await saveAuth({ mode: AUTH_MODE.MANUAL, scope: 'task', allowHighRisk: false, fullAccess: false, revokedAt: Date.now() });
+    if (controller) controller.resolveApproval(agentUiState().approval ? agentUiState().approval.id : '', false, false);
+    setAgentApproval(null);
+    renderApproval();
+    toast(t('agent.revoked'));
+  };
   cardEl.querySelector('.agc-collapse').onclick = () => {
     cardEl.querySelector('.agc-steps').classList.toggle('collapsed');
   };
@@ -287,6 +297,20 @@ function renderApproval() {
   box.querySelector('.agent-approval-text').textContent = req.batch
     ? t('agent.batchCount', { n: (req.items || []).length })
     : String(req.preview || req.name || '');
+  // 写清楚「这次批准覆盖到哪」：单次 / 本任务 / 持续授权，以及撤销入口在哪
+  const scopeEl = box.querySelector('.aa-scope');
+  if (scopeEl) {
+    const auth = normalizeAuthorization(((getSettings() || {}).agent || {}).authorization || {}, { now: Date.now() });
+    const sum = authSummary(auth, Date.now());
+    const modeText = sum.fullAccess
+      ? t('agent.authFullTag')
+      : (sum.mode === AUTH_MODE.TRUST
+        ? (sum.scope === 'persistent' ? t('agent.authTrustTag', { scope: t('agent.scopePersistent') }) : t('agent.authTaskTag'))
+        : (sum.mode === AUTH_MODE.BATCH ? t('agent.authBatchTag') : t('agent.authManualTag')));
+    scopeEl.textContent = t('agent.approvalScope', { mode: modeText });
+    const revokeBtn = box.querySelector('.aa-revoke');
+    if (revokeBtn) revokeBtn.classList.toggle('hidden', sum.mode === AUTH_MODE.MANUAL && !sum.fullAccess);
+  }
   // 单条 / 批量按钮互斥出现
   box.querySelector('.aa-approve').classList.toggle('hidden', !!req.batch);
   box.querySelector('.aa-always').classList.toggle('hidden', !!req.batch || !!req.irreversible);
@@ -567,15 +591,25 @@ export function renderPanel() {
   refreshWorkspacePath();
   // 设置页里的那几项也一起刷新（两处共用同一份设置）
   if ($('ag-workspace')) { /* 设置页自己的路径文本由 fillAllSettings 负责 */ }
-  if ($('ag-auth-mode')) $('ag-auth-mode').value = auth.mode;
+  if ($('ag-auth-mode')) {
+    // 三种模式（0.7.9 对齐任务书）：
+    //   manual = 手动批准；task = 本任务全部批准（trust + 仅本次任务）；
+    //   trust  = 完全信任（trust + 持续生效，有期限、可撤销）
+    const value = auth.mode === AUTH_MODE.TRUST
+      ? (auth.scope === 'persistent' ? AUTH_MODE.TRUST : 'task')
+      : auth.mode;
+    $('ag-auth-mode').value = value;
+  }
   if ($('ag-auth-persist')) $('ag-auth-persist').checked = auth.scope === 'persistent';
   if ($('ag-allow-high')) $('ag-allow-high').checked = auth.allowHighRisk === true;
   if ($('ag-require-medium')) $('ag-require-medium').checked = agent.requireMedium !== false;
   if ($('ag-auth-badge')) {
     const label = sum.mode === AUTH_MODE.TRUST
-      ? t('agent.authTrustTag', { scope: sum.scope === 'persistent' ? t('agent.scopePersistent') : t('agent.scopeTask') })
+      ? (sum.scope === 'persistent'
+        ? t('agent.authTrustTag', { scope: t('agent.scopePersistent') })
+        : t('agent.authTaskTag'))
       : (sum.mode === AUTH_MODE.BATCH ? t('agent.authBatchTag') : t('agent.authManualTag'));
-    $('ag-auth-badge').textContent = label;
+    $('ag-auth-badge').textContent = sum.fullAccess ? t('agent.authFullTag') : label;
   }
   syncChip();
 }
@@ -821,12 +855,22 @@ export function initAgentUI() {
   // 设置页里的授权控件（和弹层共用同一份设置）
   if ($('ag-auth-mode')) {
     $('ag-auth-mode').addEventListener('change', () => {
-      const mode = $('ag-auth-mode').value;
+      const value = $('ag-auth-mode').value;
+      if (value === 'task') {
+        // 本任务全部批准：范围内免重复询问，任务结束/取消/超时即失效
+        saveAuth({ mode: AUTH_MODE.TRUST, scope: 'task', allowHighRisk: true, fullAccess: false });
+        return;
+      }
+      if (value === AUTH_MODE.TRUST) {
+        // 完全信任：持续生效，有期限（TTL 由 authorization 层限制在 30 分钟~8 小时）
+        saveAuth({ mode: AUTH_MODE.TRUST, scope: 'persistent', allowHighRisk: true, fullAccess: false });
+        return;
+      }
       saveAuth({
-        mode,
-        scope: $('ag-auth-persist') && $('ag-auth-persist').checked ? 'persistent' : 'task',
+        mode: value,
+        scope: 'task',
         // 离开「完全信任」时把「完整权限」一起关掉，免得留下一个看不见的放行开关
-        fullAccess: mode === AUTH_MODE.TRUST ? undefined : false,
+        fullAccess: false,
       });
     });
   }

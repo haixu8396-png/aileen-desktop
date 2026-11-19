@@ -61,12 +61,25 @@ contextBridge.exposeInMainWorld('api', {
   agentChooseWorkspace: () => ipcRenderer.invoke('agent:chooseWorkspace'),
   agentCursor: () => ipcRenderer.invoke('agent:cursor'),
   agentWindow: (payload) => ipcRenderer.invoke('agent:window', payload),
+  // UIA 控件树 / 按控件执行语义动作
+  agentUia: (payload) => ipcRenderer.invoke('agent:uia', payload),
+  // 应用进程：列出有窗口的进程 / 请求优雅退出
+  agentApp: (payload) => ipcRenderer.invoke('agent:app', payload),
   agentOpen: (payload) => ipcRenderer.invoke('agent:open', payload),
   agentInput: (payload) => ipcRenderer.invoke('agent:input', payload),
+  // 授权凭证：界面上批准之后，来主进程换一张「这一次、这个参数」的一次性票。
+  // 主进程会按设置重新判定；HIGH / CRITICAL 还会由主进程自己弹原生确认框。
+  agentGrant: (payload) => ipcRenderer.invoke('agent:grant', payload),
+  // 任务结束清空未使用的凭证（「本任务全部批准」必须随任务结束失效）
+  agentRevokeGrants: () => ipcRenderer.invoke('agent:grantsRevoke'),
   agentFs: (payload) => ipcRenderer.invoke('agent:fs', payload),
   agentExec: (payload) => ipcRenderer.invoke('agent:exec', payload),
   agentGit: (payload) => ipcRenderer.invoke('agent:git', payload),
   agentScreenshot: (payload) => ipcRenderer.invoke('agent:screenshot', payload),
+  // 联网（R6）：抓网页 / 读能力 / 真探针。Key 只在主进程用。
+  webFetch: (payload) => ipcRenderer.invoke('web:fetch', payload),
+  webCapabilities: () => ipcRenderer.invoke('web:capabilities'),
+  webProbe: () => ipcRenderer.invoke('web:probe'),
 
   // ---- 无边框悬浮展台 ----
   overlayStatus: () => ipcRenderer.invoke('overlay:status'),

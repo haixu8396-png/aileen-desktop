@@ -6,7 +6,7 @@
 // 这一组把「元字符必须转义」「长文本/代码走剪贴板」两条钉住。
 // ============================================================
 import { describe, it, expect } from 'vitest';
-import { escapeSendKeys, typeScript } from '../../shared/desktop-input.cjs';
+import { escapeSendKeys, typeScript, clickScript, mouseScript, listWindowsJsonScript } from '../../shared/desktop-input.cjs';
 
 describe('SendKeys 转义', () => {
   it('普通文字原样输出', () => {
@@ -66,5 +66,50 @@ describe('typeScript 走哪条路', () => {
   it('文字仍然用 base64 传，避免引号与中文被 PowerShell 吃掉', () => {
     const script = typeScript('他说"早上好"');
     expect(script).toContain('[Convert]::FromBase64String');
+  });
+});
+
+describe('鼠标点击脚本', () => {
+  it('单击是一对 down/up', () => {
+    const s = clickScript({ button: 'left' });
+    expect(s.match(/mouse_event\(0x0002/g)).toHaveLength(1);
+    expect(s.match(/mouse_event\(0x0004/g)).toHaveLength(1);
+  });
+
+  it('双击发两对 down/up，中间隔一下', () => {
+    const s = clickScript({ button: 'left', double: true });
+    expect(s.match(/mouse_event\(0x0002/g)).toHaveLength(2);
+    expect(s.match(/mouse_event\(0x0004/g)).toHaveLength(2);
+    expect(s).toContain('Start-Sleep -Milliseconds 90');
+  });
+
+  it('带坐标时先 SetCursorPos，再一次调用里完成移动 + 点击', () => {
+    const s = clickScript({ button: 'right', x: 640, y: 360 });
+    const move = s.indexOf('SetCursorPos(640, 360)');
+    const down = s.indexOf('mouse_event(0x0008');
+    expect(move).toBeGreaterThan(-1);
+    expect(down).toBeGreaterThan(move);
+  });
+
+  it('坐标会取整，不接受非法鼠标键', () => {
+    expect(clickScript({ button: 'middle', x: 1.6, y: 2.4 })).toContain('SetCursorPos(2, 2)');
+    expect(() => clickScript({ button: 'side' })).toThrow(/未知的鼠标键/);
+  });
+
+  it('老的 mouseScript 仍然可用（没坐标的单动作）', () => {
+    expect(mouseScript('move', 10, 20)).toContain('SetCursorPos(10, 20)');
+    expect(mouseScript('left', 0, 0)).toContain('mouse_event(0x0002');
+  });
+});
+
+describe('窗口列表脚本', () => {
+  it('输出 JSON（带句柄、进程名与矩形），不再是裸标题', () => {
+    const s = listWindowsJsonScript();
+    expect(s).toContain('ConvertTo-Json');
+    expect(s).toContain('MainWindowHandle');
+    expect(s).toContain('GetWindowRect');
+    expect(s).toContain('process =');
+    // 没有窗口时也必须输出合法 JSON，调用方好解析
+    expect(s).toContain('Write-Output "[]"');
   });
 });

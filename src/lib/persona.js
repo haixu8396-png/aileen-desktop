@@ -12,6 +12,7 @@
 import { t, getLang } from './i18n.js';
 import { PERSONALITIES, ROLES, GENDERS, RELATIONSHIPS, findArchetype, labelOf, specOf } from './archetypes.js';
 import { streamChat } from './llm.js';
+import { normalizePersonaV2 } from './persona-v2.js';
 
 export const PERSONA_FIELDS = ['name', 'description', 'personality', 'scenario', 'first_mes', 'mes_example'];
 
@@ -233,19 +234,15 @@ export async function generatePersonaCard(settings, options) {
 }
 
 /**
- * 从模型回复里把角色卡抠出来。
- * 返回 { name?, description?, personality?, scenario?, first_mes?, mes_example? }，
- * 一个字段都救不回来时返回 null。
+ * 从模型回复里抠出第一个完整 JSON 对象（剥围栏 + 大括号配平）。
+ * 0.7.9 抽出来给「Draft 生成」复用，解析规则只留一份。
  */
-export function parsePersonaResponse(raw) {
+export function extractJsonObject(raw) {
   let text = String(raw == null ? '' : raw).trim();
   if (!text) return null;
-
-  // 1) 剥掉 ``` 围栏（可能有语言标注）
   const fence = text.match(/```[a-zA-Z]*\s*([\s\S]*?)```/);
   if (fence) text = fence[1].trim();
 
-  // 2) 从第一个 { 开始，按大括号配平找完整对象；字符串里的括号、转义引号都要跳过
   const start = text.indexOf('{');
   if (start < 0) return null;
   let depth = 0;
@@ -268,14 +265,25 @@ export function parsePersonaResponse(raw) {
     }
   }
   if (end < 0) return null;
+  try {
+    const obj = JSON.parse(text.slice(start, end + 1));
+    if (!obj || typeof obj !== 'object' || Array.isArray(obj)) return null;
+    return obj;
+  } catch (err) {
+    return null;
+  }
+}
 
-  let obj = null;
-  try { obj = JSON.parse(text.slice(start, end + 1)); } catch (err) { return null; }
-  if (!obj || typeof obj !== 'object' || Array.isArray(obj)) return null;
-
-  // 3) 只挑白名单字段，且必须是字符串；长的截断，空字符串丢掉
-  const out = {};
+/**
+ * 从模型回复里把角色卡抠出来。
+ * 返回 { name?, description?, personality?, scenario?, first_mes?, mes_example? }，
+ * 一个字段都救不回来时返回 null。
+ */
+export function parsePersonaResponse(raw) {
+  const obj = extractJsonObject(raw);
+  if (!obj) return null;
   let got = 0;
+  const out = {};
   for (const key of PERSONA_FIELDS) {
     let v = obj[key];
     if (Array.isArray(v)) v = v.filter((x) => typeof x === 'string').join('\n');
@@ -287,3 +295,256 @@ export function parsePersonaResponse(raw) {
   }
   return got ? out : null;
 }
+
+// ============================================================
+// 0.7.9：结构化人设草稿（Draft）
+//
+// 和上面那张「6 字段卡」的区别：
+//   · 生成的是**结构化人格 + 事实分级 + 来源**，不是一张成品卡；
+//   · 先给用户看草稿，确认后才写进编辑器（persona-studio 那边控制）；
+//   · 有资料时只写资料支持的结论，不确定的进 inference / unknowns ——
+//     任务书 5.2 明确「不得为了填满字段而编造」。
+// ============================================================
+
+/** 草稿里允许出现的字段（白名单，防止模型塞一坨别的东西进卡里） */
+export const DRAFT_FIELDS = [
+  'name', 'work', 'identity', 'personality', 'language', 'address',
+  'catchphrases', 'emotions', 'backstory', 'relationships', 'habits', 'interaction',
+  'legacy', 'confidence',
+];
+
+const MAX_DRAFT_LEGACY = { description: 120, scenario: 800, first_mes: 800, mes_example: 2000 };
+
+function clampStr(v, n) {
+  return String(v == null ? '' : v).replace(/\r\n/g, '\n').trim().slice(0, n);
+}
+
+/** 资料块：把来源写成模型能引用的编号列表（只给标题/类型/摘要，不塞整页 HTML） */
+export function formatSourcesForPrompt(sources) {
+  const list = Array.isArray(sources) ? sources : [];
+  if (!list.length) return '';
+  const rows = list.slice(0, 8).map((s, i) => {
+    const x = (s && typeof s === 'object') ? s : { title: String(s) };
+    return '[' + (i + 1) + '] ' + clampStr(x.title, 160)
+      + '（' + clampStr(x.type || 'secondary', 20) + '）'
+      + (x.url ? ' ' + clampStr(x.url, 300) : '')
+      + (x.snippet ? '\n    摘要：' + clampStr(x.snippet, 400) : '');
+  });
+  return '【已知资料】\n' + rows.join('\n');
+}
+
+/**
+ * 草稿生成的提示词。
+ * 结构：底稿（原创 / 已有角色）+ 原型约束 + 资料 + 输出格式 + 硬规矩。
+ */
+export function buildDraftMessages(input, { sources = [] } = {}) {
+  const opts = typeof input === 'string' ? { seed: input } : (input || {});
+  const lang = getLang();
+  const langName = LANG_NAME[lang] || 'English';
+  const known = opts.mode === 'known';
+  const blocks = [known ? t('persona.systemKnown', { lang: langName }) : t('persona.system', { lang: langName })];
+  const c = constraintBlock(opts, lang);
+  if (c) blocks.push(c);
+  const src = formatSourcesForPrompt(sources);
+  if (src) blocks.push(src);
+
+  blocks.push([
+    '输出格式（只输出一个 JSON 对象，不要解释、不要代码围栏）：',
+    '{',
+    '  "name": "角色名",',
+    '  "work": "出自哪部作品（原创就写 original）",',
+    '  "identity": { "work": "", "role": "", "world": "" },',
+    '  "personality": { "traits": [], "strengths": [], "flaws": [], "values": [], "temperament": "", "humor": "" },',
+    '  "language": { "tone": "", "sentenceStyle": "", "vocabulary": "", "formality": "casual|neutral|formal", "length": "short|medium|long" },',
+    '  "address": { "selfName": "", "userTerm": "", "rule": "" },',
+    '  "catchphrases": [ { "text": "不超过 40 字", "scenes": ["normal|happy|angry|clingy|shy|surprised|sad|comfort|encourage|farewell"] } ],',
+    '  "emotions": [ { "emotion": "happy", "triggers": "什么会触发", "expression": "Live2D 表情名，可留空" } ],',
+    '  "backstory": { "story": "", "timeline": "" },',
+    '  "relationships": { "stage": "", "boundaries": "", "sharedHistory": "" },',
+    '  "habits": [],',
+    '  "interaction": { "initiative": "low|normal|high", "style": "", "boundaries": "" },',
+    '  "legacy": { "description": "一句话简介", "scenario": "场景", "first_mes": "开场白", "mes_example": "两行示例" },',
+    '  "confidence": { "confirmedFacts": [], "secondaryClaims": [], "inferences": [], "unknowns": [] }',
+    '}',
+  ].join('\n'));
+
+  blocks.push([
+    '硬规矩：',
+    '1. 有【已知资料】时，只把资料里明确写了的东西放进 confirmedFacts；二手说法进 secondaryClaims；你自己的推断进 inferences；不知道的进 unknowns。',
+    '2. 资料不足就让它空着或在 unknowns 里写清楚 —— **不要为了填满字段而编造**。',
+    '3. 同名角色、不同作品版本/时间线/译名有歧义时，在 unknowns 里说明，不要猜。',
+    '4. 不得复述原作台词、歌词、剧本段落；口头禅要概括或原创化，每条不超过 40 字。',
+    '5. 不得声称这是官方设定或官方授权内容。',
+    '6. 全部用 ' + langName + ' 写。',
+  ].join('\n'));
+
+  const userLines = [];
+  const nm = clampStr(opts.charName, 80);
+  const wk = clampStr(opts.work, 120);
+  if (known && nm) userLines.push(t('persona.knownAsk', { v: nm }));
+  if (known && wk) userLines.push(t('persona.knownAskWork', { v: wk }));
+  if (known && opts.version) userLines.push('版本 / 时间线：' + clampStr(opts.version, 120));
+  if (!known) {
+    const seed = clampStr(opts.seed, 300);
+    userLines.push(seed ? '灵感：' + seed : '灵感：（无，请自行想一个不落俗套的）');
+  }
+  const reqs = requirementLines(opts, lang);
+  if (reqs.length) userLines.push('用户要求：\n- ' + reqs.join('\n- '));
+
+  return [
+    { role: 'system', content: blocks.join('\n\n') },
+    { role: 'user', content: userLines.join('\n') },
+  ];
+}
+
+/**
+ * 版权检查：整段引用超过阈值就提示（任务书 5.2「不得复制大段原作台词」）。
+ * 不做法学判断，只拦「明显越界」：长引号段 / 引用总量过大。
+ */
+export function copyrightWarning(text) {
+  const s = String(text || '');
+  const spans = [];
+  const re = /[「“"『]([^」”"』]{1,600})[」”"』]/g;
+  let m;
+  while ((m = re.exec(s)) !== null) spans.push(m[1]);
+  const long = spans.filter((x) => x.length >= 80);
+  const total = spans.reduce((n, x) => n + x.length, 0);
+  const reasons = [];
+  if (long.length) reasons.push('有 ' + long.length + ' 段引用超过 80 字');
+  if (spans.length >= 3 && total >= 200) reasons.push('引用总量偏大（' + total + ' 字）');
+  return { ok: reasons.length === 0, reasons, spans: spans.length, total };
+}
+
+/** 把模型输出解析成草稿；解析不出来返回 { kind:'bad' } */
+export function parsePersonaDraft(raw, { sources = [] } = {}) {
+  const text = String(raw == null ? '' : raw);
+  if (!text.trim()) return { kind: 'bad' };
+  if (/"unknown"\s*:\s*true/i.test(text)) return { kind: 'unknown' };
+  const obj = extractJsonObject(text);
+  if (!obj) return { kind: 'bad' };
+
+  const legacyRaw = (obj.legacy && typeof obj.legacy === 'object') ? obj.legacy : obj;
+  const legacy = {};
+  for (const key of Object.keys(MAX_DRAFT_LEGACY)) {
+    const v = legacyRaw[key];
+    if (typeof v === 'string' && v.trim()) legacy[key] = clampStr(v, MAX_DRAFT_LEGACY[key]);
+  }
+
+  const persona = normalizePersonaV2({
+    identity: obj.identity,
+    personality: obj.personality,
+    language: obj.language,
+    address: obj.address,
+    catchphrases: obj.catchphrases,
+    emotions: obj.emotions,
+    backstory: obj.backstory,
+    relationships: obj.relationships,
+    habits: obj.habits,
+    interaction: obj.interaction,
+  });
+
+  const conf = (obj.confidence && typeof obj.confidence === 'object') ? obj.confidence : {};
+  const listOf = (v) => (Array.isArray(v)
+    ? v.map((x) => clampStr(typeof x === 'string' ? x : JSON.stringify(x), 300)).filter(Boolean).slice(0, 20)
+    : []);
+
+  const srcList = (Array.isArray(sources) ? sources : []).slice(0, 8).map((s) => {
+    const x = (s && typeof s === 'object') ? s : { title: String(s) };
+    return {
+      title: clampStr(x.title, 200),
+      url: clampStr(x.url, 500),
+      type: clampStr(x.type || 'secondary', 20),
+      retrievedAt: clampStr(x.retrievedAt || new Date().toISOString(), 40),
+    };
+  });
+
+  const draft = {
+    draftId: 'draft-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 6),
+    status: 'draft',
+    sourceCharacter: {
+      name: clampStr(obj.name || legacyRaw.name, 80),
+      work: clampStr(obj.work || (obj.identity && obj.identity.work), 160),
+      version: clampStr((obj.identity && obj.identity.version) || '', 120),
+      sources: srcList,
+    },
+    confidence: {
+      confirmedFacts: listOf(conf.confirmedFacts),
+      secondaryClaims: listOf(conf.secondaryClaims),
+      inferences: listOf(conf.inferences),
+      unknowns: listOf(conf.unknowns),
+    },
+    persona,
+    legacy,
+    copyright: { checked: false, reasons: [] },
+  };
+
+  const joined = [legacy.first_mes, legacy.mes_example, legacy.description, legacy.scenario,
+    persona.backstory.story, persona.catchphrases.map((x) => x.text).join('\n')].filter(Boolean).join('\n');
+  const warn = copyrightWarning(joined);
+  draft.copyright = { checked: true, ok: warn.ok, reasons: warn.reasons };
+
+  const empty = !Object.keys(legacy).length && !draft.sourceCharacter.name
+    && !persona.identity.work && !persona.personality.traits.length && !persona.catchphrases.length;
+  return empty ? { kind: 'bad' } : { kind: 'draft', draft };
+}
+
+/**
+ * 生成结构化草稿。额度阶梯与「思考吃光预算」的处理和旧路径共用一套。
+ * @param {object} settings
+ * @param {object} options  { mode, seed, charName, work, version, ... }
+ * @param {object} extra    { sources: [{title,url,type,snippet}] }
+ */
+export async function generatePersonaDraft(settings, options, extra = {}) {
+  const sources = Array.isArray(extra.sources) ? extra.sources : [];
+  const messages = buildDraftMessages(options, { sources });
+  return withPersonaBudget(settings.llm.maxTokens, async (budget) => {
+    let out = '';
+    let truncated = false;
+    await streamChat({
+      messages,
+      settings: { ...settings, llm: { ...settings.llm, maxTokens: budget } },
+      onDelta: (d) => { out += d; },
+      onFinish: (info) => { truncated = !!(info && info.finishReason === 'length'); },
+    });
+    const r = parsePersonaDraft(out, { sources });
+    if (r.kind === 'draft') return r.draft;
+    if (r.kind === 'unknown') {
+      const e = new Error(t('studio.unknownChar'));
+      e.code = 'UNKNOWN_CHARACTER';
+      throw e;
+    }
+    const err = new Error(t('char.genFail'));
+    err.code = truncated ? 'TRUNCATED_REPLY' : 'UNPARSABLE';
+    throw err;
+  });
+}
+
+/**
+ * 字段级重生成：只让模型重写一个字段（任务书 5.1「字段级编辑、重新生成」）。
+ * @returns {string} 新值（列表字段用「、」连起来，交给界面再拆）
+ */
+export async function regeneratePersonaField(settings, { field, options = {}, current = '' } = {}) {
+  const key = String(field || '').trim();
+  if (!key) throw new Error('缺少要重生成的字段');
+  const messages = buildDraftMessages(options, {});
+  messages.push({
+    role: 'user',
+    content: [
+      '只重写这一个字段：' + key,
+      '当前值：' + (clampStr(current, 800) || '（空）'),
+      '要求：保持其它设定不变；只输出 JSON {"value": ...}；列表字段用数组。',
+    ].join('\n'),
+  });
+  let out = '';
+  await streamChat({
+    messages,
+    settings: { ...settings, llm: { ...settings.llm, maxTokens: Math.min(2048, Math.max(512, Number(settings.llm.maxTokens) || 1024)) } },
+    onDelta: (d) => { out += d; },
+  });
+  const obj = extractJsonObject(out);
+  if (!obj || obj.value === undefined) throw new Error(t('char.genFail'));
+  const v = obj.value;
+  if (Array.isArray(v)) return v.map((x) => clampStr(x, 200)).filter(Boolean).slice(0, 20).join('、');
+  return clampStr(v, 2000);
+}
+
