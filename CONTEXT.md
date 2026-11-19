@@ -245,3 +245,5 @@ aileen/
 - **联网**：Provider 能力探针（官方文档 URL + 真实请求判定 supported/unsupported/unknown）+ 网页抓取
   （SSRF/体积/超时防护）+ `web_fetch` 工具，明确「不可信来源」。
 - 基线：`npm test` 69 文件 / 1081 项、lint 187 文件、build 通过；零模型自检 `appVersion=0.7.9`、`errors=[]`。
+
+- 发布：`e5cba46` + tag `v0.7.9`；CI run `44590716244` success；Release 三资产（Setup 127.9 MB / 便携 127.7 MB / 源码 1.2 MB），说明文字由正式版 CHANGELOG 生成（2550 字符）。
