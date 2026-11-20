@@ -2,6 +2,27 @@
 
 本项目所有重要改动都会记录在此，版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [0.7.10] - 2026-11-20
+
+### Overview
+
+Patch release for 0.7.9. Fixes the output-token limit that capped every model at 8192 and silently restored that value after the user raised it. Output length is now controlled by the user: leave the field empty for no limit.
+
+### Fixed
+
+- Removed the client-side ceiling on maximum output tokens. Both the settings normalizer and the settings input previously hard-coded 8192, so any larger value was rewritten on the next save.
+- Leaving the token field empty now means "no limit": the value is stored as empty and the request omits `max_tokens`, letting the model use its own output ceiling.
+- When a number is entered, it is sent as-is. The client no longer truncates or rewrites it; values above a model's capability are rejected by the provider and the error is shown verbatim.
+- Removed the `max` restriction from the token input; placeholder and helper text now read "empty = unlimited".
+- Persona generation follows the same setting: an explicit value is reused as the starting budget (no doubling when it is already large), while an empty value starts at 4096.
+- With no output budget configured, an empty-reply error no longer reports "budget 0".
+
+### Verification
+
+- 69 test files / 1087 tests passing (unit and integration).
+- Syntax and boundary checks over 187 files passing; production build passing.
+- Installed build synced and its packaged artifacts verified.
+
 ## [0.7.9] - 2026-11-20
 
 ### 概述

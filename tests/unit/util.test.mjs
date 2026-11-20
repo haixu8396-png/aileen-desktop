@@ -103,9 +103,29 @@ describe('normalizeSettings', () => {
       hacked: true,
     });
     expect(out.llm.temperature).toBe(2);
-    expect(out.llm.maxTokens).toBe(8192);
+    expect(out.llm.maxTokens).toBe(999999);
     expect(out.llm.evil).toBeUndefined();
     expect(out.hacked).toBeUndefined();
+  });
+
+  it('输出上限不设上限：填多少存多少，只保证正整数', () => {
+    expect(normalizeSettings({ llm: { maxTokens: 16384 } }).llm.maxTokens).toBe(16384);
+    expect(normalizeSettings({ llm: { maxTokens: 32768 } }).llm.maxTokens).toBe(32768);
+    expect(normalizeSettings({ llm: { maxTokens: 1000000 } }).llm.maxTokens).toBe(1000000);
+    expect(normalizeSettings({ llm: { maxTokens: 999.6 } }).llm.maxTokens).toBe(1000);
+    // 0 / 负数 / 非数字 → 回落默认值（不能把 max_tokens 变成 0 或 NaN 发给服务端）
+    expect(normalizeSettings({ llm: { maxTokens: 0 } }).llm.maxTokens).toBe(1024);
+    expect(normalizeSettings({ llm: { maxTokens: -5 } }).llm.maxTokens).toBe(1024);
+    expect(normalizeSettings({ llm: { maxTokens: 'abc' } }).llm.maxTokens).toBe(1024);
+    expect(normalizeSettings({ llm: {} }).llm.maxTokens).toBe(1024);
+  });
+
+  it('留空 = 无限：null / 空字符串保留为 null（老设置里没有这个字段才回落 1024）', () => {
+    expect(normalizeSettings({ llm: { maxTokens: null } }).llm.maxTokens).toBeNull();
+    expect(normalizeSettings({ llm: { maxTokens: '' } }).llm.maxTokens).toBeNull();
+    expect(normalizeSettings({ llm: { maxTokens: '   ' } }).llm.maxTokens).toBeNull();
+    // 缺字段（老设置文件）→ 1024，保持旧行为
+    expect(normalizeSettings({ llm: {} }).llm.maxTokens).toBe(1024);
   });
   it('非法 URL 与非 http(s) 地址被清空', () => {
     const out = normalizeSettings({ llm: { baseUrl: 'javascript:alert(1)' }, tts: { baseUrl: 'file:///etc/passwd' } });

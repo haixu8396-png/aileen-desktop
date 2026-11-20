@@ -91,6 +91,27 @@ describe('streamChatCore · 带工具', () => {
     expect(seen.tool_choice).toBeUndefined();
   });
 
+  it('maxTokens 留空（null）= 无限：请求体里不带 max_tokens', async () => {
+    let seen = null;
+    const url = await toolServer(
+      [{ choices: [{ delta: { content: '好的' }, finish_reason: 'stop' }] }],
+      (body) => { seen = body; },
+    );
+    const info = await streamChatCore(args(url, { maxTokens: null }));
+    expect('max_tokens' in seen).toBe(false);
+    expect(info.budget).toBeNull();
+  });
+
+  it('maxTokens 有数字时照原样发（不再被 8192 之类的上限改写）', async () => {
+    let seen = null;
+    const url = await toolServer(
+      [{ choices: [{ delta: { content: '好的' }, finish_reason: 'stop' }] }],
+      (body) => { seen = body; },
+    );
+    await streamChatCore(args(url, { maxTokens: 20000 }));
+    expect(seen.max_tokens).toBe(20000);
+  });
+
   it('跨 chunk 切断的工具增量能拼回，并从返回值拿到 toolCalls', async () => {
     const url = await toolServer([
       { choices: [{ delta: { tool_calls: [{ index: 0, id: 'call_x', type: 'function', function: { name: 'read_', arguments: '{"pa' } }] } }] },

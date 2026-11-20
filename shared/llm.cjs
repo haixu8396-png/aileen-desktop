@@ -64,15 +64,23 @@ async function streamChatCore({
     e.code = 'NO_KEY';
     throw e;
   }
-  const budget = Number(maxTokens) || 1024;
+  // 输出额度：**留空 = 不限制**（用户明确要求「框里没有数字就是无限」）。
+  // 不限制时不发 max_tokens，让模型/服务端用自己的上限；
+  // 这不是「没设」，所以不能拿 1024 兜底 —— 那会把用户的「无限」变成 1024。
+  const rawBudget = (maxTokens === null || maxTokens === undefined || maxTokens === '')
+    ? null
+    : Number(maxTokens);
+  const budget = (rawBudget !== null && Number.isFinite(rawBudget) && rawBudget > 0)
+    ? Math.round(rawBudget)
+    : null;
   const url = trimBase(baseUrl) + '/chat/completions';
   const body = {
     model,
     messages,
     temperature: Number(temperature) || 0.8,
-    max_tokens: budget,
     stream: true,
   };
+  if (budget !== null) body.max_tokens = budget;
   // 只有真的要调工具时才带 tools —— 普通对话带上它反而会让模型话变少
   if (Array.isArray(tools) && tools.length) {
     body.tools = tools;

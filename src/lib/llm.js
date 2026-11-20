@@ -23,10 +23,11 @@ function localizedError(msg) {
   if (code === 'ABORTED') return Object.assign(new Error('aborted'), { name: 'AbortError', code });
   if (code === 'EMPTY_REPLY') {
     const budget = Number(msg.budget) || 0;
+    // 未设额度（留空 = 无限）时没有「预算用光」这回事：不要显示成「预算 0」
     const text = msg.reasoningChars > 0
-      ? t('llm.onlyReasoning', { n: budget })
+      ? (budget > 0 ? t('llm.onlyReasoning', { n: budget }) : t('llm.emptyReply'))
       : (msg.streamError ? t('llm.streamFailed', { v: msg.streamError })
-        : (msg.finishReason === 'length' ? t('llm.hitLimit', { n: budget }) : t('llm.emptyReply')));
+        : (msg.finishReason === 'length' && budget > 0 ? t('llm.hitLimit', { n: budget }) : t('llm.emptyReply')));
     return Object.assign(new Error(text), {
       code,
       reasoningChars: msg.reasoningChars,

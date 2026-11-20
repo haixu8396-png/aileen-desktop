@@ -82,12 +82,18 @@ describe('personaBudgets · 推理模型的额度阶梯', () => {
   });
 
   it('用户设得大时，尊重用户的设置并在封顶内翻倍', () => {
-    expect(personaBudgets(5000)).toEqual([5000, 8192]);
+    expect(personaBudgets(5000)).toEqual([5000, 10000]);
   });
 
-  it('封顶 8192，且到顶之后不再给第二级', () => {
-    expect(personaBudgets(8192)).toEqual([8192]);
-    expect(personaBudgets(99999)).toEqual([8192]);
+  it('封顶策略：用户设得很大时直接用用户的值、不再翻倍', () => {
+    expect(personaBudgets(8192)).toEqual([8192, 16384]);
+    expect(personaBudgets(16384)).toEqual([16384]);
+    expect(personaBudgets(200000)).toEqual([200000]);
+  });
+
+  it('用户把聊天上限调到 16k 以上时，人设生成不会被卡住', () => {
+    expect(personaBudgets(12000)).toEqual([12000, 24000]);
+    expect(personaBudgets(16384)).toEqual([16384]);
   });
 
   it('脏值（undefined / NaN / 负数）按 0 处理', () => {
@@ -151,11 +157,18 @@ describe('withPersonaBudget · 额度不够时自动重试', () => {
     expect(tried).toEqual([4096]);
   });
 
-  it('封顶时只跑一次，不会拿同一个额度重复烧钱', async () => {
+  it('8k 起步被截断时会翻到 16k 再试一次', async () => {
     const tried = [];
     await expect(withPersonaBudget(8192, async (budget) => { tried.push(budget); throw emptyReply(); }))
       .rejects.toThrow();
-    expect(tried).toEqual([8192]);
+    expect(tried).toEqual([8192, 16384]);
+  });
+
+  it('封顶时只跑一次，不会拿同一个额度重复烧钱', async () => {
+    const tried = [];
+    await expect(withPersonaBudget(16384, async (budget) => { tried.push(budget); throw emptyReply(); }))
+      .rejects.toThrow();
+    expect(tried).toEqual([16384]);
   });
 });
 describe('buildPersonaMessages · 原型锁定', () => {

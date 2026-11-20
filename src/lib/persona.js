@@ -153,17 +153,21 @@ export function buildSeedMessages(seed) {
   return buildPersonaMessages(seed);
 }
 
-// 生成一张卡要花的额度（思考很占），以及撞到上限后允许翻到的天花板
-export const PERSONA_MIN_TOKENS = 4096;   // 一张卡光正文就 1000+ 字，起步额度必须给够
-export const PERSONA_MAX_TOKENS = 8192;
+// 生成一张卡要花的额度（思考很占）。起步额度必须给够，否则模型把预算花在思考上。
+export const PERSONA_MIN_TOKENS = 4096;
+// 只有起步额度不高时才翻倍重试；用户自己设得很大时不再翻倍（避免一次生成要两倍巨额）。
+export const PERSONA_RETRY_CEILING = 16384;
 
 /**
- * 额度阶梯：起步不低于 2048（不动用户自己设的聊天上限），最多翻一次倍，封顶 8192。
- * 只在「思考把额度吃光、一个字正文都没写出来」时才会用到第二级。
+ * 额度阶梯：**跟随用户设置，不设上限**。
+ *   · 用户设得比 4096 小 → 按 4096 起步（一张卡光正文就 1000+ 字）
+ *   · 用户设得很大 → 直接用用户的值，不再翻倍
+ * 只在「思考把额度吃光、一个字正文都没写出来」或「JSON 被截断」时才用到第二级。
  */
 export function personaBudgets(userMax) {
-  const base = Math.min(Math.max(Number(userMax) || 0, PERSONA_MIN_TOKENS), PERSONA_MAX_TOKENS);
-  return base >= PERSONA_MAX_TOKENS ? [base] : [base, Math.min(base * 2, PERSONA_MAX_TOKENS)];
+  const base = Math.max(Number(userMax) || 0, PERSONA_MIN_TOKENS);
+  if (base >= PERSONA_RETRY_CEILING) return [base];
+  return [base, base * 2];
 }
 
 // 值得「加大额度重来一次」的两种失败：
@@ -206,7 +210,8 @@ export function parsePersonaOutcome(raw) {
  * 生成一张角色卡（两个入口共用：角色编辑器里的快捷键、设置里的人设生成室）。
  *
  * 这里把两种「其实只是额度不够」的失败自己扛掉，不让用户看到「再试一次吧」：
- *   思考吃光预算 → 加额度重来；JSON 被截断 → 加额度重来。封顶 8192。
+ *   思考吃光预算 → 加额度重来；JSON 被截断 → 加额度重来。
+ * 额度上限跟随用户在设置里的「最大输出 Token」（不设上限）。
  */
 export async function generatePersonaCard(settings, options) {
   const messages = buildPersonaMessages(options);

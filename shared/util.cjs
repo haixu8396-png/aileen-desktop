@@ -103,6 +103,22 @@ function numOrNull(v, min, max) {
   return Math.min(max, Math.max(min, n));
 }
 
+/**
+ * 最大输出 Token：**不设上限；留空（null / 空字符串）= 无限**。
+ * 返回 null 表示「不限制」—— 请求里就不发 max_tokens，由模型用自己的上限。
+ *   · undefined（老设置文件里没有这个字段）→ 1024（保持旧行为，不突然改变老用户的额度）
+ *   · null / ''（用户清空输入框）→ null（无限）
+ *   · 0 / 负数 / 非数字 → 1024（不能把 max_tokens 变成 0 或 NaN 发给服务端）
+ */
+function normalizeMaxTokens(v) {
+  if (v === null) return null;
+  if (typeof v === 'string' && v.trim() === '') return null;
+  if (v === undefined) return 1024;
+  const n = typeof v === 'number' ? v : parseFloat(v);
+  if (!Number.isFinite(n) || n < 1) return 1024;
+  return Math.round(n);
+}
+
 /** 每个模型最多记这么多条；模型数量也有上限，避免设置文件被撑爆 */
 const LIVE2D_STATE_MAX_MODELS = 50;
 const LIVE2D_STATE_MAX_ITEMS = 400;
@@ -219,7 +235,10 @@ function normalizeSettings(raw, defaults) {
       apiKey: asStr(llm.apiKey, 4000),
       model: asStr(llm.model, 120),
       temperature: asNum(llm.temperature, 0, 2, 0.8),
-      maxTokens: Math.round(asNum(llm.maxTokens, 1, 8192, 1024)),
+      // 输出上限：不再设上限（用户要「调到无限」）。
+      // 只保证它是正整数：非数字/0/负数回落到默认 1024。
+      // 真正能不能用由模型决定 —— 超过模型能力时服务端会明确报错，客户端不替用户改数字。
+      maxTokens: normalizeMaxTokens(llm.maxTokens),
     },
     tts: {
       provider: asOneOf(tts.provider, TTS_PROVIDERS, 'none'),

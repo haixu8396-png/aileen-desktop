@@ -76,7 +76,8 @@ export function fillLlm() {
   setKeyField('s-llm-key', 'llm');
   $('s-llm-model').value = s.llm.model || '';
   $('s-llm-temp').value = s.llm.temperature ?? 0.8;
-  $('s-llm-max').value = s.llm.maxTokens ?? 1024;
+  // 留空 = 无限（null 在界面上显示为空输入框，不是 0 也不是 1024）
+  $('s-llm-max').value = s.llm.maxTokens == null ? '' : s.llm.maxTokens;
   refreshWebCapability();
 }
 
@@ -134,7 +135,14 @@ export function saveLlmModal() {
     apiKey: keyPatch('s-llm-key', 'llm'),
     model: $('s-llm-model').value.trim(),
     temperature: parseFloat($('s-llm-temp').value) || 0.8,
-    maxTokens: parseInt($('s-llm-max').value, 10) || 1024,
+    // 留空 = 无限：存 null，请求里就不发 max_tokens（由模型决定自己的上限）。
+    // 有数字 = 就用这个数字，不设上限。
+    maxTokens: (() => {
+      const raw = String($('s-llm-max').value == null ? '' : $('s-llm-max').value).trim();
+      if (!raw) return null;
+      const n = parseInt(raw, 10);
+      return Number.isFinite(n) && n > 0 ? Math.round(n) : null;
+    })(),
   };
   return saveSettings(next).then(() => {
     saved('s-llm-save', 'llm.saved');

@@ -1032,5 +1032,7 @@
   "kol.confirmDelete": "删除知识库「{name}」？它生成的文件会一起删除。",
   "kol.needTopic": "先填一个主题",
   "kol.noManifest": "这个知识库没有清单文件，无法刷新",
-  "kol.listTitle": "已生成的知识库"
+  "kol.listTitle": "已生成的知识库",
+  "llm.maxTokensHint": "留空表示无限（不限制输出长度，由模型决定自己的上限）。填数字就按这个值发，不设上限；超过模型能力时由服务端拒绝。",
+  "llm.maxTokensPh": "留空 = 无限"
 }
