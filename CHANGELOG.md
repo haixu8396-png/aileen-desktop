@@ -2,6 +2,27 @@
 
 本项目所有重要改动都会记录在此，版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [0.7.11] - 2026-11-20
+
+### Overview
+
+Patch release on top of 0.7.10. Makes the maximum output-token setting self-explanatory: the settings page now states the effective value, so "unlimited" can be confirmed at a glance instead of inferring it from an empty box.
+
+### Added
+
+- Live status line under the maximum output-token field: it reads "Current: unlimited" when the field is empty, and "Current: N tokens" when a number is entered. It updates while typing and again after saving.
+
+### Fixed
+
+- Clarified the empty-field state. The previous patch already stored an empty field as "no limit", but the UI gave no confirmation, which made a successful save look identical to a failed one.
+- After saving, the status line is refreshed from the persisted settings rather than from the text field, so a rejected or reverted value becomes visible immediately.
+
+### Verification
+
+- 69 test files / 1087 tests passing (unit and integration).
+- Syntax and boundary checks over 187 files passing; production build passing.
+- Installed build synced; the empty-field path was reproduced end to end against a copy of real user settings: clearing the field writes an empty value to `settings.json` and re-opening the page shows an empty field with "unlimited".
+
 ## [0.7.10] - 2026-11-20
 
 ### Overview

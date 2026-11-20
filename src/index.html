@@ -887,6 +887,7 @@
                 <div class="form-grid">
                   <label><span data-i18n="llm.temperature">Temperature</span><input id="s-llm-temp" type="number" min="0" max="2" step="0.1" /></label>
                   <label><span data-i18n="llm.maxTokens">最大输出 Token</span><input id="s-llm-max" type="number" min="1" step="1" placeholder="留空 = 无限" data-i18n-ph="llm.maxTokensPh" />
+                    <span class="hint" id="s-llm-max-state"></span>
                     <span class="hint" data-i18n="llm.maxTokensHint">留空表示无限（不限制输出长度，由模型决定自己的上限）。填数字就按这个值发，不设上限；超过模型能力时由服务端拒绝。</span></label>
                 </div>
                 <p class="hint" data-i18n-html="llm.hint"></p>

@@ -65,6 +65,21 @@ function saved(id, key) {
 }
 
 // ---------------- 对话模型 ----------------
+/** 把「当前是无限还是 N」直接写在输入框下面，别让用户猜保存有没有生效 */
+export function updateMaxTokensState() {
+  const el = $('s-llm-max');
+  const box = $('s-llm-max-state');
+  if (!box) return;
+  const raw = String((el && el.value) == null ? '' : (el && el.value)).trim();
+  if (!raw) {
+    box.textContent = t('llm.maxUnlimited');
+    box.className = 'hint max-state-unlimited';
+  } else {
+    box.textContent = t('llm.maxCurrent', { n: raw });
+    box.className = 'hint max-state-number';
+  }
+}
+
 export function fillLlm() {
   const s = getSettings();
   const prov = s.llm.provider;
@@ -78,6 +93,7 @@ export function fillLlm() {
   $('s-llm-temp').value = s.llm.temperature ?? 0.8;
   // 留空 = 无限（null 在界面上显示为空输入框，不是 0 也不是 1024）
   $('s-llm-max').value = s.llm.maxTokens == null ? '' : s.llm.maxTokens;
+  updateMaxTokensState();
   refreshWebCapability();
 }
 
@@ -146,6 +162,7 @@ export function saveLlmModal() {
   };
   return saveSettings(next).then(() => {
     saved('s-llm-save', 'llm.saved');
+    updateMaxTokensState();
     setKeyField('s-llm-key', 'llm');
     try { window.dispatchEvent(new CustomEvent('aileen:settings-changed')); } catch (err) { /* ignore */ }
   });
@@ -620,6 +637,12 @@ export function initSettingsPage() {
   wire('btn-llm-fetch', fetchLlmModels);
   wire('btn-llm-test', testLlmConnection);
   wire('btn-llm-web-probe', probeWebCapability);
+  // Token 输入框：边输边显示「当前：无限 / 当前：N」，避免保存没生效却看不出来
+  const maxEl = $('s-llm-max');
+  if (maxEl) {
+    maxEl.addEventListener('input', updateMaxTokensState);
+    maxEl.addEventListener('change', updateMaxTokensState);
+  }
   wire('btn-tts-fetch', fetchTtsVoices);
   wire('btn-stt-fetch', fetchSttModels);
   wire('btn-embed-fetch', fetchEmbeddingModels);

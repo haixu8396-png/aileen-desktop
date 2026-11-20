@@ -1034,5 +1034,7 @@
   "kol.noManifest": "このナレッジベースには manifest がないため更新できません",
   "kol.listTitle": "生成済みナレッジベース",
   "llm.maxTokensHint": "空欄なら無制限（出力長を制限せず、モデル自身の上限に任せます）。数字を入れた場合はその値をそのまま送信し、クライアント側の上限はありません。モデルの上限を超えるとサーバー側で拒否されます。",
-  "llm.maxTokensPh": "空欄 = 無制限"
+  "llm.maxTokensPh": "空欄 = 無制限",
+  "llm.maxUnlimited": "現在：無制限",
+  "llm.maxCurrent": "現在：{n} トークン"
 }

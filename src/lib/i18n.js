@@ -112,6 +112,8 @@ export const EN = {
   "llm.emptyReply": "The model returned nothing. Try again.",
   "llm.streamFailed": "The stream stopped midway: {v}",
   "llm.maxTokensPh": "empty = unlimited",
+  "llm.maxUnlimited": "Current: unlimited",
+  "llm.maxCurrent": "Current: {n} tokens",
   "llm.maxTokensHint": "Leave it empty for unlimited (no output-length cap; the model uses its own ceiling). A number is sent as-is with no client-side cap — if it exceeds what the model supports, the server rejects it.",
   "llm.webCapability": "Model native web",
   "llm.webUnknown": "Unknown (not probed)",
