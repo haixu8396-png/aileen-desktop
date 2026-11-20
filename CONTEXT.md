@@ -247,3 +247,4 @@ aileen/
 - 基线：`npm test` 69 文件 / 1081 项、lint 187 文件、build 通过；零模型自检 `appVersion=0.7.9`、`errors=[]`。
 
 - 发布：`e5cba46` + tag `v0.7.9`；CI run `44590716244` success；Release 三资产（Setup 127.9 MB / 便携 127.7 MB / 源码 1.2 MB），说明文字由正式版 CHANGELOG 生成（2550 字符）。
+- 0.7.10（补丁，2026-11-20）：最大输出 Token 留空即无限（请求不发 max_tokens）、填数字不截断；人设生成跟随该设置。发布 `5eb16af` + tag `v0.7.10`，CI run `44684810947` success，英文 Release 说明。
