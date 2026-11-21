@@ -37,6 +37,8 @@ function attachSelfTest(win, deps) {
 // overlay 的内部状态一律走取值函数 —— 它们会变，直接传值会快照过期数据。
 const { opts = {}, settings = {}, models = {}, overlay = {}, deps: host = {} } = deps || {};
 const { fs, path, crypto, Menu, app } = host;
+// 裁切门禁要读「合成后的真实像素」，只有 nativeImage 能把截图解成 RGBA
+const { nativeImage } = require('electron');
 const {
   readSettings, writeSettings, settingsForRenderer,
   settingsFile: SETTINGS_FILE, encryptionAvailable,
@@ -664,28 +666,40 @@ win.webContents.on('did-finish-load', () => {
         let copyUiOk = false;
         let copyUiDetail = null;
         try {
-          const msg = document.querySelector('#messages .msg.assistant') || document.querySelector('#messages .msg');
-          const btn = msg ? msg.querySelector('.msg-actions .msg-copy') : null;
-          const acts = msg ? msg.querySelector('.msg-actions') : null;
-          const body = msg ? msg.querySelector('.msg-body') : null;
-          let clickable = false;
-          let belowBody = false;
-          let visible = false;
-          if (btn && acts && body) {
-            const r = btn.getBoundingClientRect();
-            const top = document.elementFromPoint(Math.round(r.left + r.width / 2), Math.round(r.top + r.height / 2));
-            clickable = !!(top && (top === btn || btn.contains(top)));
-            belowBody = acts.getBoundingClientRect().top >= body.getBoundingClientRect().bottom - 3;
-            visible = parseFloat(getComputedStyle(btn).opacity || '0') > 0.3;
+          // 优先用探针：没有消息时它会造一条（当前角色没 first_mes、也没历史时不会假红）
+          if (typeof window.__AILEEN_PROBE_COPY_UI === 'function') {
+            const p = await window.__AILEEN_PROBE_COPY_UI();
+            copyUiDetail = p ? {
+              hasBtn: !!p.hasBtn,
+              clickable: !!p.clickable,
+              belowBody: !!p.belowBody,
+              visible: !!p.visible,
+              codeCopyInBlock: !!p.codeCopyInBlock,
+              synthetic: !!p.synthetic,
+            } : null;
+            copyUiOk = !!(p && p.ok && p.hasBtn && p.clickable && p.belowBody && p.visible);
+          } else {
+            const msg = document.querySelector('#messages .msg.assistant') || document.querySelector('#messages .msg');
+            const btn = msg ? msg.querySelector('.msg-actions .msg-copy') : null;
+            const acts = msg ? msg.querySelector('.msg-actions') : null;
+            const body = msg ? msg.querySelector('.msg-body') : null;
+            let clickable = false;
+            let belowBody = false;
+            let visible = false;
+            if (btn && acts && body) {
+              const r = btn.getBoundingClientRect();
+              const top = document.elementFromPoint(Math.round(r.left + r.width / 2), Math.round(r.top + r.height / 2));
+              clickable = !!(top && (top === btn || btn.contains(top)));
+              belowBody = acts.getBoundingClientRect().top >= body.getBoundingClientRect().bottom - 3;
+              visible = parseFloat(getComputedStyle(btn).opacity || '0') > 0.3;
+            }
+            const firstPre = msg ? msg.querySelector('.code-block .code-copy') : null;
+            copyUiDetail = {
+              hasBtn: !!btn,
+              clickable, belowBody, visible, codeCopyInBlock: !!firstPre,
+            };
+            copyUiOk = !!btn && clickable && belowBody && visible;
           }
-          let codeBtn = null;
-          const firstPre = msg ? msg.querySelector('.code-block .code-copy') : null;
-          if (firstPre) codeBtn = true;
-          copyUiDetail = {
-            hasBtn: !!btn,
-            clickable, belowBody, visible, codeCopyInBlock: !!codeBtn,
-          };
-          copyUiOk = !!btn && clickable && belowBody && visible;
         } catch (err) { window.__AILEEN_ERRORS.push('copyUi: ' + String((err && err.message) || err)); }
         const modelZipProbe = ${JSON.stringify(zipProbe)};
         const modelZipOk = !!modelZipProbe && modelZipProbe.error === undefined
@@ -1660,6 +1674,107 @@ win.webContents.on('did-finish-load', () => {
                 && sc.rect[0] + sc.rect[2] <= sc.view[0] + 1;
               rep.panelInsideOk = rep.modelsAvailable ? inside : 'skipped:no-model-installed';
             } catch (err) { rep.panelScrollOk = 'err:' + String((err && err.message) || err); }
+            // —— 显示区域（裁切）必须真的裁掉画面 ——
+            // 为什么单独做这道门禁：PIXI 的 container.mask 在这个 Live2D 引擎上是**静默失效**的
+            // （viewportRoot.mask 有值、矩形也对，真机截图里模型一点没被裁）。所以不能只断言
+            // 「有个 mask 对象」，必须看合成后的像素：CDP 截图（强制透明背景）+ 数 alpha。
+            try {
+              const dbg = w.webContents.debugger;
+              if (!dbg.isAttached()) dbg.attach('1.3');
+              await dbg.sendCommand('Page.enable').catch(() => {});
+              // 透明窗口不设这一句，截图会被铺成白底、alpha 全 255 → 数不出「哪里被裁掉」
+              await dbg.sendCommand('Emulation.setDefaultBackgroundColorOverride', {
+                color: { r: 0, g: 0, b: 0, a: 0 },
+              }).catch(() => {});
+              const grab = async () => {
+                const res = await dbg.sendCommand('Page.captureScreenshot', { format: 'png' });
+                const img = nativeImage.createFromBuffer(Buffer.from(res.data, 'base64'));
+                return { bmp: img.toBitmap(), size: img.getSize() };
+              };
+              const geo = await w.webContents.executeJavaScript(`(function(){
+                var p = window.__AILEEN_VIEWPORT_PROBE ? window.__AILEEN_VIEWPORT_PROBE() : null;
+                var box = window.__AILEEN_VIEWPORT_CONTENT_BOX ? window.__AILEEN_VIEWPORT_CONTENT_BOX() : null;
+                var ui = document.getElementById('ov-ui');
+                var r = ui ? ui.getBoundingClientRect() : null;
+                return { probe: p, box: box, inner: [window.innerWidth, window.innerHeight],
+                         ui: r ? { x: r.left, y: r.top, w: r.width, h: r.height } : null };
+              })()`);
+              const innerW = (geo && geo.inner && geo.inner[0]) || 1;
+              const innerH = (geo && geo.inner && geo.inner[1]) || 1;
+              const stageH = (geo && geo.probe && geo.probe.stage && geo.probe.stage.h) || innerH;
+              const content = geo && geo.box;
+              // 切线 = 角色内容盒的中线：不依赖用户把角色摆在哪，基线一定画得出来
+              const cutCss = content
+                ? Math.max(4, Math.min(stageH * 0.85, content.y + content.h * 0.5))
+                : stageH * 0.5;
+              const countAbove = (shot) => {
+                const sx = shot.size.width / innerW;
+                const sy = shot.size.height / innerH;
+                const limit = Math.min(shot.size.height, Math.round(cutCss * sy));
+                const u = geo && geo.ui;
+                const ux0 = u ? u.x * sx : -1;
+                const ux1 = u ? (u.x + u.w) * sx : -1;
+                const uy0 = u ? u.y * sy : -1;
+                const uy1 = u ? (u.y + u.h) * sy : -1;
+                let n = 0;
+                for (let y = 0; y < limit; y += 1) {
+                  for (let x = 0; x < shot.size.width; x += 1) {
+                    if (shot.bmp[(y * shot.size.width + x) * 4 + 3] <= 8) continue;
+                    // 工具条是 HTML UI，本来就不该被画布裁切吃掉，排除掉免得误判
+                    if (u && x >= ux0 && x <= ux1 && y >= uy0 && y <= uy1) continue;
+                    n += 1;
+                  }
+                }
+                return n;
+              };
+              const neutral = 'window.__AILEEN_VIEWPORT_SET({enabled:false,top:0,bottom:0,left:0,right:0})';
+              // 数 alpha 之前必须把**所有 HTML UI 藏起来**（工具条 / ⋯ 面板 / 聊天框）：
+              // 它们本来就不归画布裁切管，露在上面就会把「裁掉了 0 个像素」这条断言搅成假红。
+              const hideUi = `(function(){
+                var el = document.getElementById('ov-ui');
+                if (!el) return false;
+                el.dataset.selftestPrevVis = el.style.visibility || '';
+                el.style.visibility = 'hidden';
+                return true;
+              })()`;
+              const showUi = `(function(){
+                var el = document.getElementById('ov-ui');
+                if (!el) return false;
+                el.style.visibility = el.dataset.selftestPrevVis || '';
+                delete el.dataset.selftestPrevVis;
+                return true;
+              })()`;
+              await w.webContents.executeJavaScript(hideUi).catch(() => {});
+              await w.webContents.executeJavaScript(neutral);
+              await new Promise((r) => setTimeout(r, 420));
+              const paintedBefore = countAbove(await grab());
+              const topPct = cutCss / stageH;
+              const cropped = await w.webContents.executeJavaScript(
+                'window.__AILEEN_VIEWPORT_SET(' + JSON.stringify({ enabled: true, top: topPct, bottom: 0, left: 0, right: 0 }) + ')',
+              );
+              await new Promise((r) => setTimeout(r, 520));
+              const paintedAfter = countAbove(await grab());
+              const restored = await w.webContents.executeJavaScript(neutral);
+              await w.webContents.executeJavaScript(showUi).catch(() => {});
+              await new Promise((r) => setTimeout(r, 220));
+              rep.viewportClipProbe = {
+                cutCss: Math.round(cutCss),
+                topPct: Math.round(topPct * 1000) / 1000,
+                paintedAboveBefore: paintedBefore,
+                paintedAboveAfter: paintedAfter,
+                clip: cropped && cropped.canvasClip,
+                clipped: !!(cropped && cropped.clipped),
+                rect: cropped && cropped.rect,
+                restoredClip: restored && restored.canvasClip,
+              };
+              const cutClean = paintedBefore > 200 && paintedAfter <= Math.max(2, Math.round(paintedBefore * 0.02));
+              const clipApplied = !!(cropped && cropped.clipped && cropped.rect);
+              const clipCleared = !!(restored && restored.canvasClip === '');
+              rep.viewportClipOk = rep.modelsAvailable ? (cutClean && clipApplied && clipCleared) : 'skipped:no-model-installed';
+              try { dbg.detach(); } catch { /* 忽略 */ }
+            } catch (err) {
+              rep.viewportClipOk = 'err:' + String((err && err.message) || err);
+            }
             rep.mainWindowMq = await win.webContents.executeJavaScript('({ mq: window.matchMedia("screen and (max-width: 768px)").matches, screen: [window.screen.width, window.screen.height] })').catch(() => null);
           } catch (err) { rep.errors.push('overlay probe: ' + String((err && err.message) || err)); }
           await new Promise((r) => setTimeout(r, 400));

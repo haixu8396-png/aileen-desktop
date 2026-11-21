@@ -1036,5 +1036,18 @@
   "llm.maxTokensHint": "留空表示无限（不限制输出长度，由模型决定自己的上限）。填数字就按这个值发，不设上限；超过模型能力时由服务端拒绝。",
   "llm.maxTokensPh": "留空 = 无限",
   "llm.maxUnlimited": "当前：不限制（无限）",
-  "llm.maxCurrent": "当前：{n} tokens"
+  "llm.maxCurrent": "当前：{n} tokens",
+  "agent.stateExecuting": "正在执行工具",
+  "agent.stateObserving": "正在读取结果",
+  "agent.stateVerifying": "正在验证结果",
+  "agent.stateRecovering": "出错后正在恢复",
+  "overlay.viewport": "显示区域",
+  "overlay.viewportEnabled": "启用裁切",
+  "overlay.viewportTop": "顶部",
+  "overlay.viewportBottom": "底部",
+  "overlay.viewportLeft": "左侧",
+  "overlay.viewportRight": "右侧",
+  "overlay.viewportReset": "恢复默认",
+  "overlay.viewportHint": "只改变显示范围，不会缩放模型；放大缩小后裁切范围保持不变。",
+  "overlay.viewportTip": "显示区域（裁切）"
 }

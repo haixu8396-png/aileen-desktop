@@ -254,3 +254,10 @@ button.ov-link.is-attn {
 /* 图标统一尺寸 */
 [data-icon] { display: inline-flex; align-items: center; justify-content: center; line-height: 0; }
 .ico { display: block; flex: none; }
+
+/* 显示区域（Viewport）面板 */
+.ov-vp-row { display: grid; grid-template-columns: 40px 1fr 40px; align-items: center; gap: 6px; margin: 5px 0; }
+.ov-vp-name { font-size: 12px; opacity: 0.8; }
+.ov-vp-val { font-size: 12px; text-align: right; opacity: 0.8; }
+.ov-vp-switch { display: flex; align-items: center; gap: 6px; font-size: 12px; }
+.ov-vp-row input[type="range"] { width: 100%; }

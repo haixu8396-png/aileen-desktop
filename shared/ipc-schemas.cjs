@@ -113,6 +113,14 @@ const CHANNELS = {
     activeExpressions: v.optional(v.arr(v.str({ max: 200 }), { max: 400 })),
     hiddenParts: v.optional(v.arr(v.str({ max: 200 }), { max: 400 })),
   })),
+  // Live2D 显示区域：读取按模型；写入时 viewport 是四边百分比
+  'overlay:getViewport': v.args(v.object({
+    modelKey: v.str({ max: 300 }),
+  })),
+  'overlay:setViewport': v.args(v.object({
+    modelKey: v.str({ max: 300 }),
+    viewport: v.optional(v.object({}, { allowUnknown: true })),
+  }, { allowUnknown: true })),
   'overlay:getState': v.NO_ARGS,
   'overlay:resize': v.args(v.object({
     dw: v.optional(v.num({ min: -2000, max: 2000 })),

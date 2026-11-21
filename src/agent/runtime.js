@@ -46,6 +46,67 @@ const MAX_PARALLEL_READS = 3;
 const RETRY_BACKOFF_MS = 120;
 
 /**
+ * 0.7.12：执行流程的看门狗（默认值；调用方可逐个覆盖）
+ *
+ * 这几个超时是**分开的**，不能混成一个：
+ *   · llmTimeoutMs      单次模型请求最长等多久（等不到就判这次请求失败，走错误恢复）
+ *   · approvalTimeoutMs 等用户批准最长等多久（等不到按「拒绝这一次」处理，绝不无限挂住）
+ *   · toolTimeoutMs     单个工具最长跑多久（超时取消并作为失败结果回给模型）
+ *   · stallMs           多久没有任何进展事件就判「疑似停滞」→ 存检查点并暂停
+ *   · repeatLimit       同一工具 + 同一参数 + 同一结果重复多少次算空转
+ */
+const WATCHDOG_DEFAULTS = {
+  llmTimeoutMs: 240000,
+  approvalTimeoutMs: 300000,
+  toolTimeoutMs: 180000,
+  stallMs: 90000,
+  repeatLimit: 3,
+  autoExtendBudget: false,
+  hardRoundCap: 200,
+};
+
+/**
+ * 给 Promise 套一层超时：到点返回 { __timeout:true }，由调用方决定怎么处理。
+ * 注意它 resolve 而不是 reject —— 调用方需要区分「超时」和「出错」。
+ */
+function raceTimeout(promise, ms, label) {
+  const limit = Number(ms);
+  if (!Number.isFinite(limit) || limit <= 0) {
+    return Promise.resolve(promise).then((value) => ({ value }), (error) => ({ error }));
+  }
+  return new Promise((resolve) => {
+    let settled = false;
+    const timer = setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      resolve({ timeout: true, label });
+    }, limit);
+    Promise.resolve(promise).then((value) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      resolve({ value });
+    }, (error) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      resolve({ error });
+    });
+  });
+}
+
+/** 稳定哈希（用于「同一调用 + 同一结果」的重复检测） */
+function hashText(text) {
+  const s = String(text == null ? '' : text);
+  let h = 2166136261;
+  for (let i = 0; i < s.length; i += 1) {
+    h ^= s.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  return (h >>> 0).toString(16);
+}
+
+/**
  * 建一个「等待被唤醒」的闸门。
  * pause() 之后条件为 false，await gate() 会挂住；resume() 放行。
  */
@@ -143,6 +204,30 @@ export function runAgent(deps = {}) {
   const maxRetries = Math.max(0, Math.min(3, Number.isFinite(deps.maxRetries) ? deps.maxRetries : 1));
   const parallelReadOnly = deps.parallelReadOnly !== false;
 
+  // 看门狗参数：调用方可以逐个覆盖（chat.js 从设置里传），默认值是保守的
+  const wd = {};
+  for (const key of Object.keys(WATCHDOG_DEFAULTS)) {
+    wd[key] = deps[key] === undefined ? WATCHDOG_DEFAULTS[key] : deps[key];
+  }
+
+  /**
+   * 进展心跳：任何「有意义的进展」都刷新它（一轮开始、工具调用、工具结果、文本增量）。
+   * 停滞判定只看它 —— 没有进展 ≠ 正在思考，等太久就要停下来告诉用户。
+   */
+  const progress = {
+    lastAt: clock(),
+    lastStage: 'start',
+    rounds: 0,
+    toolCalls: 0,
+    // 「同一工具 + 同一参数 + 同一结果」的重复计数：一次正常的重复是需求，连续多次就是空转
+    repeatKey: '',
+    repeatCount: 0,
+  };
+  const touch = (stage) => {
+    progress.lastAt = clock();
+    if (stage) progress.lastStage = stage;
+  };
+
   /** 运行中可变的授权（撤销/收紧立刻生效，不必重启任务） */
   let authCurrent = run.authorization;
 
@@ -182,18 +267,24 @@ export function runAgent(deps = {}) {
       paused = true;
       gates.close();
       run.pauseReason = 'user';
+      touch('paused');
       transition(run, RUN_STATUS.PAUSED);
       emit(AGENT_EVENT.RUN_UPDATED, run);
-      emit(AGENT_EVENT.STATUS, { status: AGENT_STATUS.PAUSED });
+      emit(AGENT_EVENT.STATUS, { status: AGENT_STATUS.PAUSED, reason: 'user' });
       return true;
     },
     resume() {
       if (isFinished(run) || !paused) return false;
       paused = false;
       run.pauseReason = null;
+      // 恢复时重置心跳与重复计数：否则刚恢复就立刻被判「停滞」
+      touch('resumed');
+      progress.repeatKey = '';
+      progress.repeatCount = 0;
       gates.open();
       transition(run, RUN_STATUS.RUNNING);
       emit(AGENT_EVENT.RUN_UPDATED, run);
+      emit(AGENT_EVENT.STATUS, { status: AGENT_STATUS.WORKING });
       return true;
     },
     /**
@@ -282,25 +373,55 @@ export function runAgent(deps = {}) {
     emit(AGENT_EVENT.RUN_UPDATED, run);
     emit(AGENT_EVENT.STATUS, { status: AGENT_STATUS.WAITING_APPROVAL });
 
+    /**
+     * 关键：审批等待**必须有上限**。
+     *
+     * 这就是「执行到某一步就没动静了」最常见的一种：卡片没被挂出来（活动卡按需挂载 +
+     * 用户切了页面）、或者回填路径断了 —— 于是 pendingResolvers 里那个 Promise 永远不 resolve，
+     * 整个 run 停在 waiting_approval，前端继续显示「运行中」。
+     *
+     * 到点按「拒绝这一次」处理：把结果作为正常的工具失败回给模型，让它可以换做法，
+     * 而不是把任务永久挂死；同时发一条能看懂的 NOTICE。
+     */
     let answer;
+    const waitApproval = async (waitPromise) => {
+      const r = await raceTimeout(waitPromise, wd.approvalTimeoutMs, 'approval');
+      if (r.timeout) {
+        pendingResolvers.delete(id);
+        emit(AGENT_EVENT.NOTICE, {
+          level: 'warn',
+          code: 'APPROVAL_TIMEOUT',
+          message: '等待用户批准超时（' + Math.round(wd.approvalTimeoutMs / 1000) + ' 秒），这一次按「拒绝」处理',
+          name,
+          timeoutMs: wd.approvalTimeoutMs,
+        });
+        return { approved: false, remember: false, timedOut: true };
+      }
+      if (r.error) throw r.error;
+      return r.value;
+    };
+
     if (typeof deps.requestApproval === 'function') {
       const promise = Promise.resolve(deps.requestApproval(item));
       const wrapped = promise.then((r) => ((r && typeof r === 'object')
         ? { approved: !!r.approved, remember: !!r.remember }
         : { approved: !!r, remember: false }));
       const manual = new Promise((resolve) => { pendingResolvers.set(id, resolve); });
-      answer = await Promise.race([wrapped, manual]);
+      answer = await waitApproval(Promise.race([wrapped, manual]));
       pendingResolvers.delete(id);
     } else {
-      answer = await new Promise((resolve) => { pendingResolvers.set(id, resolve); });
+      answer = await waitApproval(new Promise((resolve) => { pendingResolvers.set(id, resolve); }));
     }
 
     recordApproval(run, { id, name, riskLevel, approved: answer.approved, remember: answer.remember, reason });
-    emit(AGENT_EVENT.APPROVAL_DECIDED, { id, approved: answer.approved, remember: answer.remember, batch: false });
-    if (run.status === RUN_STATUS.WAITING_APPROVAL) {
+    emit(AGENT_EVENT.APPROVAL_DECIDED, { id, approved: answer.approved, remember: answer.remember, batch: false, timedOut: !!answer.timedOut });
+    // 审批结束只允许「回到运行中」—— 如果这期间用户点了暂停，就保持暂停，
+    // 不能把状态改回 running（否则前端显示在跑、实际卡在闸门上）。
+    if (run.status === RUN_STATUS.WAITING_APPROVAL && !paused) {
       transition(run, RUN_STATUS.RUNNING);
       emit(AGENT_EVENT.RUN_UPDATED, run);
     }
+    touch('approval-done');
     if (answer.remember && answer.approved && riskLevel === RISK.MEDIUM) grants.add('medium');
     return answer;
   }
@@ -338,6 +459,22 @@ export function runAgent(deps = {}) {
     emit(AGENT_EVENT.STATUS, { status: AGENT_STATUS.WAITING_APPROVAL });
 
     let answer;
+    const waitBatch = async (waitPromise) => {
+      const r = await raceTimeout(waitPromise, wd.approvalTimeoutMs, 'approval-batch');
+      if (r.timeout) {
+        pendingResolvers.delete(id);
+        emit(AGENT_EVENT.NOTICE, {
+          level: 'warn',
+          code: 'APPROVAL_TIMEOUT',
+          message: '等待用户批准超时（' + Math.round(wd.approvalTimeoutMs / 1000) + ' 秒），这一批按「全部拒绝」处理',
+          timeoutMs: wd.approvalTimeoutMs,
+          batch: true,
+        });
+        return { approved: false, decisions: {}, remember: false, timedOut: true };
+      }
+      if (r.error) throw r.error;
+      return r.value;
+    };
     if (typeof deps.requestApproval === 'function') {
       const promise = Promise.resolve(deps.requestApproval({ id, batch: true, items }));
       const wrapped = promise.then((r) => ((r && typeof r === 'object')
@@ -348,10 +485,10 @@ export function runAgent(deps = {}) {
         }
         : { approved: !!r, decisions: {}, remember: false }));
       const manual = new Promise((resolve) => { pendingResolvers.set(id, resolve); });
-      answer = await Promise.race([wrapped, manual]);
+      answer = await waitBatch(Promise.race([wrapped, manual]));
       pendingResolvers.delete(id);
     } else {
-      answer = await new Promise((resolve) => { pendingResolvers.set(id, resolve); });
+      answer = await waitBatch(new Promise((resolve) => { pendingResolvers.set(id, resolve); }));
     }
 
     const decisions = {};
@@ -369,11 +506,12 @@ export function runAgent(deps = {}) {
         reason: 'batch:' + String(item.reason || ''),
       });
     }
-    emit(AGENT_EVENT.APPROVAL_DECIDED, { id, batch: true, approved: answer.approved, decisions, remember: answer.remember });
-    if (run.status === RUN_STATUS.WAITING_APPROVAL) {
+    emit(AGENT_EVENT.APPROVAL_DECIDED, { id, batch: true, approved: answer.approved, decisions, remember: answer.remember, timedOut: !!answer.timedOut });
+    if (run.status === RUN_STATUS.WAITING_APPROVAL && !paused) {
       transition(run, RUN_STATUS.RUNNING);
       emit(AGENT_EVENT.RUN_UPDATED, run);
     }
+    touch('approval-batch-done');
     if (answer.remember) grants.add('medium');
     return { decisions };
   }
@@ -432,8 +570,12 @@ export function runAgent(deps = {}) {
   async function callTool(call, prep) {
     const { args, riskLevel, fingerprint } = prep;
     const tool = registry ? registry.get(call.name) : tools.find((x) => x.name === call.name);
-    emit(AGENT_EVENT.STATUS, { status: AGENT_STATUS.USING_TOOL });
+    // 兼容：老的「using_tool」仍然发一份（既有消费者/测试依赖），
+    // 新的「executing/observing/verifying/recovering」用于更细的前端阶段显示。
+    emit(AGENT_EVENT.STATUS, { status: AGENT_STATUS.USING_TOOL, tool: call.name });
+    emit(AGENT_EVENT.STATUS, { status: AGENT_STATUS.EXECUTING, tool: call.name });
     emit(AGENT_EVENT.TOOL_CALL, { name: call.name, args, callId: call.id, riskLevel, reason: prep.verdict ? prep.verdict.reason : '' });
+    touch('tool:' + call.name);
 
     const exec = (typeof executor[call.name] === 'function')
       ? executor[call.name].bind(executor)
@@ -450,9 +592,26 @@ export function runAgent(deps = {}) {
     let attempts = 0;
     for (;;) {
       try {
-        const raw = await exec(Object.assign({}, args, { signal: abortCtrl.signal, workspace: run.workspace }));
+        // 工具超时：到点按失败处理（结果回给模型），而不是让 run 卡在一个不返回的 Promise 上
+        const raced = await raceTimeout(
+          (async () => exec(Object.assign({}, args, { signal: abortCtrl.signal, workspace: run.workspace })))(),
+          wd.toolTimeoutMs,
+          'tool:' + call.name,
+        );
+        if (raced.timeout) {
+          const err = new Error('工具执行超时（' + Math.round(wd.toolTimeoutMs / 1000) + ' 秒）：' + call.name);
+          err.code = 'TOOL_TIMEOUT';
+          if (executor && typeof executor.cancelAll === 'function') {
+            try { executor.cancelAll(); } catch { /* 取消失败也继续 */ }
+          }
+          throw err;
+        }
+        if (raced.error) throw raced.error;
+        const raw = raced.value;
         const content = clipToolResult(typeof raw === 'string' ? raw : JSON.stringify(raw));
         const durationMs = clock() - started;
+        emit(AGENT_EVENT.STATUS, { status: AGENT_STATUS.OBSERVING, tool: call.name });
+        emit(AGENT_EVENT.STATUS, { status: AGENT_STATUS.VERIFYING, tool: call.name });
         const verified = await verifyStep(call.name, args);
         recordToolCall(run, { name: call.name, callId: call.id, args, ok: true, riskLevel, durationMs, summary: content.slice(0, 500) });
         recordCheckpointStep(run, {
@@ -470,11 +629,29 @@ export function runAgent(deps = {}) {
             level: 'warn', code: 'STEP_UNVERIFIED', message: '步骤结果未能确认：' + verified.note, tool: call.name,
           });
         }
-        return { ok: true, content: verified.ok ? content : content + '\n（注意：' + verified.note + '）' };
+        // 重复调用检测：同一工具 + 同一参数 + 同一结果，连续出现就是空转
+        const repeatKey = fingerprint + '|' + hashText(content);
+        if (repeatKey === progress.repeatKey) progress.repeatCount += 1;
+        else { progress.repeatKey = repeatKey; progress.repeatCount = 1; }
+        let suffix = verified.ok ? '' : '\n（注意：' + verified.note + '）';
+        if (progress.repeatCount >= wd.repeatLimit) {
+          emit(AGENT_EVENT.NOTICE, {
+            level: 'warn',
+            code: 'REPEAT_DETECTED',
+            message: '同一个调用已经重复 ' + progress.repeatCount + ' 次且结果相同（' + call.name + '），请换一种做法',
+            tool: call.name,
+            count: progress.repeatCount,
+          });
+          suffix += '\n（提醒：你刚才用完全相同的参数调用 ' + call.name + ' 已经 ' + progress.repeatCount
+            + ' 次，结果也完全相同。不要再重复同样的调用，换参数或换工具，或者直接说明做不到。）';
+        }
+        touch('result:' + call.name);
+        return { ok: true, content: content + suffix };
       } catch (err) {
         const message = String((err && err.message) || err);
         if (shouldRetryAfterFailure({ tool: call.name, attempt: attempts, maxRetries, riskLevel })) {
           attempts += 1;
+          emit(AGENT_EVENT.STATUS, { status: AGENT_STATUS.RECOVERING, tool: call.name, retry: attempts, error: message });
           emit(AGENT_EVENT.TOOL_RETRY, { name: call.name, callId: call.id, attempt: attempts, error: message });
           await new Promise((r) => setTimeout(r, RETRY_BACKOFF_MS * attempts));
           continue;
@@ -544,6 +721,32 @@ export function runAgent(deps = {}) {
     }
   }
 
+  // ---- 停滞看门狗 ----
+  // 只在「应该动」的状态下检查：running / waiting_approval / planning。
+  // 到点没有进展就存检查点 + 暂停（pauseReason='stalled'），前端能明确显示「停住了」，
+  // 而不是一个永远在转的圈。
+  const watchdog = setInterval(() => {
+    if (cancelled || paused || isFinished(run)) return;
+    if (run.status === RUN_STATUS.PAUSED) return;
+    const silent = clock() - progress.lastAt;
+    if (silent < Number(wd.stallMs)) return;
+    paused = true;
+    gates.close();
+    run.pauseReason = 'stalled';
+    if (!isFinished(run)) transition(run, RUN_STATUS.PAUSED);
+    emit(AGENT_EVENT.NOTICE, {
+      level: 'warn',
+      code: 'STALL_SUSPECTED',
+      message: '执行已停滞 ' + Math.round(silent / 1000) + ' 秒（最后阶段：' + progress.lastStage + '），已保存进度并暂停',
+      silentMs: silent,
+      stage: progress.lastStage,
+      rounds: run.rounds,
+    });
+    emit(AGENT_EVENT.STATUS, { status: AGENT_STATUS.PAUSED, reason: 'stalled' });
+    emit(AGENT_EVENT.RUN_UPDATED, run);
+    emit(AGENT_EVENT.CHECKPOINT, checkpointPayload(run, 'stalled'));
+  }, Math.max(250, Math.min(30000, Number(wd.stallMs) / 3)));
+
   const done = (async () => {
   try {
     // 用 run.roundBudget（而不是常量）：用户点「继续」时它会被追加
@@ -557,6 +760,7 @@ export function runAgent(deps = {}) {
       run.rounds = round;
       emit(AGENT_EVENT.STEP, { step: round, phase: 'llm' });
       emit(AGENT_EVENT.STATUS, { status: AGENT_STATUS.THINKING });
+      touch('llm:' + round);
 
       // 请求结构（顺序不能换）：
       //   [system 人格+能力] → [进入 Agent 前的对话历史] → [本轮对话]
@@ -577,13 +781,29 @@ export function runAgent(deps = {}) {
 
       let result;
       try {
-        result = await deps.llm({
-          messages,
-          tools: toolsToProviderSpecs(tools),
-          signal: abortCtrl.signal,
-          onDelta: (text) => emit(AGENT_EVENT.TEXT, { text }),
-          onReasoning: (text) => emit(AGENT_EVENT.REASONING, { text }),
-        });
+        const raced = await raceTimeout(
+          (async () => deps.llm({
+            messages,
+            tools: toolsToProviderSpecs(tools),
+            signal: abortCtrl.signal,
+            onDelta: (text) => { touch('delta'); emit(AGENT_EVENT.TEXT, { text }); },
+            onReasoning: (text) => { touch('reasoning'); emit(AGENT_EVENT.REASONING, { text }); },
+          }))(),
+          wd.llmTimeoutMs,
+          'llm:' + round,
+        );
+        if (raced.timeout) {
+          emit(AGENT_EVENT.NOTICE, {
+            level: 'warn',
+            code: 'LLM_TIMEOUT',
+            message: '模型请求超过 ' + Math.round(wd.llmTimeoutMs / 1000) + ' 秒没有返回，已中止这一轮',
+            round,
+          });
+          throw Object.assign(new Error('模型请求超时（' + Math.round(wd.llmTimeoutMs / 1000) + ' 秒）'), { code: 'LLM_TIMEOUT' });
+        }
+        if (raced.error) throw raced.error;
+        result = raced.value;
+        touch('llm-done:' + round);
       } catch (err) {
         if (cancelled || (err && (err.code === 'ABORTED' || err.name === 'AbortError'))) break;
         throw err;
@@ -734,7 +954,29 @@ export function runAgent(deps = {}) {
           continue;
         }
         if (round >= run.roundBudget && calls.length) {
-          // 预算用尽但任务没完：保存进度 → 暂停（可继续），**不是**失败也不是完成
+          // 预算用尽但任务没完：先看这一轮有没有真实进展。
+          // 有进展 + 允许自动续预算 → 追加一段继续跑（复杂任务不该被固定轮数一刀切死）；
+          // 没进展 / 已到硬上限 / 没打开自动续 → 保存进度并暂停。
+          const madeProgress = progress.repeatCount < wd.repeatLimit
+            && (run.tool_calls || []).some((t) => t.ok);
+          const canExtend = wd.autoExtendBudget
+            && madeProgress
+            && run.roundBudget < Number(wd.hardRoundCap)
+            && !cancelled;
+          if (canExtend) {
+            const nextBudget = Math.min(Number(wd.hardRoundCap), run.roundBudget + maxRounds);
+            run.roundBudget = nextBudget;
+            run.segments = (run.segments || 0) + 1;
+            emit(AGENT_EVENT.NOTICE, {
+              level: 'info',
+              code: 'BUDGET_EXTENDED',
+              message: '本轮仍有进展，任务预算已自动追加到 ' + nextBudget + ' 轮（硬上限 ' + wd.hardRoundCap + '）',
+              round,
+              roundBudget: nextBudget,
+              segments: run.segments,
+            });
+            continue;
+          }
           run.answer = text;
           paused = true;
           run.pauseReason = 'budget';
@@ -746,10 +988,13 @@ export function runAgent(deps = {}) {
           emit(AGENT_EVENT.NOTICE, {
             level: 'warn',
             code: 'BUDGET_EXHAUSTED',
-            message: '任务预算已用尽，进度已保存；可以继续执行',
+            message: madeProgress
+              ? '任务预算已用尽，进度已保存；可以继续执行'
+              : '任务预算已用尽，且最近几轮没有产生新进展（可能在空转），进度已保存',
             rounds: round,
             roundBudget: run.roundBudget,
             segments: run.segments,
+            stalled: !madeProgress,
           });
           break;
         }
@@ -779,6 +1024,7 @@ export function runAgent(deps = {}) {
     emit(AGENT_EVENT.STATUS, { status: AGENT_STATUS.ERROR });
     emit(AGENT_EVENT.CHECKPOINT, checkpointPayload(run, 'error'));
   } finally {
+    clearInterval(watchdog);
     if (outside) outside.removeEventListener('abort', onOutsideAbort);
     run.updated_at = Date.now();
     emit(AGENT_EVENT.RUN_UPDATED, run);
@@ -788,7 +1034,8 @@ export function runAgent(deps = {}) {
       error: run.error,
       paused: run.status === RUN_STATUS.PAUSED,
       pauseReason: run.pauseReason || null,
-      canContinue: run.status === RUN_STATUS.PAUSED && run.pauseReason === 'budget',
+      stalled: run.pauseReason === 'stalled',
+      canContinue: run.status === RUN_STATUS.PAUSED,
     });
   }
   return api;

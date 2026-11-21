@@ -97,6 +97,9 @@ contextBridge.exposeInMainWorld('api', {
   // 展台「上次用多大」（打开时按它恢复，不自动适配）
   live2dGetLayout: (payload) => ipcRenderer.invoke('live2d:getLayout', payload),
   live2dSetLayout: (payload) => ipcRenderer.invoke('live2d:setLayout', payload),
+  // 展台显示区域（Viewport）：每个模型独立的四边裁切，与缩放/位置分开存
+  overlayGetViewport: (payload) => ipcRenderer.invoke('overlay:getViewport', payload),
+  overlaySetViewport: (payload) => ipcRenderer.invoke('overlay:setViewport', payload),
   overlayDragStart: () => ipcRenderer.invoke('overlay:dragStart'),
   overlayDragMove: () => ipcRenderer.invoke('overlay:dragMove'),
   overlayDragEnd: () => ipcRenderer.invoke('overlay:dragEnd'),

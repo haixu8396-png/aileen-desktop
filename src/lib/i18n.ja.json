@@ -1036,5 +1036,18 @@
   "llm.maxTokensHint": "空欄なら無制限（出力長を制限せず、モデル自身の上限に任せます）。数字を入れた場合はその値をそのまま送信し、クライアント側の上限はありません。モデルの上限を超えるとサーバー側で拒否されます。",
   "llm.maxTokensPh": "空欄 = 無制限",
   "llm.maxUnlimited": "現在：無制限",
-  "llm.maxCurrent": "現在：{n} トークン"
+  "llm.maxCurrent": "現在：{n} トークン",
+  "agent.stateExecuting": "ツールを実行中",
+  "agent.stateObserving": "結果を読み取り中",
+  "agent.stateVerifying": "結果を検証中",
+  "agent.stateRecovering": "エラーから復帰中",
+  "overlay.viewport": "表示領域",
+  "overlay.viewportEnabled": "クロップを有効化",
+  "overlay.viewportTop": "上",
+  "overlay.viewportBottom": "下",
+  "overlay.viewportLeft": "左",
+  "overlay.viewportRight": "右",
+  "overlay.viewportReset": "初期値に戻す",
+  "overlay.viewportHint": "表示範囲だけを変えます。モデルは拡大縮小されず、ズームしてもクロップ範囲は変わりません。",
+  "overlay.viewportTip": "表示領域（クロップ）"
 }

@@ -2,6 +2,39 @@
 
 本项目所有重要改动都会记录在此，版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [0.8.0] - 2026-11-22
+
+### Overview
+
+Two independent upgrades: Agent Runtime stability (no more silent stalls in the middle of a task) and a Live2D Viewport system (crop the visible area without touching model scale).
+
+This minor release also ships the 0.7.12 batch, which was finished locally but never published.
+
+### Agent Runtime
+
+- Approval waits now time out (default 300s). On timeout the action is treated as rejected and returned to the model as a normal tool failure, so the run continues instead of hanging forever in `waiting_approval`.
+- Added watchdogs for each stage: model request (240s), tool execution (180s), approval (300s), plus a progress heartbeat that detects a stalled run (default 90s without any progress) and pauses it with a checkpoint and an explicit notice.
+- Fixed a pause/approval race where approving an action unconditionally set the run back to `running` even if the user had paused it.
+- Added repeated-call detection: the same tool with the same arguments returning the same result three times is reported, and the hint is fed back to the model so it changes approach instead of looping.
+- Execution budget can now extend itself: when a segment is exhausted and the round produced real progress, another segment is granted (hard cap 200 rounds). Without progress the run still pauses with a clear "possibly looping" explanation.
+- Added finer runtime phases (executing / observing / verifying / recovering) so the activity card can show what is actually happening; the legacy `using_tool` status is still emitted.
+- Permission model unchanged: no risk level was relaxed, approval timeouts reject rather than auto-approve, and irreversible/high-risk actions still require explicit confirmation.
+
+### Live2D Viewport
+
+- New independent display-area crop: the visible region can be limited without scaling or moving the model. The crop is implemented as a CSS `clip-path: inset(...)` on the canvas element - a Pixi `container.mask` looked correct in code (`mask` was set, the rectangle was computed) but this Live2D engine kept drawing the whole model, so it was silently useless and has been removed.
+- Toolbar button opens a panel with an enable switch and top/bottom/left/right percentages (0-90%), applied live; "reset" clears the per-model record.
+- Crop rectangle is derived only from the stage size and the four percentages, so zooming the model (hotkeys, sliders, drag) never changes it. Rendering the model for content-box measurement is unaffected because the crop happens at compositing time, not inside the renderer.
+- Per-model persistence in `settings.live2dViewport.byModel`, keyed by the stable relative model path; switching models loads their own configuration, and existing model files/settings are untouched.
+- Fixed two persistence bugs found on a real machine: "reset" left the saved record behind (`writeSettings` deep-merges, so removing a key from the patch is a no-op - it now writes `undefined`), and a pending debounced save could land after the reset.
+
+### Verification
+
+- 71 test files / 1114 tests passing (27 new: 10 runtime-recovery, 17 viewport geometry + clip mapping + record-deletion semantics).
+- Lint over 191 files and production build passing.
+- Real-machine probe with a real model: top crop 12% produced `y = 61.44` on a 512px-high stage, and the rectangle stayed identical while the model was scaled x1.5 and x0.5 (`rectUnchangedWhileZooming = true`).
+- Crop is verified on composited pixels, not on geometry: with the toolbar hidden, an installed-build screenshot (CDP, transparent background) had 56265 opaque pixels above the cut line before cropping and **0** after; clearing the crop restored the content. This is now a CI gate (`viewportClipOk`).
+
 ## [0.7.11] - 2026-11-20
 
 ### Overview

@@ -63,10 +63,27 @@
       <div id="ov-fit-note" class="ov-muted hidden" data-i18n="overlay.fitClipHint">道具超出画面了，点上面的按钮重新适配</div>
     </div>
 
+    <!-- 显示区域（Viewport）：只改可见范围，不改模型大小 -->
+    <div id="ov-viewport" class="ov-panel hidden">
+      <div class="ov-label-row">
+        <span class="ov-label" data-i18n="overlay.viewport">显示区域</span>
+        <label class="ov-vp-switch"><input id="ov-vp-enabled" type="checkbox" /><span data-i18n="overlay.viewportEnabled">启用裁切</span></label>
+      </div>
+      <div class="ov-vp-row"><span class="ov-vp-name" data-i18n="overlay.viewportTop">顶部</span><input id="ov-vp-top" type="range" min="0" max="90" step="1" /><span class="ov-vp-val" id="ov-vp-top-val">0%</span></div>
+      <div class="ov-vp-row"><span class="ov-vp-name" data-i18n="overlay.viewportBottom">底部</span><input id="ov-vp-bottom" type="range" min="0" max="90" step="1" /><span class="ov-vp-val" id="ov-vp-bottom-val">0%</span></div>
+      <div class="ov-vp-row"><span class="ov-vp-name" data-i18n="overlay.viewportLeft">左侧</span><input id="ov-vp-left" type="range" min="0" max="90" step="1" /><span class="ov-vp-val" id="ov-vp-left-val">0%</span></div>
+      <div class="ov-vp-row"><span class="ov-vp-name" data-i18n="overlay.viewportRight">右侧</span><input id="ov-vp-right" type="range" min="0" max="90" step="1" /><span class="ov-vp-val" id="ov-vp-right-val">0%</span></div>
+      <div class="ov-label-row">
+        <button id="ov-vp-reset" class="ov-link" data-i18n="overlay.viewportReset">恢复默认</button>
+      </div>
+      <div class="ov-muted" data-i18n="overlay.viewportHint">只改变显示范围，不会缩放模型；放大缩小后裁切范围保持不变。</div>
+    </div>
+
     <div id="ov-tools" data-i18n-title="overlay.toolsTitle">
       <button id="ov-chat-toggle" data-i18n-title="overlay.chatTip"><span data-icon="chat"></span></button>
       <button id="ov-mic" data-i18n-title="overlay.micTip"><span data-icon="mic"></span></button>
       <button id="ov-more-toggle" data-i18n-title="overlay.moreTip"><span data-icon="more"></span></button>
+      <button id="ov-viewport-toggle" data-i18n-title="overlay.viewportTip"><span data-icon="frame"></span></button>
       <button id="ov-smaller" data-i18n-title="overlay.smaller"><span data-icon="minus"></span></button>
       <button id="ov-bigger" data-i18n-title="overlay.bigger"><span data-icon="plus"></span></button>
       <button id="ov-lock" data-i18n-title="overlay.lockOff"><span data-icon="pointer"></span></button>

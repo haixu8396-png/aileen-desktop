@@ -4,6 +4,7 @@
 'use strict';
 
 const nodePath = require('path');
+const viewportCfg = require('./viewport.cjs');
 
 /** 深合并：对象递归，数组/标量直接替换（不保留旧值） */
 function deepMerge(target, source) {
@@ -165,8 +166,30 @@ function normalizeLive2dLayout(raw) {
   return out;
 }
 
-function normalizeLive2dState(raw) {
+/**
+ * Live2D Viewport 存档：{ byModel: { [稳定模型标识]: { enabled, top, bottom, left, right, updatedAt } } }
+ * 每个模型独立；最多 50 个模型；数值收敛交给 shared/viewport.cjs（与渲染层同一套规则）。
+ */
+const LIVE2D_VIEWPORT_MAX_MODELS = 50;
+
+function normalizeLive2dViewport(raw) {
   const out = { byModel: {} };
+  const src = raw && typeof raw === 'object' && raw.byModel && typeof raw.byModel === 'object' ? raw.byModel : {};
+  const entries = [];
+  for (const [key, v] of Object.entries(src)) {
+    if (typeof key !== 'string' || !key || key.length > LIVE2D_STATE_MAX_KEY) continue;
+    if (!v || typeof v !== 'object') continue;
+    const cfg = viewportCfg.normalizeViewport(v);
+    entries.push([key, Object.assign({}, cfg, {
+      updatedAt: Number.isFinite(Number(v.updatedAt)) ? Number(v.updatedAt) : 0,
+    })]);
+  }
+  entries.sort((a, b) => b[1].updatedAt - a[1].updatedAt);
+  for (const [key, v] of entries.slice(0, LIVE2D_VIEWPORT_MAX_MODELS)) out.byModel[key] = v;
+  return out;
+}
+
+function normalizeLive2dState(raw) {  const out = { byModel: {} };
   const src = raw && typeof raw === 'object' && raw.byModel && typeof raw.byModel === 'object' ? raw.byModel : {};
   const entries = [];
   for (const [key, v] of Object.entries(src)) {
@@ -349,6 +372,9 @@ function normalizeSettings(raw, defaults) {
     // 强杀 / 崩溃 / 直接关机就全丢（实测过），用户看到的就是「热键记不住」。这里写进设置文件，
     // 由主进程原子写，稳。
     live2dState: normalizeLive2dState(raw.live2dState),
+    // Live2D 显示区域（Viewport）存档：每个模型独立的四边裁切百分比。
+    // 与 live2dLayout（模型缩放/位置）完全分开存 —— 放大缩小不会改到裁切。
+    live2dViewport: normalizeLive2dViewport(raw.live2dViewport),
     // 长期记忆与知识库的语义检索：**与对话用的 LLM 分开配置**
     // （算向量用便宜的小模型就够，没必要用对话模型）
     embedding: {
@@ -400,6 +426,9 @@ function normalizeSettings(raw, defaults) {
       roundBudget: Math.round(asNum(agent.roundBudget, 1, 400, 60)),      // 任务总预算
       maxRetries: Math.round(asNum(agent.maxRetries, 0, 3, 1)),           // 只读工具失败重试
       readOnlyParallel: asBool(agent.readOnlyParallel, true),             // 只读工具受控并行
+      // 0.7.12：这一轮还有真实进展时，预算用尽会自动追加一段（硬上限 200 轮），
+      // 复杂任务不会因为固定轮数一刀切。默认开，用户可以关。
+      autoExtendBudget: asBool(agent.autoExtendBudget, true),
     },
   };
 }

@@ -732,6 +732,8 @@ export async function sendWithAgent(userContent, opts = {}) {
     authorization,
     maxRounds: agentCfg.maxRounds,
     roundBudget: agentCfg.roundBudget,
+    // 0.7.12：有真实进展时预算自动追加（硬上限在 runtime 里），复杂任务不被固定轮数一刀切
+    autoExtendBudget: agentCfg.autoExtendBudget !== false,
     maxRetries: agentCfg.maxRetries,
     parallelReadOnly: agentCfg.readOnlyParallel !== false,
     checkpoint: resume || undefined,

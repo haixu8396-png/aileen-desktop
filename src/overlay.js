@@ -3,13 +3,14 @@
 // 只做三件事：显示角色、上报交互热区、处理拖拽/缩放/隐藏
 // 鼠标穿透由主进程按「热区 + 真实光标位置」判定，这里负责告知热区
 // ============================================================
-import { Application, extensions } from 'pixi.js';
+import { Application, extensions, Container } from 'pixi.js';
 import { Live2DModel, Live2DPlugin, MotionPriority, configureCubismSDK } from 'untitled-pixi-live2d-engine/cubism';
 import { t, setLang } from './lib/i18n.js';
 import { applyIcons, iconSvg } from './lib/icons.js';
 import { createDragCoalescer } from './lib/drag-coalescer.js';
 import { createLive2DController } from './lib/live2d/controller.js';
 import { fitTransform, clampFill } from './lib/live2d/fit.js';
+import { normalizeViewport, viewportRect, viewportClipPath } from './lib/live2d/viewport.js';
 
 const stageBox = document.getElementById('ov-stage');
 // 悬浮 UI 容器：热区按这一整块算（收起时只有工具条那么大）
@@ -40,6 +41,22 @@ let hq = {
   focusFollow: true, physics: true,  quality: 'auto', fps: 60, lod: 'auto', mask: 'auto',
 };
 let currentModel = null;
+
+// ---- 显示区域（Viewport）----
+// 与模型缩放彻底分开：这里只决定「窗口里哪一块可见」，模型仍然按自己的 scale/position 画。
+//
+// ⚠️ 2026-11-22 血泪：**PIXI 的 container.mask 对这个 Live2D 引擎不起作用**。
+//   试过 Graphics 矩形 mask 挂 stage、在 container 上设 mask —— `viewportRoot.mask` 读回来是
+//   对象、`viewportRect` 算得也对，但真机截图里模型一点没被裁（`crop-1-top50.png` 上半屏照样有脸）。
+//   那是静默失效：不报错、不抛异常、断言 `!!mask` 还是 true。
+//   现在改成给**画布元素**加 CSS `clip-path: inset(...)`：浏览器合成阶段裁，实测有效，
+//   而且完全绕开引擎的渲染管线，与 scale/position 天然解耦。
+let viewportRoot = null;       // 包住模型的容器（模型统一挂这里）
+let viewportCfg = normalizeViewport(null); // { enabled, top, bottom, left, right }
+let viewportRectNow = null;    // 当前可见矩形（舞台坐标），自检/命中测试用
+let viewportClipNow = '';      // 当前实际写进 canvas.style.clipPath 的值（空 = 不裁）
+let viewportSaveTimer = 0;
+let viewportSaveSuppressed = false;
 let hovering = false;
 let hideTimer = null;
 let askedInteractive = null;
@@ -284,6 +301,9 @@ function destroyStage() {
   // 代际 +1：正在加载的旧模型回来时会被丢掉，不会把新模型盖掉
   stageGen += 1;
   modelObj = null;
+  viewportRoot = null;
+  viewportRectNow = null;
+  viewportClipNow = '';
   if (pixiApp) {
     try { pixiApp.destroy(true, { children: true, texture: true, textureSource: true }); }
     catch (err) { /* 已经销毁过 */ }
@@ -299,8 +319,37 @@ function syncStageSize(adjustModel) {
   const h = stageBox.clientHeight || window.innerHeight;
   if (!w || !h) return false;
   try { pixiApp.renderer.resize(w, h); } catch (err) { /* 渲染器刚销毁 */ }
+  applyViewportClip();
   if (adjustModel && modelObj) applyModelLayout();
   return true;
+}
+
+/**
+ * 应用显示区域裁切（CSS clip-path 在画布上裁）。
+ *
+ * 关键设计（任务书 2.2）：
+ *   · 只动画布的可见区域，**绝不碰 modelObj.scale / position**
+ *   · 矩形只由「舞台尺寸 + 四边百分比」决定 —— 模型放大到 150% 或缩到 50% 都不会改变它
+ *   · 不裁（enabled=false 或四边全 0）时把 clip-path 清空，性能与观感回到原样
+ *
+ * 为什么不用 PIXI mask：见文件上方 viewportRoot 那段注释（静默失效，真机截图可证）。
+ */
+function applyViewportClip() {
+  const app = pixiApp;
+  const canvas = app && app.canvas;
+  if (!canvas) { viewportRectNow = null; viewportClipNow = ''; return null; }
+  const W = app.renderer.width / (Number(app.renderer.resolution) || 1);
+  const H = app.renderer.height / (Number(app.renderer.resolution) || 1);
+  const rect = viewportRect(W, H, viewportCfg);
+  viewportRectNow = rect;
+  const clip = viewportClipPath(W, H, viewportCfg);
+  viewportClipNow = clip;
+  try {
+    canvas.style.clipPath = clip;
+  } catch (err) {
+    pushStageError('viewport-clip', err);
+  }
+  return rect;
 }
 
 /** 模型画布尺寸（moc3 里定义的画布，和「角色实际占多少」不是一回事） */
@@ -329,6 +378,8 @@ function measureRenderedBox() {
     const W = gl.drawingBufferWidth;
     const H = gl.drawingBufferHeight;
     if (!W || !H) return null;
+    // 裁切现在是 CSS clip-path 裁在画布上：GL 里读到的像素不受它影响，所以这里
+    // **不需要**再临时摘 mask（以前那套 windowRoot.mask 的摘/挂已经删掉）。
     app.renderer.render(app.stage);
     const px = new Uint8Array(W * H * 4);
     gl.readPixels(0, 0, W, H, gl.RGBA, gl.UNSIGNED_BYTE, px);
@@ -996,11 +1047,19 @@ async function renderStage(model) {
     if (gen !== stageGen) { try { m.destroy({ children: true, texture: true, textureSource: true }); } catch (err) { /* ignore */ } return; }
     modelObj = m;
     m.anchor.set(0.5, 0.5);
-    app.stage.addChild(m);    bindModelHooks();
+    if (!viewportRoot) {
+      viewportRoot = new Container();
+      app.stage.addChild(viewportRoot);
+    }
+    viewportRoot.addChild(m);    bindModelHooks();
     applyPhysicsSetting();
     // 打开时**先按存档恢复**（不测量、不重算）；没有存档才自动适配一次（第一次用这个模型）
     await loadSavedLayout();
     applyModelLayout();
+    // 显示区域：按模型加载自己的裁切配置，再应用 mask（与缩放无关）
+    try { await loadViewportForModel(model); } catch { /* 读不到就默认不裁 */ }
+    applyViewportClip();
+    syncViewportPanel();
     scheduleIdleMotion();
     // 热键 + 部件：一次加载（含上次的状态恢复），状态全在 controller 里
     loadLive2DState(model).catch((err) => pushStageError('live2d-state', err));
@@ -1310,6 +1369,154 @@ if (morePanel) {
   const partsReset = document.getElementById('ov-parts-reset');
   if (partsReset) partsReset.onclick = () => clearParts();
 }
+
+// ---- 显示区域（Viewport）面板 ----
+const viewportPanel = document.getElementById('ov-viewport');
+const vpInputs = {
+  enabled: document.getElementById('ov-vp-enabled'),
+  top: document.getElementById('ov-vp-top'),
+  bottom: document.getElementById('ov-vp-bottom'),
+  left: document.getElementById('ov-vp-left'),
+  right: document.getElementById('ov-vp-right'),
+};
+
+function viewportKeyOf(model) {
+  return String((model && (model.key || model.file || model.url)) || '');
+}
+
+async function loadViewportForModel(model) {
+  const key = viewportKeyOf(model);
+  if (!key || !window.api || typeof window.api.overlayGetViewport !== 'function') {
+    viewportCfg = normalizeViewport(null);
+    syncViewportPanel();
+    return viewportCfg;
+  }
+  try {
+    const res = await window.api.overlayGetViewport({ modelKey: key });
+    viewportCfg = normalizeViewport(res && res.viewport);
+  } catch (err) {
+    viewportCfg = normalizeViewport(null);
+  }
+  syncViewportPanel();
+  return viewportCfg;
+}
+
+function saveViewportNow() {
+  const key = viewportKeyOf(currentModel);
+  if (!key || !window.api || typeof window.api.overlaySetViewport !== 'function') return;
+  try {
+    window.api.overlaySetViewport({ modelKey: key, viewport: viewportCfg }).catch(() => {});
+  } catch (err) { /* 保存失败不影响当前显示 */ }
+}
+
+function scheduleViewportSave() {
+  if (viewportSaveSuppressed) return;
+  clearTimeout(viewportSaveTimer);
+  viewportSaveTimer = setTimeout(saveViewportNow, 350);
+}
+
+function syncViewportPanel() {
+  if (!vpInputs.top) return;
+  const pct = (v) => Math.round(Number(v) * 100);
+  vpInputs.enabled.checked = viewportCfg.enabled === true;
+  vpInputs.top.value = String(pct(viewportCfg.top));
+  vpInputs.bottom.value = String(pct(viewportCfg.bottom));
+  vpInputs.left.value = String(pct(viewportCfg.left));
+  vpInputs.right.value = String(pct(viewportCfg.right));
+  for (const side of ['top', 'bottom', 'left', 'right']) {
+    const label = document.getElementById('ov-vp-' + side + '-val');
+    if (label) label.textContent = pct(viewportCfg[side]) + '%';
+  }
+}
+
+/** cfg 变化：先应用裁切（立即生效），再节流保存 */
+function applyViewportFromPanel(save = true) {
+  if (!vpInputs.top) return null;
+  viewportCfg = normalizeViewport({
+    enabled: vpInputs.enabled.checked,
+    top: Number(vpInputs.top.value) / 100,
+    bottom: Number(vpInputs.bottom.value) / 100,
+    left: Number(vpInputs.left.value) / 100,
+    right: Number(vpInputs.right.value) / 100,
+  });
+  const rect = applyViewportClip();
+  syncViewportPanel();
+  if (save) scheduleViewportSave();
+  return rect;
+}
+
+if (viewportPanel) {
+  const toggleBtn = document.getElementById('ov-viewport-toggle');
+  if (toggleBtn) toggleBtn.onclick = () => togglePanel(viewportPanel);
+  if (vpInputs.enabled) vpInputs.enabled.onchange = () => applyViewportFromPanel(true);
+  for (const side of ['top', 'bottom', 'left', 'right']) {
+    const el = vpInputs[side];
+    if (el) el.addEventListener('input', () => applyViewportFromPanel(true));
+  }
+  const resetBtn = document.getElementById('ov-vp-reset');
+  if (resetBtn) {
+    resetBtn.onclick = () => {
+      viewportCfg = normalizeViewport(null);
+      // 先掐掉「节流保存」里还没跑的那一次：否则它会在删除之后又把旧记录写回去
+      // （真机验证时踩到过：点了恢复默认，settings.live2dViewport 里还留着上一组百分比）
+      clearTimeout(viewportSaveTimer);
+      viewportSaveTimer = 0;
+      const key = viewportKeyOf(currentModel);
+      if (key && window.api && typeof window.api.overlaySetViewport === 'function') {
+        // 「恢复默认」= 清掉这个模型的记录（主进程看到 enabled=false 就删）
+        try { window.api.overlaySetViewport({ modelKey: key, viewport: viewportCfg }).catch(() => {}); } catch { /* 忽略 */ }
+      }
+      applyViewportClip();
+      syncViewportPanel();
+    };
+  }
+}
+
+// 自检/调试探针：显示区域与模型缩放是两套系统，这里把两者一起暴露出来证明互不影响
+window.__AILEEN_VIEWPORT_PROBE = () => {
+  const app = pixiApp;
+  const canvas = app && app.canvas;
+  const scale = (modelObj && modelObj.scale) ? Number(modelObj.scale.x) : null;
+  // 读**浏览器真正生效的**值，而不是我们记在变量里的字符串 —— 变量对、样式没写上就是 bug
+  let canvasClip = '';
+  try { canvasClip = canvas ? (canvas.style.clipPath || '') : ''; } catch { canvasClip = ''; }
+  let computedClip = 'none';
+  try { computedClip = canvas ? (getComputedStyle(canvas).clipPath || 'none') : 'none'; } catch { computedClip = 'none'; }
+  // 浏览器会把 `inset(1px 2px 3px 4px)` 规范化成三值/两值简写，字符串永远对不上 ——
+  // 只比较「有没有真的裁」：我们写进去了，而且计算样式不是 none。
+  const clipped = !!viewportClipNow && !!canvasClip && computedClip !== 'none';
+  return {
+    cfg: Object.assign({}, viewportCfg),
+    rect: viewportRectNow ? Object.assign({}, viewportRectNow) : null,
+    clip: viewportClipNow,
+    canvasClip,
+    computedClip,
+    clipped,
+    canvas: canvas ? { w: canvas.clientWidth, h: canvas.clientHeight } : null,
+    stage: app ? {
+      w: app.renderer.width / (Number(app.renderer.resolution) || 1),
+      h: app.renderer.height / (Number(app.renderer.resolution) || 1),
+    } : null,
+    modelScale: scale,
+    modelKey: viewportKeyOf(currentModel),
+  };
+};
+// 自检用：直接设置显示区域（不落盘，避免污染用户存档）
+window.__AILEEN_VIEWPORT_SET = (cfg) => {
+  viewportSaveSuppressed = true;
+  viewportCfg = normalizeViewport(cfg);
+  applyViewportClip();
+  syncViewportPanel();
+  return window.__AILEEN_VIEWPORT_PROBE();
+};
+// 自检用：改模型缩放（证明 viewport 的矩形不跟着缩放变）
+window.__AILEEN_VIEWPORT_TEST_SCALE = (scale) => {
+  if (modelObj && Number.isFinite(Number(scale))) modelObj.scale.set(Number(scale));
+  applyViewportClip();
+  return window.__AILEEN_VIEWPORT_PROBE();
+};
+// 自检用：读一帧的真实像素包围盒（证明裁掉的部分真的没画出来）
+window.__AILEEN_VIEWPORT_CONTENT_BOX = () => measureRenderedBox();
 if (inputEl) {
   inputEl.addEventListener('keydown', (e) => {
     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendChat(); }

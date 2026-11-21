@@ -29,6 +29,8 @@ const { registerStoreIpc } = require('./shared/store-ipc.cjs');
 const { registerWebIpc } = require('./shared/web-ipc.cjs');
 // 授权策略与命令策略：主进程这一侧是**最终判定**，渲染层的判断只是提前给人话错误
 const authz = require('./shared/authz.cjs');
+// Live2D Viewport 的归一化规则（与渲染层同一份）
+const viewportCfg = require('./shared/viewport.cjs');
 
 const APP_ROOT = __dirname;
 const DIST_INDEX = path.join(APP_ROOT, 'dist', 'index.html');
@@ -941,6 +943,31 @@ function registerOverlayIpc() {
     const cur = (readSettings().live2dState || {}).byModel || {};
     writeSettings({ live2dState: { byModel: Object.assign({}, cur, { [key]: next }) } });
     return true;
+  });
+  // Live2D 显示区域（Viewport）：按模型独立保存，读/写都走这里。
+  // 注意：它**只**记录四边裁切百分比，与模型缩放/位置（live2dLayout）分开存。
+  validatedHandle('overlay:getViewport', (_e, payload) => {
+    const key = String((payload && payload.modelKey) || '');
+    if (!key) return { viewport: null };
+    const byModel = (readSettings().live2dViewport || {}).byModel || {};
+    return { viewport: byModel[key] ? Object.assign({}, byModel[key]) : null };
+  });
+  validatedHandle('overlay:setViewport', (_e, payload) => {
+    const key = String((payload && payload.modelKey) || '');
+    if (!key) return { ok: false, error: 'no-model-key' };
+    const cfg = viewportCfg.normalizeViewport(payload && payload.viewport);
+    const cur = (readSettings().live2dViewport || {}).byModel || {};
+    const next = Object.assign({}, cur);
+    // 「恢复默认」= 清掉这个模型的记录，而不是存一份全 0。
+    //
+    // ⚠️ 这里**不能**用 `delete next[key]`：writeSettings 是 deepMerge(current, 传入)，
+    // 传一个「少了某个键」的对象等于没删（旧的键还在 current 里，合并后原样留着）。
+    // 真机上踩到过：点「恢复默认」后界面不裁了，但 settings.json 里那条百分比又回来了。
+    // 置成 undefined 才能穿过 deepMerge（JSON.stringify 会丢掉 undefined，normalize 也会跳过它）。
+    if (!cfg.enabled) next[key] = undefined;
+    else next[key] = Object.assign({}, cfg, { updatedAt: Date.now() });
+    writeSettings({ live2dViewport: { byModel: next } });
+    return { ok: true, viewport: cfg };
   });
   validatedHandle('overlay:setModel', (_e, model) => {
     // key：相对 models/ 的稳定路径。展台用它当 localStorage 键 —— 不能用 url（端口每次随机）

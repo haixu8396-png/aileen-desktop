@@ -693,6 +693,44 @@ window.__AILEEN_PROBE_COPY = async () => {
   }
 };
 
+// 自检钩子：复制入口好不好找（按钮必须在消息下面、常驻可见、点得到）
+//
+// 以前是自检代码直接查 `#messages .msg`。当前角色既没有 first_mes 也没有历史消息时
+// 一条都没有 → hasBtn=false → `copyUiOk` 假红（CI 上不显是因为测试角色卡带 first_mes）。
+// 现在没有消息就用 chat.js 的 makeMsgEl 现场造一条真的，量完立刻摘掉，不碰聊天记录。
+window.__AILEEN_PROBE_COPY_UI = async () => {
+  const box = $('messages');
+  if (!box) return { ok: false, error: '没有 #messages' };
+  let temp = null;
+  let msg = box.querySelector('.msg.assistant') || box.querySelector('.msg');
+  const synthetic = !msg;
+  try {
+    if (synthetic) {
+      const chat = await import('./lib/chat.js');
+      temp = chat.makeMsgEl('assistant', 'AILEEN 排版自检：复制按钮要常驻在消息下面。', 0, true, true);
+      box.appendChild(temp);
+      msg = temp;
+    }
+    const btn = msg.querySelector('.msg-actions .msg-copy');
+    const acts = msg.querySelector('.msg-actions');
+    const body = msg.querySelector('.msg-body');
+    if (!btn || !acts || !body) return { ok: false, synthetic, hasBtn: !!btn, clickable: false, belowBody: false, visible: false };
+    const r = btn.getBoundingClientRect();
+    const top = document.elementFromPoint(Math.round(r.left + r.width / 2), Math.round(r.top + r.height / 2));
+    const clickable = !!(top && (top === btn || btn.contains(top)));
+    const belowBody = acts.getBoundingClientRect().top >= body.getBoundingClientRect().bottom - 3;
+    const visible = parseFloat(getComputedStyle(btn).opacity || '0') > 0.3;
+    const codeBtn = msg.querySelector('.code-block .code-copy');
+    return {
+      ok: true, synthetic, hasBtn: true, clickable, belowBody, visible, codeCopyInBlock: !!codeBtn,
+    };
+  } catch (err) {
+    return { ok: false, synthetic, error: String((err && err.message) || err) };
+  } finally {
+    if (temp) temp.remove();
+  }
+};
+
 // 自检钩子：完整权限（fullAccess）要真的不再弹审批；活动卡要「按需」才挂
 //
 // 用户反馈过两件事，这条钩子把它们一起钉住：

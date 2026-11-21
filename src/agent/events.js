@@ -33,6 +33,12 @@ export const AGENT_STATUS = {
   THINKING: 'thinking',
   PLANNING: 'planning',
   USING_TOOL: 'using_tool',
+  // 0.7.12：把「执行 / 观察 / 验证 / 恢复」拆开，前端才能显示真实阶段，
+  // 而不是一个笼统的「工作中」。
+  EXECUTING: 'executing',
+  OBSERVING: 'observing',
+  VERIFYING: 'verifying',
+  RECOVERING: 'recovering',
   WORKING: 'working',
   WAITING_APPROVAL: 'waiting_approval',
   PAUSED: 'paused',
