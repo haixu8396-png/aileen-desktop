@@ -701,33 +701,45 @@ window.__AILEEN_PROBE_COPY = async () => {
 window.__AILEEN_PROBE_COPY_UI = async () => {
   const box = $('messages');
   if (!box) return { ok: false, error: '没有 #messages' };
+  const prevPage = ((document.querySelector('#content .page.on') || {}).id || '').replace(/^page-/, '');
+  const switched = !!prevPage && prevPage !== 'chat';
+  if (switched) { gotoPage('chat'); await new Promise((r) => setTimeout(r, 180)); }
+  const prevScroll = box.scrollTop;
   let temp = null;
-  let msg = box.querySelector('.msg.assistant') || box.querySelector('.msg');
-  const synthetic = !msg;
   try {
+    const all = box.querySelectorAll('.msg');
+    // 用**最后一条**消息：历史很长时第一条早就滚出视口，elementFromPoint 必然点不到
+    let msg = all.length ? all[all.length - 1] : null;
+    const synthetic = !msg;
     if (synthetic) {
       const chat = await import('./lib/chat.js');
       temp = chat.makeMsgEl('assistant', 'AILEEN 排版自检：复制按钮要常驻在消息下面。', 0, true, true);
       box.appendChild(temp);
       msg = temp;
     }
+    // 把它滚进视口再量（测的是「按钮好不好找」，不是「消息滚到哪儿了」）
+    try { msg.scrollIntoView({ block: 'center' }); } catch { /* 老浏览器 */ }
+    await new Promise((r) => setTimeout(r, 120));
     const btn = msg.querySelector('.msg-actions .msg-copy');
     const acts = msg.querySelector('.msg-actions');
-    const body = msg.querySelector('.msg-body');
-    if (!btn || !acts || !body) return { ok: false, synthetic, hasBtn: !!btn, clickable: false, belowBody: false, visible: false };
+    const bodyEl = msg.querySelector('.msg-body');
+    if (!btn || !acts || !bodyEl) return { ok: false, synthetic, hasBtn: !!btn, clickable: false, belowBody: false, visible: false };
     const r = btn.getBoundingClientRect();
+    const inViewport = r.top >= 0 && r.left >= 0 && r.bottom <= window.innerHeight + 1 && r.right <= window.innerWidth + 1;
     const top = document.elementFromPoint(Math.round(r.left + r.width / 2), Math.round(r.top + r.height / 2));
     const clickable = !!(top && (top === btn || btn.contains(top)));
-    const belowBody = acts.getBoundingClientRect().top >= body.getBoundingClientRect().bottom - 3;
+    const belowBody = acts.getBoundingClientRect().top >= bodyEl.getBoundingClientRect().bottom - 3;
     const visible = parseFloat(getComputedStyle(btn).opacity || '0') > 0.3;
     const codeBtn = msg.querySelector('.code-block .code-copy');
     return {
-      ok: true, synthetic, hasBtn: true, clickable, belowBody, visible, codeCopyInBlock: !!codeBtn,
+      ok: true, synthetic, switched, inViewport, hasBtn: true, clickable, belowBody, visible, codeCopyInBlock: !!codeBtn,
     };
   } catch (err) {
-    return { ok: false, synthetic, error: String((err && err.message) || err) };
+    return { ok: false, error: String((err && err.message) || err) };
   } finally {
     if (temp) temp.remove();
+    box.scrollTop = prevScroll;
+    if (switched) { gotoPage(prevPage || 'chat'); await new Promise((r) => setTimeout(r, 60)); }
   }
 };
 
