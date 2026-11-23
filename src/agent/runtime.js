@@ -37,6 +37,7 @@ import {
   isTrustActive, AUTH_MODE, AUTH_SCOPE, normalizeAuthorization,
 } from './authorization.js';
 import { createExecutor, resolveInsideWorkspace } from './executor.js';
+import fsPaths from '../../shared/fs-paths.cjs';
 import { buildRequestMessages, clipToolResult, workspaceDigest, estimateTokens } from './context.js';
 import { buildAgentRequest } from './context-engine.js';
 import { validateArgs, attachExecutors } from './tool-registry.js';
@@ -231,10 +232,24 @@ export function runAgent(deps = {}) {
   /** 运行中可变的授权（撤销/收紧立刻生效，不必重启任务） */
   let authCurrent = run.authorization;
 
+  /**
+   * 现在是否已经获得「外部文件访问」授权（运行期判断：撤销 / 过期立刻生效）。
+   * 完整权限，或「信任 + 允许高风险」。手动模式下批准的那一次调用走 approvedExternal。
+   */
+  const externalAllowedNow = () => {
+    const a = authCurrent || {};
+    if (a.fullAccess === true) return true;
+    if (a.mode !== AUTH_MODE.TRUST) return false;
+    if (!a.allowHighRisk) return false;
+    return isTrustActive(a, clock());
+  };
+
   const executor = deps.executor || createExecutor({
     workspace: run.workspace,
+    home: deps.home || '',
     bridge: deps.bridge || {},
     isSensitive: deps.isSensitive,
+    allowExternal: externalAllowedNow,
     fullAccess: authCurrent && authCurrent.fullAccess === true,
   });
 
@@ -359,11 +374,13 @@ export function runAgent(deps = {}) {
   };
 
   /** 单条审批：发事件 → 等回填（requestApproval 与 resolveApproval 两条路都认） */
-  async function askApproval({ name, riskLevel, args, callId, reason, irreversible, fingerprint }) {
+  async function askApproval({ name, riskLevel, args, callId, reason, irreversible, fingerprint, external = false }) {
     const id = 'ap-' + Math.random().toString(36).slice(2, 10);
-    const preview = describeApproval({ name }, args);
+    let preview = describeApproval({ name }, args);
+    if (external) preview = '【工作区外】' + preview;
     const item = {
       id, name, riskLevel, args, preview, callId: callId || '',
+      external: !!external,
       reason: String(reason || ''),
       irreversible: !!irreversible,
       fingerprint: fingerprint || fingerprintCall(name, args, riskLevel),
@@ -439,7 +456,8 @@ export function runAgent(deps = {}) {
       name: p.call.name,
       args: p.args,
       riskLevel: p.riskLevel,
-      preview: describeApproval({ name: p.call.name }, p.args),
+      preview: (p.external ? '【工作区外】' : '') + describeApproval({ name: p.call.name }, p.args),
+      external: !!p.external,
       reason: p.verdict ? p.verdict.reason : '',
       irreversible: !!p.irreversible,
       outOfScope: !!p.outOfScope,
@@ -594,7 +612,11 @@ export function runAgent(deps = {}) {
       try {
         // 工具超时：到点按失败处理（结果回给模型），而不是让 run 卡在一个不返回的 Promise 上
         const raced = await raceTimeout(
-          (async () => exec(Object.assign({}, args, { signal: abortCtrl.signal, workspace: run.workspace })))(),
+          (async () => exec(Object.assign({}, args, {
+            signal: abortCtrl.signal,
+            workspace: run.workspace,
+            approvedExternal: !!(prep.external && prep.approved),
+          })))(),
           wd.toolTimeoutMs,
           'tool:' + call.name,
         );
@@ -835,7 +857,13 @@ export function runAgent(deps = {}) {
       const prepared = [];
       for (const call of calls) {
         const tool = registry ? registry.get(call.name) : tools.find((x) => x.name === call.name);
-        const riskLevel = riskForTool(tool || { name: call.name });
+        // 工具表里的风险只管「工作区内」；碰到工作区外的普通路径是**另一次授权**（HIGH）。
+        // 这样「读自己工作区」不打扰，「读桌面」才会问。
+        const externalHits = fsPaths.externalTargets(call.args || {}, {
+          workspace: run.workspace, home: deps.home || '',
+        }).filter((x) => x.scope === 'external');
+        const externalUsed = externalHits.length > 0;
+        const riskLevel = externalUsed ? RISK.HIGH : riskForTool(tool || { name: call.name });
         const argsCheck = validateArgs(tool || { inputSchema: { type: 'object', properties: {} } }, call.args);
         if (!argsCheck.ok) {
           prepared.push({ call, bad: true, reason: argsCheck.errors.join('；'), riskLevel });
@@ -854,7 +882,7 @@ export function runAgent(deps = {}) {
           auth: authCurrent, config: permissionConfig, grants, now: clock(),
         });
         prepared.push({
-          call, args, riskLevel, fingerprint, verdict,
+          call, args, riskLevel, fingerprint, verdict, external: externalUsed,
           needAsk: verdict.decision === 'ask',
           outOfScope: !!verdict.outOfScope,
           irreversible: !!verdict.irreversible,
@@ -874,7 +902,7 @@ export function runAgent(deps = {}) {
             const answer = await askApproval({
               name: p.call.name, riskLevel: p.riskLevel, args: p.args,
               callId: p.call.id, reason: p.verdict && p.verdict.reason,
-              irreversible: p.irreversible, fingerprint: p.fingerprint,
+              irreversible: p.irreversible, fingerprint: p.fingerprint, external: !!p.external,
             });
             p.approved = !!answer.approved;
           }

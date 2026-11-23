@@ -60,20 +60,23 @@ describe('Workspace 边界', () => {
   it('含空字符的路径被拒', () => {
     expect(() => resolveInsideWorkspace(root, 'a\0b')).toThrow(/非法字符/);
   });
-  it('所有工具都走同一道边界闸门', async () => {
+  // 0.9：工作区只是默认目录 —— 外部路径要授权，未授权时仍然拒绝，
+  // 而且错误码必须能和「工作区内出错」区分开。
+  it('所有工具都走同一道外部授权闸门', async () => {
     const e = ex();
-    await expect(e.readFile({ path: '../secret.txt' })).rejects.toThrow(/越界/);
-    await expect(e.writeFile({ path: '../secret.txt', content: 'x' })).rejects.toThrow(/越界/);
-    await expect(e.listFiles({ path: '..' })).rejects.toThrow(/越界/);
-    await expect(e.applyPatch({ path: '../x', old: 'a', new: 'b' })).rejects.toThrow(/越界/);
-    await expect(e.searchFiles({ query: 'x', path: '../..' })).rejects.toThrow(/越界/);
+    await expect(e.readFile({ path: '../secret.txt' })).rejects.toThrow(/工作区之外/);
+    await expect(e.writeFile({ path: '../secret.txt', content: 'x' })).rejects.toThrow(/工作区之外/);
+    await expect(e.listFiles({ path: '..' })).rejects.toThrow(/工作区之外/);
+    await expect(e.applyPatch({ path: '../x', old: 'a', new: 'b' })).rejects.toThrow(/工作区之外/);
+    await expect(e.searchFiles({ query: 'x', path: '../..' })).rejects.toThrow(/工作区之外/);
+    await expect(e.readFile({ path: '../secret.txt' })).rejects.toThrow(/EXTERNAL_ACCESS_REQUIRED/);
   });
   it('敏感路径即便在工作区内也被拒（凭据/密钥/设置）', async () => {
     const sensitive = path.join(root, 'settings.json');
     fs.writeFileSync(sensitive, '{"apiKey":"safe:v1:xxx"}', 'utf8');
     const e = ex({ isSensitive: (p) => path.basename(p) === 'settings.json' });
-    await expect(e.readFile({ path: 'settings.json' })).rejects.toThrow(/敏感文件/);
-    await expect(e.writeFile({ path: 'settings.json', content: '{}' })).rejects.toThrow(/敏感文件/);
+    await expect(e.readFile({ path: 'settings.json' })).rejects.toThrow(/敏感/);
+    await expect(e.writeFile({ path: 'settings.json', content: '{}' })).rejects.toThrow(/敏感/);
     // 不敏感的文件照常可读
     await expect(e.readFile({ path: 'README.md' })).resolves.toContain('找到我');
   });
@@ -104,14 +107,14 @@ describe('完整权限下的执行器', () => {
   it('敏感文件照样拒绝访问', async () => {
     const e = ex({ fullAccess: true, isSensitive: (p) => path.basename(p) === 'settings.json' });
     fs.writeFileSync(path.join(root, 'settings.json'), '{}', 'utf8');
-    await expect(e.readFile({ path: 'settings.json' })).rejects.toThrow(/敏感文件/);
+    await expect(e.readFile({ path: 'settings.json' })).rejects.toThrow(/敏感/);
   });
 
   it('严格模式（默认）仍然拦工作区之外的路径', async () => {
     const dir = outside();
     try {
       const e = ex();
-      await expect(e.writeFile({ path: path.join(dir, 'game.html'), content: 'x' })).rejects.toThrow(/越界/);
+      await expect(e.writeFile({ path: path.join(dir, 'game.html'), content: 'x' })).rejects.toThrow(/工作区之外/);
     } finally {
       fs.rmSync(dir, { recursive: true, force: true });
     }
@@ -352,7 +355,7 @@ describe('git 工具', () => {
   });
   it('git_diff 指定越界路径会被拒', async () => {
     const e = ex();
-    await expect(e.gitDiff({ path: '../x' })).rejects.toThrow(/越界/);
+    await expect(e.gitDiff({ path: '../x' })).rejects.toThrow(/工作区之外|越界/);
   });
   it('git_commit 缺 message 报错', async () => {
     await expect(ex().gitCommit({})).rejects.toThrow(/message/);

@@ -1712,12 +1712,27 @@ function registerIpc() {
   try { agentAudit.prune(); } catch { /* 清理失败不影响启动 */ }
 
   // Coding Agent 的工具能力：文件、命令、git、截屏全在主进程执行，
-  // 渲染层只送「要做什么」。workspace 边界与敏感路径在这里兜底。
+  // 渲染层只送「要做什么」。路径解析 / 敏感名单 / 外部授权在这里兜底。
   registerAgentIpc({
     // 这些通道渲染层能直接调，所以走带参数校验的那条 registration
     handle: validatedHandle,
     getSettings: readSettings,
     defaultWorkspace: () => DATA_DIR,
+    // 主目录 / 桌面 / 文档：模型要「把文件放到桌面」就必须知道真实桌面在哪
+    // （中文系统常是 C:\Users\x\OneDrive\桌面，猜不出来）。拿不到时 agent-ipc 自己兜底。
+    paths: () => {
+      const get = (name, fallback) => {
+        try { return app.getPath(name); } catch { return fallback; }
+      };
+      const home = get('home', '');
+      return {
+        home,
+        desktop: get('desktop', home ? path.join(home, 'Desktop') : ''),
+        documents: get('documents', home ? path.join(home, 'Documents') : ''),
+      };
+    },
+    // AILEEN 自己的设置文件里有 API Key：即使完整权限也不许 Agent 读写
+    settingsFile: () => SETTINGS_FILE,
     // 授权策略（主进程最终判定）+ 一次性凭证 + 审计
     authz,
     audit: agentAudit,
@@ -1732,6 +1747,7 @@ function registerIpc() {
         'app.launch': '启动应用 / 打开链接',
         'input.pointer': '操作鼠标',
         'input.keyboard': '模拟键盘输入',
+        'fs.external': '访问工作区外的文件（桌面 / 文档 / 其它盘）',
       };
       const what = labels[capability] || capability;
       const res = await dialog.showMessageBox({

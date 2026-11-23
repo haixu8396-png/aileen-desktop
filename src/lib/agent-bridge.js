@@ -12,6 +12,7 @@
 //   · spawn 要回一个 { done, cancel } 句柄，超时/取消由 executor 控制。
 // ============================================================
 import { streamChat } from './llm.js';
+import pathUtil from '../../shared/path-util.cjs';
 
 /**
  * 动作类能力的授权闸门（渲染层这一侧）。
@@ -47,20 +48,54 @@ async function requireGrant(capability, args) {
 /** executor 的桥接：能力全部来自主进程 */
 export function createAgentBridge() {
   const api = window.api || {};
+
+  /**
+   * 工作区缓存 + 「这个绝对路径在不在工作区外」。
+   *
+   * 主进程对外部路径要求一张 `fs.external` 凭证（HIGH），读也要 ——
+   * 所以渲染层在发请求之前得先判断范围，否则外部读取会被主进程拒掉，
+   * 模型只会看到一句「需要批准」却不知道批准的是哪一步。
+   */
+  let workspaceCache = null;
+  const workspaceOf = async () => {
+    if (workspaceCache !== null) return workspaceCache;
+    try {
+      const res = await api.agentWorkspace();
+      workspaceCache = String((res && res.workspace) || '');
+    } catch {
+      workspaceCache = '';
+    }
+    return workspaceCache;
+  };
+  const isExternalAbs = async (absPath) => {
+    const ws = await workspaceOf();
+    if (!ws) return false;
+    return !pathUtil.isInside(absPath, ws);
+  };
+  /** 外部路径先要「外部访问」凭证（能力名与主进程 gate 的那张一致） */
+  const requireExternalGrant = async (payload, absPath) => {
+    if (!(await isExternalAbs(absPath))) return;
+    await requireGrant('fs.external', payload);
+  };
+
   return {
     async readdir(absPath) {
+      await requireExternalGrant({ op: 'list', path: String(absPath || '') }, absPath);
       const res = await api.agentFs({ op: 'list', path: absPath });
       return (res && res.entries) || [];
     },
     async readFile(absPath) {
+      await requireExternalGrant({ op: 'read', path: String(absPath || '') }, absPath);
       const res = await api.agentFs({ op: 'read', path: absPath });
       return (res && res.text) || '';
     },
     async writeFile(absPath, text) {
+      await requireExternalGrant({ op: 'write', path: String(absPath || '') }, absPath);
       await requireGrant('fs.write', { op: 'write', path: absPath });
       return api.agentFs({ op: 'write', path: absPath, text: String(text == null ? '' : text) });
     },
     async stat(absPath) {
+      await requireExternalGrant({ op: 'stat', path: String(absPath || '') }, absPath);
       return api.agentFs({ op: 'stat', path: absPath });
     },
     /**
@@ -93,15 +128,23 @@ export function createAgentBridge() {
     },
 
     // ---- 文件操作 ----
+    // 外部路径要两张凭证：fs.external（这次碰工作区外的这个路径）+ 动作本身的能力
     async copyPath({ path: from, to, overwrite }) {
-      await requireGrant('fs.copy', { op: 'copy', path: from, to });
+      const payload = { op: 'copy', path: from, to };
+      await requireExternalGrant(payload, from);
+      await requireExternalGrant(payload, to);
+      await requireGrant('fs.copy', payload);
       return api.agentFs({ op: 'copy', path: from, to, overwrite: !!overwrite });
     },
     async movePath({ path: from, to, overwrite }) {
-      await requireGrant('fs.move', { op: 'move', path: from, to });
+      const payload = { op: 'move', path: from, to };
+      await requireExternalGrant(payload, from);
+      await requireExternalGrant(payload, to);
+      await requireGrant('fs.move', payload);
       return api.agentFs({ op: 'move', path: from, to, overwrite: !!overwrite });
     },
     async deletePath({ path }) {
+      await requireExternalGrant({ op: 'remove', path }, path);
       await requireGrant('fs.delete', { op: 'remove', path });
       return api.agentFs({ op: 'remove', path });
     },

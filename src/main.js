@@ -802,20 +802,25 @@ window.__AILEEN_PROBE_AGENT_AUTH = async () => {
 window.__AILEEN_PROBE_AGENT_FS = async () => {
   const out = { ok: false };
   const NAME = '_aileen-selftest-agent-fs.txt';
+  const BACK = '_aileen-selftest-agent-fs-back.txt';
   const CONTENT = 'aileen-fs-ok';
+  let desktopFile = '';
   try {
     const [executorMod, bridgeMod] = await Promise.all([
       import('./agent/executor.js'),
       import('./lib/agent-bridge.js'),
     ]);
-    const ws = ((await window.api.agentWorkspace()) || {}).workspace || '';
+    const info = (await window.api.agentWorkspace()) || {};
+    const ws = info.workspace || '';
     out.workspace = ws;
+    out.desktop = info.desktop || '';
+    out.home = info.home || '';
     if (!ws) {
       out.error = '没有工作区';
       return out;
     }
 
-    // ① 纯路径运算（事故现场）：工作区内放行、`..` 越界必须被拒
+    // ① 纯路径运算（node:path stub 事故现场）：工作区内放行、.. 越界必须被拒
     try {
       out.inside = executorMod.resolveInsideWorkspace(ws, NAME);
       out.insideOk = /_aileen-selftest-agent-fs\.txt$/.test(out.inside);
@@ -828,9 +833,11 @@ window.__AILEEN_PROBE_AGENT_FS = async () => {
     }
 
     // ② 真实读写：executor → agent-bridge → 主进程 agent:fs
+    const bridge = bridgeMod.createAgentBridge();
     const ex = executorMod.createExecutor({
       workspace: ws,
-      bridge: bridgeMod.createAgentBridge(),
+      home: out.home,
+      bridge,
       isSensitive: bridgeMod.isSensitivePath,
     });
     await ex.writeFile({ path: NAME, content: CONTENT });
@@ -842,14 +849,57 @@ window.__AILEEN_PROBE_AGENT_FS = async () => {
       out.patchOk = String(await ex.readFile({ path: NAME })).includes('AILEEN-FS-OK');
     } catch (err) { out.patchError = String((err && err.message) || err); }
 
+    // ③ 未授权的外部路径必须被拒，而且要能区分「外部访问」和「路径非法」
+    if (out.desktop) {
+      const probeFile = out.desktop + '\\aileen-selftest-denied-' + Date.now() + '.txt';
+      try {
+        await ex.writeFile({ path: probeFile, content: 'should-not-exist' });
+        out.externalBlocked = false;
+      } catch (err) {
+        const msg = String((err && err.message) || err);
+        out.externalBlocked = msg.includes('EXTERNAL_ACCESS_REQUIRED') && msg.includes('外部文件访问');
+        out.externalBlockedMsg = msg.slice(0, 160);
+      }
+    } else {
+      out.externalBlocked = 'skipped:no-desktop';
+    }
+
+    // ④ 授权之后：工作区 → 真实桌面（跨盘时走 复制→校验→删源）→ 再搬回来
+    if (out.desktop) {
+      const exExt = executorMod.createExecutor({
+        workspace: ws,
+        home: out.home,
+        bridge,
+        isSensitive: bridgeMod.isSensitivePath,
+        allowExternal: () => true,
+      });
+      desktopFile = out.desktop + '\\AILEEN-selftest-' + Date.now() + '.txt';
+      const msg = await exExt.movePath({ path: NAME, to: desktopFile });
+      out.moveMsg = String(msg).slice(0, 200);
+      out.moveCrossDisk = String(msg).includes('跨卷');
+      // 真实状态：目标在、源不在（不信工具返回的字符串，重新列一遍）
+      out.targetExists = String(await exExt.listFiles({ path: out.desktop, depth: 1 })).includes('AILEEN-selftest-');
+      out.sourceGone = !String(await exExt.listFiles({ path: '.', depth: 1 })).includes(NAME);
+      await exExt.movePath({ path: desktopFile, to: BACK });
+      out.backOk = String(await exExt.listFiles({ path: '.', depth: 1 })).includes(BACK);
+      desktopFile = '';
+      // 清理：回收站删不掉不算失败（CI 上没有回收站组件）
+      try { await exExt.deletePath({ path: BACK }); } catch (err) { out.cleanupWarn = String((err && err.message) || err).slice(0, 120); }
+    } else {
+      out.moveMsg = 'skipped:no-desktop';
+    }
+
     out.ok = out.insideOk === true
       && out.outsideBlocked === true
       && out.writeOk === true
       && out.readOk === true
       && out.listOk === true
-      && out.patchOk === true;
+      && out.patchOk === true
+      && out.externalBlocked === true
+      && (out.desktop ? (out.targetExists === true && out.sourceGone === true && out.backOk === true) : true);
   } catch (err) {
     out.error = String((err && err.message) || err);
+    if (desktopFile) { try { await window.api.agentFs({ op: 'remove', path: desktopFile }); } catch { /* 忽略 */ } }
   }
   return out;
 };

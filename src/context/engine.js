@@ -134,6 +134,7 @@ export function createContextEngine(deps = {}) {
       const brief = buildAgentSystemPrompt({
         task: agentCfg.task,
         workspace: agentCfg.workspace,
+        paths: agentCfg.paths,
         tools: agentCfg.tools,
       });
       extras.push(brief);

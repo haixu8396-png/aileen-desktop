@@ -665,10 +665,20 @@ export async function sendWithAgent(userContent, opts = {}) {
 
   // 工作区 + 环境信息（全部是「外部事实」，与人格无关）
   let workspace = '';
+  // 主目录 / 桌面 / 文档：模型要「把文件放到桌面」就必须知道真实桌面在哪
+  let agentPaths = {};
   let cursor = null;
   let screen = null;
   let windows = [];
-  try { workspace = ((await window.api.agentWorkspace()) || {}).workspace || ''; } catch { /* 没有就算了 */ }
+  try {
+    const info = (await window.api.agentWorkspace()) || {};
+    workspace = info.workspace || '';
+    agentPaths = {
+      home: info.home || '',
+      desktop: info.desktop || '',
+      documents: info.documents || '',
+    };
+  } catch { /* 没有就算了 */ }
   try { cursor = await (window.api.agentCursor ? window.api.agentCursor() : null); } catch { cursor = null; }
   try { screen = await window.api.agentScreenshot({ withData: false }); } catch { screen = null; }
   if (agentCfg.computerUse) {
@@ -701,6 +711,7 @@ export async function sendWithAgent(userContent, opts = {}) {
       enabled: true,
       task: userContent,
       workspace,
+      paths: agentPaths,
       tools,
     },
   });
@@ -720,6 +731,8 @@ export async function sendWithAgent(userContent, opts = {}) {
     taskMessage,
     systemPrompt,          // ← 人格从这里进去，且只在开头出现一次
     workspace,
+    // 供路径解析（~ 展开）与「外部路径」判断使用
+    home: agentPaths.home || '',
     registry,
     llm: createAgentLlm(getSettings),
     bridge: createAgentBridge(),

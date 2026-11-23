@@ -80,27 +80,32 @@ describe('敏感路径', () => {
 });
 
 describe('workspace 边界', () => {
-  it('agent:workspace 报告当前绑定目录', async () => {
-    expect(await call('agent:workspace')).toEqual({ workspace: path.resolve(workspace) });
+  it('agent:workspace 报告工作区（realpath）与常用目录', async () => {
+    const info = await call('agent:workspace');
+    // 工作区统一走 realpath：%TEMP% 是 8.3 短名，和真实长名对不上
+    expect(info.workspace).toBe(fs.realpathSync.native(workspace));
+    // 0.9：回包多了 home / desktop / documents（模型要「放到桌面」就得知道桌面在哪）
+    expect(typeof info.desktop).toBe('string');
+    expect(typeof info.home).toBe('string');
   });
-  it('越界读被拒（.. / 绝对路径）', async () => {
-    await expect(call('agent:fs', { op: 'read', path: '../outside.txt' })).rejects.toThrow(/越界/);
-    await expect(call('agent:fs', { op: 'read', path: path.join(os.tmpdir(), 'x.txt') })).rejects.toThrow(/越界/);
+  it('越界读被拒（.. / 绝对路径；没有授权层时对外部 fail closed）', async () => {
+    await expect(call('agent:fs', { op: 'read', path: '../outside.txt' })).rejects.toThrow(/外部/);
+    await expect(call('agent:fs', { op: 'read', path: path.join(os.tmpdir(), 'x.txt') })).rejects.toThrow(/外部/);
   });
   it('越界写被拒', async () => {
-    await expect(call('agent:fs', { op: 'write', path: '../evil.txt', text: 'x' })).rejects.toThrow(/越界/);
+    await expect(call('agent:fs', { op: 'write', path: '../evil.txt', text: 'x' })).rejects.toThrow(/外部/);
   });
   it('含空字符的路径被拒', async () => {
     await expect(call('agent:fs', { op: 'read', path: 'a\0b' })).rejects.toThrow(/非法字符/);
   });
   it('workspace 内的敏感文件名照样被拒（读也不行）', async () => {
     fs.writeFileSync(path.join(workspace, 'settings.json'), '{"apiKey":"safe:v1:x"}', 'utf8');
-    await expect(call('agent:fs', { op: 'read', path: 'settings.json' })).rejects.toThrow(/敏感文件/);
-    await expect(call('agent:fs', { op: 'write', path: 'settings.json', text: '{}' })).rejects.toThrow(/敏感文件/);
+    await expect(call('agent:fs', { op: 'read', path: 'settings.json' })).rejects.toThrow(/敏感/);
+    await expect(call('agent:fs', { op: 'write', path: 'settings.json', text: '{}' })).rejects.toThrow(/敏感/);
   });
   it('设置里的 workspace 不存在时回落到默认工作区', async () => {
     register({ agent: { workspace: 'Z:/definitely/not/here', requireMedium: true } });
-    expect(await call('agent:workspace')).toEqual({ workspace: path.resolve(workspace) });
+    expect((await call('agent:workspace')).workspace).toBe(fs.realpathSync.native(workspace));
   });
 });
 
@@ -183,7 +188,8 @@ describe('agent:exec 与 agent:screenshot', () => {
     const script = path.join(workspace, 'cwd.js');
     fs.writeFileSync(script, 'console.log(process.cwd());\n', 'utf8');
     const r = await call('agent:exec', { command: process.execPath, args: [script], timeoutMs: 30000 });
-    expect(r.stdout.trim().toLowerCase()).toBe(path.resolve(workspace).toLowerCase());
+    // 0.9：cwd 走 realpath（8.3 短名会变成真实长名）
+    expect(r.stdout.trim().toLowerCase()).toBe(fs.realpathSync.native(workspace).toLowerCase());
   }, 60000);
   it('exec 拒绝 -e 这类「把代码当参数」的调用（主进程出口策略）', async () => {
     await expect(call('agent:exec', { command: process.execPath, args: ['-e', '1'] }))
@@ -306,23 +312,37 @@ describe('主进程授权闸门（authz）', () => {
     expect(String(r.stdout).trim()).toBe('42');
   }, 60000);
 
-  it('复制 / 移动：源和目标都要过边界，且各自要一张凭证', async () => {
-    fs.writeFileSync(path.join(workspace, 'src.txt'), 'hello', 'utf8');
+  it('复制 / 移动：工作区内一张凭证；碰到外部路径还要多一张 fs.external', async () => {
+    const srcAbs = path.join(workspace, 'src.txt');
+    const dstAbs = path.join(workspace, 'dst.txt');
+    fs.writeFileSync(srcAbs, 'hello', 'utf8');
     registerWithAuthz();
 
     // 没有凭证 → 拒绝
-    await expect(call('agent:fs', { op: 'copy', path: 'src.txt', to: 'dst.txt' }))
+    await expect(call('agent:fs', { op: 'copy', path: srcAbs, to: dstAbs }))
       .rejects.toThrow(/需要先获得批准/);
 
-    await g('fs.copy', { op: 'copy', path: 'src.txt', to: 'dst.txt' });
-    const r = await call('agent:fs', { op: 'copy', path: 'src.txt', to: 'dst.txt' });
+    // 一张 fs.copy 凭证（绑定绝对路径）→ 工作区内复制成功
+    await g('fs.copy', { op: 'copy', path: srcAbs, to: dstAbs });
+    const r = await call('agent:fs', { op: 'copy', path: srcAbs, to: dstAbs });
     expect(r.ok).toBe(true);
-    expect(fs.readFileSync(path.join(workspace, 'dst.txt'), 'utf8')).toBe('hello');
+    expect(r.scope).toBe('workspace');
+    expect(fs.readFileSync(dstAbs, 'utf8')).toBe('hello');
 
-    // 目标越界 → 即使有凭证也拒绝（resolveSafe 在 gate 之前）
-    await g('fs.move', { op: 'move', path: 'dst.txt', to: '../escape.txt' });
-    await expect(call('agent:fs', { op: 'move', path: 'dst.txt', to: '../escape.txt' }))
-      .rejects.toThrow(/越界/);
+    // 目标是工作区外：只有 fs.move 不够，还要一张 fs.external（HIGH）
+    const escapeAbs = path.join(workspace, '..', 'escape-' + Date.now() + '.txt');
+    await g('fs.move', { op: 'move', path: dstAbs, to: escapeAbs });
+    await expect(call('agent:fs', { op: 'move', path: dstAbs, to: escapeAbs }))
+      .rejects.toThrow(/需要先获得批准/);
+
+    // 补上外部凭证之后才真正执行 —— 这就是「外部文件访问」= 独立授权
+    await g('fs.external', { op: 'move', path: dstAbs, to: escapeAbs });
+    const moved = await call('agent:fs', { op: 'move', path: dstAbs, to: escapeAbs });
+    expect(moved.ok).toBe(true);
+    expect(moved.scope).toBe('external');
+    expect(fs.existsSync(escapeAbs)).toBe(true);
+    expect(fs.existsSync(dstAbs)).toBe(false);
+    try { fs.unlinkSync(escapeAbs); } catch { /* 忽略 */ }
   });
 
   it('删除走回收站，且没有凭证不执行', async () => {

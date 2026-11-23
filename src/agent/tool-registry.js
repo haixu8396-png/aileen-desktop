@@ -184,10 +184,11 @@ export function withBaseExecutors(specs) {
  */
 export function attachExecutors(specs, executor) {
   return withBaseExecutors(specs).map((spec) => Object.assign({}, spec, {
-    execute: async (args) => {
+    // ctx 由 runtime 传进来（比如「这一次外部访问用户刚批准过」）
+    execute: async (args, ctx) => {
       const fn = executor && executor[spec.name];
       if (typeof fn !== 'function') throw new Error('executor 未实现工具：' + spec.name);
-      return fn(args);
+      return fn(args, ctx);
     },
   }));
 }
@@ -196,11 +197,11 @@ export const TOOL_SPECS = [
   {
     name: 'list_files',
     riskLevel: RISK.LOW,
-    description: '列出一个目录下的文件与子目录。路径必须位于 workspace 内。',
+    description: '列出一个目录下的文件与子目录。工作区只是默认工作目录，不是整台电脑唯一能访问的地方。相对路径按工作区解析，也可以用 Windows 绝对路径（如 C:\\Users\\你\\Desktop\\a.txt）或 ~/Desktop/a.txt；工作区外的路径会走「外部文件访问」授权。',
     inputSchema: {
       type: 'object',
       properties: {
-        path: { type: 'string', description: '相对 workspace 的目录路径，默认 "."' },
+        path: { type: 'string', description: '要列的目录：相对工作区的路径（默认 "."）、绝对路径，或 ~/...' },
         depth: { type: 'integer', description: '递归层数，1 表示只看当前层' },
       },
       required: [],
@@ -209,12 +210,12 @@ export const TOOL_SPECS = [
   {
     name: 'search_files',
     riskLevel: RISK.LOW,
-    description: '在 workspace 内按文本内容搜索（字面量匹配，不是正则）。',
+    description: '按文本内容搜索（字面量匹配，不是正则）。可以搜工作区，也可以搜桌面/文档等外部目录（需要外部访问授权）。',
     inputSchema: {
       type: 'object',
       properties: {
         query: { type: 'string', description: '要搜索的文本' },
-        path: { type: 'string', description: '搜索起点目录，默认 "."' },
+        path: { type: 'string', description: '搜索起点目录：相对工作区（默认 "."）、绝对路径或 ~/...' },
         maxResults: { type: 'integer', description: '最多返回多少条，默认 50' },
       },
       required: ['query'],
@@ -223,11 +224,11 @@ export const TOOL_SPECS = [
   {
     name: 'read_file',
     riskLevel: RISK.LOW,
-    description: '读取 workspace 内某个文本文件的内容（带行号）。',
+    description: '读取一个文本文件的内容（带行号）。工作区只是默认工作目录，不是整台电脑唯一能访问的地方。也可以用 Windows 绝对路径（如 C:\\Users\\你\\Desktop\\a.txt）或 ~/Desktop/a.txt；工作区外的路径会走「外部文件访问」授权。',
     inputSchema: {
       type: 'object',
       properties: {
-        path: { type: 'string', description: '相对 workspace 的文件路径' },
+        path: { type: 'string', description: '文件路径：相对工作区、绝对路径，或 ~/...' },
         offset: { type: 'integer', description: '从第几行开始，默认 1' },
         limit: { type: 'integer', description: '最多读多少行，默认 400' },
       },
@@ -237,11 +238,11 @@ export const TOOL_SPECS = [
   {
     name: 'write_file',
     riskLevel: RISK.MEDIUM,
-    description: '把内容写入 workspace 内的文件（覆盖或新建）。这是会改磁盘的操作。',
+    description: '把内容写入文件（覆盖或新建）。这是会改磁盘的操作。工作区只是默认工作目录，不是整台电脑唯一能访问的地方。也可以用 Windows 绝对路径（如 C:\\Users\\你\\Desktop\\a.txt）或 ~/Desktop/a.txt；工作区外的路径会走「外部文件访问」授权。父目录不存在时会自动创建。',
     inputSchema: {
       type: 'object',
       properties: {
-        path: { type: 'string', description: '相对 workspace 的文件路径' },
+        path: { type: 'string', description: '文件路径：相对工作区、绝对路径，或 ~/...' },
         content: { type: 'string', description: '完整文件内容' },
       },
       required: ['path', 'content'],
@@ -439,12 +440,13 @@ export const TOOL_SPECS = [
   {
     name: 'copy_path',
     riskLevel: RISK.MEDIUM,
-    description: '复制文件或目录（源与目标都必须在工作区内）。目标已存在时默认拒绝，要覆盖需显式传 overwrite。',
+    description: '复制文件或目录。源和目标都可以在工作区内、也可以在工作区外（桌面/文档/其它盘），跨磁盘复制同样支持。'
+      + 'to 是**完整目标路径（含文件名）**，不是「放进这个目录」。目标已存在时默认拒绝，要覆盖需显式传 overwrite: true。',
     inputSchema: {
       type: 'object',
       properties: {
-        path: { type: 'string', description: '源路径（相对工作区）' },
-        to: { type: 'string', description: '目标路径（相对工作区）' },
+        path: { type: 'string', description: '源路径：相对工作区、绝对路径或 ~/...' },
+        to: { type: 'string', description: '目标完整路径（含文件名）' },
         overwrite: { type: 'boolean', description: '目标已存在时是否覆盖，默认 false' },
       },
       required: ['path', 'to'],
@@ -453,12 +455,15 @@ export const TOOL_SPECS = [
   {
     name: 'move_path',
     riskLevel: RISK.MEDIUM,
-    description: '移动或重命名文件/目录（源与目标都必须在工作区内）。',
+    description: '移动或重命名文件/目录（同一目录下换名字就是重命名）。'
+      + '源和目标都可以在工作区内外，例如把工作区里的文件移到桌面，或把桌面文件移进工作区。'
+      + '跨磁盘移动由程序自动处理（复制 → 校验 → 删源，只有校验通过才删源）。'
+      + 'to 是**完整目标路径（含文件名）**；目标已存在时默认拒绝，要覆盖需显式传 overwrite: true。',
     inputSchema: {
       type: 'object',
       properties: {
-        path: { type: 'string', description: '源路径（相对工作区）' },
-        to: { type: 'string', description: '目标路径（相对工作区）' },
+        path: { type: 'string', description: '源路径：相对工作区、绝对路径或 ~/...' },
+        to: { type: 'string', description: '目标完整路径（含文件名）' },
         overwrite: { type: 'boolean', description: '目标已存在时是否覆盖，默认 false' },
       },
       required: ['path', 'to'],
@@ -467,11 +472,11 @@ export const TOOL_SPECS = [
   {
     name: 'delete_path',
     riskLevel: RISK.HIGH,
-    description: '把文件或目录**移入回收站**（可恢复）。不做永久删除。必须用户确认。',
+    description: '把文件或目录**移入回收站**（可恢复）。不做永久删除。工作区外同样可以（需要外部访问授权）。必须用户确认。',
     inputSchema: {
       type: 'object',
       properties: {
-        path: { type: 'string', description: '要删除的路径（相对工作区）' },
+        path: { type: 'string', description: '要删除的路径：相对工作区、绝对路径或 ~/...' },
       },
       required: ['path'],
     },

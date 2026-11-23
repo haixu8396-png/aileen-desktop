@@ -17,6 +17,8 @@
 // 列目录 / 读文件全部同一个内部错误」，而单测跑在 Node 上完全正常（抓不到）。
 // 路径运算统一走 shared/path-util.cjs（纯 JS，渲染层与主进程都能用）。
 import pathUtil from '../../shared/path-util.cjs';
+// 路径解析只有一份：主进程 agent-ipc 用的是同一个模块
+import fsPaths from '../../shared/fs-paths.cjs';
 // 命令策略只有一份（shared/command-policy.cjs），主进程出口处用的是同一个函数。
 // 以前白名单只写在渲染层，主进程 agent:exec 什么命令都收 —— 那是「渲染层被注入
 // 就等于任意命令执行」的根因。现在两边共用，渲染层这份只负责给出人话错误。
@@ -27,7 +29,13 @@ const { COMMAND_WHITELIST, ARG_PATTERNS, baseName, checkCommand } = commandPolic
 
 export { COMMAND_WHITELIST, ARG_PATTERNS, baseName, checkCommand };
 
-/** 工作区边界：绝对路径 / .. / 符号链接都要落到 workspace 里 */
+/**
+ * 把路径限定在工作区内（旧的硬边界）。
+ *
+ * 0.8.0 之后**默认不再用它**：工作区只是默认工作目录，外部路径由 fs-paths 解析 +
+ * 授权层决定能不能碰。保留这个导出是因为旧测试与个别内部路径（git diff 之类的
+ * 相对 workspace 操作）仍然按「必须在工作区内」理解。
+ */
 export function resolveInsideWorkspace(workspace, target) {
   const root = String(workspace || '').trim();
   if (!root) throw new Error('未绑定 workspace');
@@ -94,18 +102,25 @@ function isDirEntry(entry) {
 /**
  * 建立 executor。
  * @param {object} deps
- *   workspace  工作区绝对路径
+ *   workspace  默认工作目录（不再是唯一可访问边界）
+ *   home       用户主目录（用于 ~ 展开；拿不到就明确报错，不静默按相对路径解析）
  *   bridge     宿主注入的能力：{ readFile, writeFile, readdir, stat, spawn, git, screenCapture }
- *   isSensitive 可选：判断某个绝对路径是否属于「敏感（不许读/写）」名单
- *   fullAccess 可选：完全放开时不再限制「必须落在 workspace 内」（敏感名单照旧拒绝），
- *              并且不再用命令白名单拦跑命令 —— 用户显式选择了「不要再问」，
- *              再拿白名单静默拦下来只会变成另一种「说不清为什么不行」。
+ *   isSensitive 可选：额外的敏感判断（主进程还有一道 realpath + 同一份模板）
+ *   allowExternal 可选：函数，返回当前是否已获得「外部文件访问」授权
+ *              （完整权限 / 信任模式 + 允许高风险；也可以是每次调用上下文里的
+ *               approvedExternal —— 用户刚在审批卡片上点了同意）
+ *   fullAccess 兼容旧调用：true 等价于 allowExternal 恒真
  */
 export function createExecutor(deps) {
   const workspace = String((deps && deps.workspace) || '');
+  const home = String((deps && deps.home) || '');
   const bridge = (deps && deps.bridge) || {};
   const isSensitive = typeof (deps && deps.isSensitive) === 'function' ? deps.isSensitive : () => false;
   const fullAccess = !!(deps && deps.fullAccess);
+  const protectedRoots = Array.isArray(deps && deps.protectedRoots) ? deps.protectedRoots : [];
+  const externalPolicy = typeof (deps && deps.allowExternal) === 'function'
+    ? deps.allowExternal
+    : () => fullAccess;
   const running = new Set();
 
   function need(name) {
@@ -114,19 +129,46 @@ export function createExecutor(deps) {
     }
   }
 
-  function guard(target) {
-    if (!fullAccess) return resolveInsideWorkspace(workspace, target);
-    // 完全放开：相对路径仍然相对 workspace，绝对路径原样用；
-    // 唯一例外是敏感名单（凭据 / 密钥 / 设置文件），一律拒绝。
-    if (!workspace) throw new Error('未绑定 workspace');
-    const raw = String(target == null ? '' : target).trim() || '.';
-    if (raw.includes('\0')) throw new Error('路径含非法字符');
-    return pathResolve(workspace, raw);
+  /** 现在能不能碰工作区外的路径 */
+  function externalAllowed(ctx, abs) {
+    if (ctx && ctx.approvedExternal) return true;
+    try {
+      if (externalPolicy(abs) === true) return true;
+    } catch { /* 策略抛错按不放行处理 */ }
+    return false;
+  }
+
+  /**
+   * 统一的路径守卫：解析 → 敏感 → 范围。
+   * 失败时抛的错误带 code，并且把 code 写进 message（跨 IPC 只有 message 能传）。
+   * @returns {{abs:string, scope:'workspace'|'external'}}
+   */
+  function targetOf(target, ctx) {
+    const r = fsPaths.resolveAgentPath(target, { workspace, home });
+    if (!r.ok) throw pathError(r.error);
+    if (isSensitive(r.abs) || fsPaths.isSensitivePath(r.abs, { protectedRoots })) {
+      throw pathError({ code: fsPaths.CODE.SENSITIVE_PATH, message: '该路径属于敏感区域（凭据 / 密钥 / 设置），Agent 不允许访问：' + r.raw });
+    }
+    const scope = fsPaths.scopeOf(r.abs, workspace);
+    if (scope === 'external' && !externalAllowed(ctx, r.abs)) {
+      throw pathError({
+        code: fsPaths.CODE.EXTERNAL_ACCESS_REQUIRED,
+        message: '路径在工作区之外，需要「外部文件访问」授权：' + r.raw
+          + '（当前工作区 ' + workspace + '；批准这次操作，或在 Agent 权限里打开信任模式 / 完整权限）',
+      });
+    }
+    return { abs: r.abs, scope };
+  }
+
+  function pathError(fail) {
+    const e = new Error('[' + fail.code + '] ' + fail.message);
+    e.code = fail.code;
+    return e;
   }
 
   function denySensitive(abs) {
     if (isSensitive(abs)) {
-      const e = new Error('该路径属于敏感文件（凭据 / 密钥 / 设置），Agent 不允许访问');
+      const e = new Error('[SENSITIVE_PATH] 该路径属于敏感文件（凭据 / 密钥 / 设置），Agent 不允许访问');
       e.code = 'SENSITIVE_PATH';
       throw e;
     }
@@ -139,8 +181,8 @@ export function createExecutor(deps) {
       return running.size;
     },
 
-    async listFiles({ path: p = '.', depth = 1 } = {}) {
-      const abs = guard(p);
+    async listFiles({ path: p = '.', depth = 1 } = {}, ctx = {}) {
+      const { abs } = targetOf(p, ctx);
       denySensitive(abs);
       need('readdir');
       const maxDepth = Math.max(1, Math.min(6, Number(depth) || 1));
@@ -171,10 +213,10 @@ export function createExecutor(deps) {
       return out.slice(0, 800).join('\n');
     },
 
-    async searchFiles({ query, path: p = '.', maxResults = 50 } = {}) {
+    async searchFiles({ query, path: p = '.', maxResults = 50 } = {}, ctx = {}) {
       const needle = String(query || '');
       if (!needle) throw new Error('search_files 缺少 query');
-      const abs = guard(p);
+      const { abs } = targetOf(p, ctx);
       denySensitive(abs);
       need('readdir');
       need('readFile');
@@ -211,8 +253,8 @@ export function createExecutor(deps) {
       return hits.join('\n');
     },
 
-    async readFile({ path: p, offset = 1, limit = 400 } = {}) {
-      const abs = guard(p);
+    async readFile({ path: p, offset = 1, limit = 400 } = {}, ctx = {}) {
+      const { abs } = targetOf(p, ctx);
       denySensitive(abs);
       need('readFile');
       const text = await bridge.readFile(abs, 'utf8');
@@ -225,8 +267,8 @@ export function createExecutor(deps) {
       return numbered + tail;
     },
 
-    async writeFile({ path: p, content } = {}) {
-      const abs = guard(p);
+    async writeFile({ path: p, content } = {}, ctx = {}) {
+      const { abs } = targetOf(p, ctx);
       denySensitive(abs);
       need('writeFile');
       const text = String(content == null ? '' : content);
@@ -234,8 +276,8 @@ export function createExecutor(deps) {
       return '已写入 ' + relPath(workspace, abs) + '（' + text.length + ' 字符）';
     },
 
-    async applyPatch({ path: p, old: oldText, new: newText } = {}) {
-      const abs = guard(p);
+    async applyPatch({ path: p, old: oldText, new: newText } = {}, ctx = {}) {
+      const { abs } = targetOf(p, ctx);
       denySensitive(abs);
       need('readFile');
       need('writeFile');
@@ -290,11 +332,12 @@ export function createExecutor(deps) {
       return out || '（工作区干净）';
     },
 
-    async gitDiff({ path: p = '', staged = false } = {}) {
+    async gitDiff({ path: p = '', staged = false } = {}, ctx = {}) {
       need('git');
       const args = ['diff'];
       if (staged) args.push('--staged');
-      if (p) args.push('--', relPath(workspace, guard(p)));
+      // git 只能操作工作区里的仓库：这里仍然按「必须落在工作区内」理解（外部路径会被挡下）
+      if (p) args.push('--', relPath(workspace, targetOf(p, ctx).abs));
       const out = await bridge.git({ args, cwd: workspace });
       return out || '（没有改动）';
     },
@@ -440,22 +483,49 @@ export function createExecutor(deps) {
     },
 
     // ---- 文件操作（复制 / 移动 / 删除到回收站）----
-    async copyPath({ path: from, to, overwrite = false } = {}) {
+    //
+    // 三条硬要求（真机上踩过）：
+    //   ① 源和目标**两边**都要过守卫（以前只把源送进去了）；
+    //   ② 传给主进程的是解析后的绝对路径（相对路径在主进程里会按它自己的工作区再解析一遍，
+    //      两边不一致时就会「渲染层以为在工作区里、主进程以为越界」）；
+    //   ③ 只按主进程返回的**真实结果**回话 —— 拿到 strategy / verified 才说「移动成功」，
+    //      不许拿「调用没抛错」当证据。
+    async copyPath({ path: from, to, overwrite = false } = {}, ctx = {}) {
       need('copyPath');
-      await bridge.copyPath({ path: String(from || ''), to: String(to || ''), overwrite: !!overwrite });
-      return '已复制 ' + String(from || '') + ' → ' + String(to || '');
+      const a = targetOf(from, ctx);
+      const b = targetOf(to, ctx);
+      const check = fsPaths.validateCopyOperation({
+        from: a.abs, to: b.abs, workspace, home, allowExternal: true, protectedRoots,
+      });
+      if (!check.ok) throw pathError(check.error);
+      const res = await bridge.copyPath({ path: a.abs, to: b.abs, overwrite: !!overwrite, approvedExternal: externalAllowed(ctx, a.abs) || externalAllowed(ctx, b.abs) });
+      const scope = (a.scope === 'external' || b.scope === 'external') ? 'external' : 'workspace';
+      const where = scope === 'external' ? '（工作区外）' : '';
+      const ver = res && res.verified ? (res.verified.mode === 'hash' ? '，内容校验通过' : res.verified.mode === 'tree' ? '，目录结构校验通过' : '') : '';
+      return '已复制' + where + ' ' + a.abs + ' → ' + b.abs + ver;
     },
 
-    async movePath({ path: from, to, overwrite = false } = {}) {
+    async movePath({ path: from, to, overwrite = false } = {}, ctx = {}) {
       need('movePath');
-      await bridge.movePath({ path: String(from || ''), to: String(to || ''), overwrite: !!overwrite });
-      return '已移动 ' + String(from || '') + ' → ' + String(to || '');
+      const a = targetOf(from, ctx);
+      const b = targetOf(to, ctx);
+      const check = fsPaths.validateMoveOperation({
+        from: a.abs, to: b.abs, workspace, home, allowExternal: true, protectedRoots,
+      });
+      if (!check.ok) throw pathError(check.error);
+      const res = await bridge.movePath({ path: a.abs, to: b.abs, overwrite: !!overwrite, approvedExternal: externalAllowed(ctx, a.abs) || externalAllowed(ctx, b.abs) });
+      const scope = (a.scope === 'external' || b.scope === 'external') ? 'external' : 'workspace';
+      const where = scope === 'external' ? '（工作区外）' : '';
+      const how = res && res.strategy === 'copy+delete' ? '（跨卷：复制→校验→删除源）' : '';
+      const ver = res && res.verified ? (res.verified.mode === 'hash' ? '，内容校验通过' : res.verified.mode === 'tree' ? '，目录结构校验通过' : '') : '';
+      return '已移动' + where + ' ' + a.abs + ' → ' + b.abs + how + ver;
     },
 
-    async deletePath({ path: p } = {}) {
+    async deletePath({ path: p } = {}, ctx = {}) {
       need('deletePath');
-      const res = await bridge.deletePath({ path: String(p || '') });
-      return '已删除 ' + String(p || '') + '（移入回收站，可恢复）';
+      const t = targetOf(p, ctx);
+      const res = await bridge.deletePath({ path: t.abs });
+      return '已删除 ' + t.abs + (t.scope === 'external' ? '（工作区外）' : '') + '（移入回收站，可恢复）';
     },
 
     // ---- 窗口 / UIA / 应用 ----

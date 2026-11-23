@@ -112,7 +112,7 @@ export function shouldFinish(text, calls, rounds, maxRounds) {
  *
  * 铁律那几条是刻意写死的 —— 模型自己不会知道 workspace 边界。
  */
-export function buildAgentSystemPrompt({ task, workspace, tools } = {}) {
+export function buildAgentSystemPrompt({ task, workspace, tools, paths } = {}) {
   const lines = [
     '你可以使用工具**真正动手**去完成任务，而不是只给建议：工具的结果会回到你这里，你可以据此继续下一步。',
     '',
@@ -122,15 +122,41 @@ export function buildAgentSystemPrompt({ task, workspace, tools } = {}) {
     lines.push('');
   }
   if (workspace) {
-    lines.push('工作区（workspace）：' + String(workspace));
-    lines.push('');
+    lines.push('工作区（workspace，默认工作目录）：' + String(workspace));
   }
+  const p = (paths && typeof paths === 'object') ? paths : {};
+  if (p.home || p.desktop || p.documents) {
+    lines.push('这台机器上的常用位置：');
+    if (p.home) lines.push('· 用户主目录：' + String(p.home));
+    if (p.desktop) lines.push('· 桌面：' + String(p.desktop));
+    if (p.documents) lines.push('· 文档：' + String(p.documents));
+  }
+  if (workspace || p.home) lines.push('');
   lines.push(
     '先判断需不需要动手：只是聊天、解释、给建议、回答问题，就**不要调用任何工具**，直接像平常那样回答。',
     '只有确实要读写文件、跑命令、看屏幕、动鼠标键盘时才调用工具。',
     '',
+    '关于文件路径（0.9，很重要）：',
+    '· **工作区只是默认工作目录，不是整台电脑里唯一能碰的地方。**',
+    '· 用户要求操作桌面 / 文档 / 其它磁盘时，直接用 Windows 绝对路径，例如：',
+    '  源 C:\\Users\\你的用户名\\Documents\\example.txt → 目标 C:\\Users\\你的用户名\\Desktop\\example.txt',
+    '· 工作区外的路径属于「外部文件访问」：会自动弹一次批准（或在信任模式 / 完整权限下直接执行）。',
+    '  **不要**因为「看起来在外部」就提前拒绝或自己找替代方案；先按真实路径调用工具，让授权层去判断。',
+    '· 相对路径按工作区解析；也可以用 `~` 表示用户主目录（例如 `~/Desktop/a.txt`）。',
+    '· 只有敏感位置（凭据 / 密钥 / 系统目录 / AILEEN 自己的设置）是绝对禁区，那里会明确报错。',
+    '',
+    '移动 / 复制文件时（硬要求）：',
+    '1. 先确认源文件真的存在（list_files 或 read_file），不要凭记忆拼路径。',
+    '2. move_path / copy_path 的 `to` 是**完整目标路径**（含文件名），不是「放进这个目录」。',
+    '3. 目标已存在默认拒绝；要覆盖必须显式传 overwrite: true。',
+    '4. 跨磁盘移动由程序处理（复制 → 校验 → 删源），返回里会写 `跨卷` 与校验结果。',
+    '5. 做完要**自己验证**：列一下目标目录、读一下目标文件、确认源文件还在不在；',
+    '   工具说成功不等于文件真的到了 —— 你要能说出「目标里现在有什么」。',
+    '6. 失败必须区分原因并如实转述：工作区外未授权、敏感路径、文件被占用、目标已存在、跨卷复制失败，',
+    '   这些在所有工具里都是**不同的错误**，不要混成一句「权限不够」。',
+    '',
     '使用工具的硬规矩：',
-    '1. 所有路径都必须是相对 workspace 的路径（除非用户把权限放开到可以写任意位置）。越界的路径会被直接拒绝，不要尝试。',
+    '1. 路径要么是相对工作区的，要么是完整的绝对路径；不要用 `C:xxx` 这种盘符相对路径（含义不明确，会被拒绝）。',
     '2. 不要读取或修改 API Key、凭据、系统目录、浏览器数据 —— 这些一律被禁止。',
     '3. 改文件之前先读它。不要凭猜测重写整个文件。',
     '4. 一次只做一件事；做完一件事再决定下一步。',

@@ -145,6 +145,12 @@ async function run(target, noBuild) {
         const exeDir = path.dirname(path.dirname(target.asar)); // resources -> 安装目录
         const icoDst = path.join(exeDir, 'aileen.ico');
         fs.copyFileSync(icoSrc, icoDst);
+        // 以前这里只 log 一句「已更新」就完事：ico 被删掉 / 复制失败时，快捷方式会指向一个
+        // 不存在的文件，桌面图标直接变成白板，而日志看起来一切正常。复制完必须验一下。
+        if (!fs.existsSync(icoDst) || fs.statSync(icoDst).size < 1024) {
+          throw new Error('图标没有真的复制成功：' + icoDst);
+        }
+        log('  图标已就位:', icoDst, '(' + fs.statSync(icoDst).size + ' 字节)');
         const links = [
           path.join(os.homedir(), 'Desktop', 'AILEEN.lnk'),
           path.join(process.env.APPDATA || '', 'Microsoft', 'Windows', 'Start Menu', 'Programs', 'AILEEN.lnk'),

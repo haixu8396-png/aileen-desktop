@@ -312,12 +312,15 @@ win.webContents.on('did-finish-load', () => {
           const lightBtn = document.querySelector('#theme-mode-switch button[data-mode="light"]');
           const restoreBtn = document.querySelector('#theme-mode-switch button[data-mode="' + origMode + '"]');
           if (darkBtn && lightBtn) {
+            // 先记下当前真实主题：用户可能是「跟随系统」且系统正处在暗色，
+            // 恢复之后 data-theme 依然是 dark —— 拿固定值 light 去比就是假红。
+            const themeBefore = root.getAttribute('data-theme');
             darkBtn.click();
             await new Promise((r) => setTimeout(r, 120));
             const darkOk = root.getAttribute('data-theme') === 'dark';
             (restoreBtn || lightBtn).click();
             await new Promise((r) => setTimeout(r, 120));
-            themeModeOk = darkOk && root.getAttribute('data-theme') === (origMode === 'dark' ? 'dark' : 'light');
+            themeModeOk = darkOk && root.getAttribute('data-theme') === themeBefore;
           }
         } catch (err) { window.__AILEEN_ERRORS.push('themeTest: ' + String((err && err.message) || err)); }
         // 强调色必须**点下去当帧**就变，不能等 IPC 回来才刷新（否则看起来慢一拍）

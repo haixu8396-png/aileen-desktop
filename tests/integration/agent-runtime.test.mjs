@@ -220,22 +220,26 @@ describe('未知工具与坏参数', () => {
     expect(userMsg(seen[1])).toContain('参数错误');
   });
 
-  it('工具执行抛错（越界）也变成工具结果回给模型', async () => {
+  it('工作区外路径会被升级成 HIGH 并先问；拒绝后错误作为工具结果回给模型', async () => {
     const seen = [];
+    let asked = 0;
     const { done } = runAgent({
-      task: '越界读文件',
+      task: '读工作区外的文件',
       workspace,
       registry: registry(),
       bridge,
       isSensitive,
+      requestApproval: async () => { asked += 1; return { approved: false }; },
       llm: scriptedLlm([
         { text: '', toolCalls: [{ id: 'o1', function: { name: 'read_file', arguments: '{"path":"../../etc/passwd"}' } }] },
-        { text: '不能越界，我知道了', toolCalls: [] },
+        { text: '那我换个做法', toolCalls: [] },
       ], { onCall: (i, p) => seen.push(p.messages) }),
     });
     const run = (await done).run;
-    expect(userMsg(seen[1])).toContain('越界');
+    // 0.9：工作区外 = 独立的一次授权（HIGH），所以先问了一次
+    expect(asked).toBe(1);
     expect(run.tool_calls[0].ok).toBe(false);
+    expect(userMsg(seen[1])).toContain('拒绝');
   });
 
   it('敏感文件读不了（API Key 不在 Agent 的射程内）', async () => {

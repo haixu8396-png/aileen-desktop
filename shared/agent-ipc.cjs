@@ -19,41 +19,28 @@
 // ============================================================
 
 const fs = require('fs');
+const os = require('os');
 const path = require('path');
 const { spawn } = require('child_process');
-const { isInsidePath } = require('./util.cjs');
 const desktopInput = require('./desktop-input.cjs');
 // 命令策略与授权策略各只有一份，渲染层用的是同一批文件（见 shared/command-policy.cjs）
 const commandPolicy = require('./command-policy.cjs');
 const authzLib = require('./authz.cjs');
 const uia = require('./uia.cjs');
+// 路径解析只有一份：渲染层 executor 与这里都走 shared/fs-paths.cjs
+const fsPaths = require('./fs-paths.cjs');
+// 移动/复制只有一份：跨卷 = 复制 → 验证 → 删源（见 shared/fs-move.cjs）
+const fsMove = require('./fs-move.cjs');
 
 /** 输出上限（防止一条命令把内存和上下文都撑爆） */
 const MAX_OUTPUT = 200 * 1024;
 
-/** 敏感路径：命中即拒绝（读也不行 —— Agent 没有理由碰这些） */
-const SENSITIVE_PATTERNS = [
-  /(^|[\\/])\.ssh([\\/]|$)/i,
-  /(^|[\\/])\.aws([\\/]|$)/i,
-  /(^|[\\/])\.gnupg([\\/]|$)/i,
-  /(^|[\\/])\.git-credentials$/i,
-  /(^|[\\/])\.npmrc$/i,
-  /(^|[\\/])\.netrc$/i,
-  /(^|[\\/])id_(rsa|ed25519|ecdsa)(\.pub)?$/i,
-  /(^|[\\/])(Login Data|Cookies|Web Data)$/i,
-  /(^|[\\/])(Google[\\/]Chrome|Microsoft[\\/]Edge|BraveSoftware|Mozilla[\\/]Firefox)/i,
-  /(^|[\\/])settings\.json$/i,
-  /(^|[\\/])secrets[^\\/]*\.json$/i,
-  /(^|[\\/])\.credentials\.yaml$/i,
-  /(^|[\\/])Windows[\\/]System32/i,
-];
-
-function isSensitivePath(p) {
-  const s = String(p || '');
-  if (!s) return false;
-  for (const re of SENSITIVE_PATTERNS) if (re.test(s)) return true;
-  return false;
-}
+/**
+ * 敏感路径：命中即拒绝（读也不行 —— Agent 没有理由碰这些）。
+ * 模板本体在 shared/fs-paths.cjs（渲染层用的是同一份），这里保留导出给老调用点。
+ */
+const SENSITIVE_PATTERNS = fsPaths.SENSITIVE_PATTERNS;
+const isSensitivePath = fsPaths.isSensitivePath;
 
 /** 只允许 http(s) 之外的都拒掉？这里是给 workspace 用的，不需要 URL 校验 */
 
@@ -184,11 +171,14 @@ function registerAgentIpc(deps) {
     try { audit.append(entry); } catch { /* 审计坏了不影响业务 */ }
   }
 
-  /** 这是一次「按设置要不要先批准」的动作吗？ */
-  function gate(channel, capability, payload) {
+  /**
+   * 这是一次「按设置要不要先批准」的动作吗？
+   * @param {object} [opts] risk：覆盖风险等级（外部路径统一升到 HIGH）
+   */
+  function gate(channel, capability, payload, opts = {}) {
     if (!authz || !grants) return { allowed: true, legacy: true };
     const cfg = authz.normalizeCfg(agentConfig().authorization || {});
-    const risk = authz.riskOf(capability);
+    const risk = opts.risk && authzLib.RISK && authzLib.RISK[opts.risk] ? authzLib.RISK[opts.risk] : authz.riskOf(capability);
     const d = authz.decide({
       capability, risk, cfg, now: Date.now(),
       requireMedium: agentConfig().requireMedium !== false,
@@ -216,17 +206,19 @@ function registerAgentIpc(deps) {
     throw e;
   }
 
-  /** 工作区根：设置优先，其次环境变量，最后默认 */
+  /** 工作区根：设置优先，其次环境变量，最后默认。统一 realpath（见下） */
   function workspaceRoot() {
     try {
       const s = getSettings() || {};
       const fromSettings = (s.agent && s.agent.workspace) || '';
-      if (fromSettings && fs.existsSync(fromSettings)) return path.resolve(fromSettings);
+      if (fromSettings && fs.existsSync(fromSettings)) return realLocation(path.resolve(fromSettings));
     } catch { /* 设置读不出来就走兜底 */ }
     const env = process.env.AILEEN_AGENT_WORKSPACE;
-    if (env && fs.existsSync(env)) return path.resolve(env);
+    if (env && fs.existsSync(env)) return realLocation(path.resolve(env));
     const fallback = typeof defaultWorkspace === 'function' ? defaultWorkspace() : process.cwd();
-    return path.resolve(fallback);
+    // 必须 realpath：8.3 短名（C:\Users\ADMINI~1\...）和真实长名对不上，
+    // 按字符串比较会把「工作区内的文件」判成外部路径（单测里就是这么炸的）。
+    return realLocation(path.resolve(fallback));
   }
 
   /** 完全放开（用户在设置里显式打开）：路径不再被 workspace 边界挡住 */
@@ -240,89 +232,222 @@ function registerAgentIpc(deps) {
     }
   }
 
-  /** 绝对路径必须落在 workspace 内，且不是敏感路径；完全放开时只剩敏感名单 */
-  function resolveSafe(target) {
-    const root = workspaceRoot();
-    const raw = String(target == null ? '' : target).trim() || '.';
-    if (raw.includes('\0')) throw new Error('路径含非法字符');
-    const abs = path.resolve(root, raw);
-    if (isSensitivePath(abs)) throw new Error('该路径属于敏感文件（凭据 / 密钥 / 设置），Agent 不允许访问');
-    if (fullAccessEnabled()) return abs;
-    if (!isInsidePath(abs, root)) {
-      throw new Error('路径越界（不在工作区内）：' + raw + '。当前工作区是 ' + root
-        + '，要么用相对路径，要么让用户在设置里把工作目录改成目标目录。');
+  /**
+   * 主目录 / 桌面 / 文档：模型要「把文件放到桌面」就必须知道真实桌面在哪
+   * （中文系统的桌面常常是 `C:\Users\x\OneDrive\桌面`，猜不出来）。
+   */
+  function pathsInfo() {
+    const info = { workspace: workspaceRoot(), home: '', desktop: '', documents: '' };
+    try {
+      const extra = typeof deps.paths === 'function' ? deps.paths() : null;
+      if (extra && typeof extra === 'object') {
+        info.home = String(extra.home || '');
+        info.desktop = String(extra.desktop || '');
+        info.documents = String(extra.documents || '');
+      }
+    } catch { /* 拿不到就走兜底 */ }
+    if (!info.home) {
+      try { info.home = os.homedir(); } catch { info.home = ''; }
     }
-    return abs;
+    if (!info.desktop && info.home) info.desktop = path.join(info.home, 'Desktop');
+    if (!info.documents && info.home) info.documents = path.join(info.home, 'Documents');
+    return info;
   }
 
-  handle('agent:workspace', () => ({ workspace: workspaceRoot() }));
+  /** 敏感根：AILEEN 自己的设置文件（路径里出现 settings.json 也会被模板拦，这里是第二道） */
+  function protectedRootsOf() {
+    const roots = [];
+    try {
+      if (typeof deps.settingsFile === 'function') {
+        const f = deps.settingsFile();
+        if (f) roots.push(String(f));
+      }
+    } catch { /* 忽略 */ }
+    return roots;
+  }
+
+  /**
+   * 真实位置：逐级向上找**已经存在**的祖先做 realpath，再把余下的段拼回去。
+   * 目标还不存在时（新建文件）这是唯一能防「junction 指向外面」的办法。
+   */
+  function realLocation(abs) {
+    const raw = String(abs || '');
+    let cur = path.resolve(raw);
+    const tail = [];
+    for (let i = 0; i < 40; i += 1) {
+      try {
+        const real = fs.realpathSync.native ? fs.realpathSync.native(cur) : fs.realpathSync(cur);
+        return tail.length ? path.join(real, ...tail.reverse()) : real;
+      } catch {
+        const parent = path.dirname(cur);
+        if (parent === cur) break;
+        tail.push(path.basename(cur));
+        cur = parent;
+      }
+    }
+    return path.resolve(raw);
+  }
+
+  /**
+   * 解析一个 Agent 路径并判定范围。
+   *
+   * 和 0.8.0 的区别：工作区**不再是硬边界**。这里只回答「解析成什么 / 在工作区内还是外部 /
+   * 是不是敏感路径」；「外部能不能做」由 gate() 按设置与凭证判定。
+   */
+  function validateTarget(target) {
+    const info = pathsInfo();
+    const first = fsPaths.validateAgentPath({
+      target,
+      workspace: info.workspace,
+      home: info.home,
+      allowExternal: true,
+      protectedRoots: protectedRootsOf(),
+    });
+    if (!first.ok) throw fsPaths.makeError(first.error.code, first.error.message);
+    // 符号链接 / junction / reparse point：按真实位置再判一次
+    const real = realLocation(first.abs);
+    const realCheck = fsPaths.validateAgentPath({
+      target: real,
+      workspace: info.workspace,
+      home: info.home,
+      allowExternal: true,
+      protectedRoots: protectedRootsOf(),
+    });
+    if (!realCheck.ok) {
+      throw fsPaths.makeError(realCheck.error.code, realCheck.error.message
+        + '（这个路径通过符号链接 / junction 指向了那里）');
+    }
+    return { abs: first.abs, real: realCheck.abs, scope: realCheck.scope, info };
+  }
+
+  /**
+   * 文件操作的授权闸门。
+   *
+   * 外部路径要**两张**凭证：
+   *   ① `fs.external`（HIGH）—— 批准的是「这一次碰工作区外的这个路径」；
+   *   ② 动作本身的能力（写 / 复制 / 移动 / 删除，MEDIUM 或 HIGH）—— 和以前一样。
+   * 这样「外部访问」在设置、审计和确认框里都是独立的一件事，不会和普通写入混在一起。
+   */
+  function gateFs(capability, payload, scope) {
+    if (scope === 'external') {
+      // 没有配置授权层 = 没有人能证明「用户同意过」→ 对外部路径一律拒绝（fail closed）。
+      // 这条不能省：以前工作区边界顺带挡住了外部路径，现在边界没了，这里就是最后一道。
+      if (!authz || !grants) {
+        throw fsPaths.makeError('EXTERNAL_NOT_CONFIGURED',
+          '没有配置授权层，外部路径一律拒绝：' + String((payload && payload.path) || ''));
+      }
+      gate('agent:fs', authzLib.CAPABILITY.FS_EXTERNAL, {
+        op: String(payload && payload.op || ''),
+        path: String((payload && payload.path) || ''),
+        to: String((payload && payload.to) || ''),
+      });
+    }
+    return gate('agent:fs', capability, payload);
+  }
+
+  /** 错误带上错误码（跨 IPC 只能靠 message 传递，所以码写进文本） */
+  function withCode(e) {
+    const code = (e && e.code) || 'FS_ERROR';
+    const msg = String((e && e.message) || e);
+    if (new RegExp('\\[' + code + '\\]').test(msg)) return e;
+    const wrapped = new Error('[' + code + '] ' + msg);
+    wrapped.code = code;
+    return wrapped;
+  }
+
+  handle('agent:workspace', () => pathsInfo());
 
   // 鼠标当前位置 + 屏幕尺寸：让模型知道该点哪儿（否则只能瞎猜坐标）
   handle('agent:cursor', () => {
     if (typeof deps.cursorPoint !== 'function') return { x: 0, y: 0, scale: 1, size: null };
-    try { return deps.cursorPoint(); } catch { return { x: 0, y: 0, scale: 1, size: null }; }
+    try { return deps.cursorPoint(); } catch { return { x: 0, y: 0, scale: null, size: null }; }
   });
 
   // ---- 一次调用干一件事，避免渲染层自由组合出越权路径 ----
   handle('agent:fs', async (_e, payload) => {
     const p = payload && typeof payload === 'object' ? payload : {};
     const op = String(p.op || '');
-    const abs = resolveSafe(p.path);
-    if (op === 'list') {
-      const entries = await fs.promises.readdir(abs, { withFileTypes: true });
-      return { entries: toPlainDirents(entries) };
-    }
-    if (op === 'read') {
-      const stat = await fs.promises.stat(abs);
-      if (stat.isDirectory()) throw new Error('这是一个目录，不是文件');
-      if (stat.size > 4 * 1024 * 1024) throw new Error('文件太大（超过 4MB），Agent 不适合整份读入');
-      return { text: await fs.promises.readFile(abs, 'utf8') };
-    }
-    if (op === 'write') {
-      gate('agent:fs', authzLib.CAPABILITY.FS_WRITE, p);
-      const text = String(p.text == null ? '' : p.text);
-      await fs.promises.mkdir(path.dirname(abs), { recursive: true });
-      await fs.promises.writeFile(abs, text, 'utf8');
-      return { ok: true, bytes: Buffer.byteLength(text, 'utf8') };
-    }
-    if (op === 'stat') {
-      const stat = await fs.promises.stat(abs);
-      return { size: stat.size, isDirectory: stat.isDirectory(), mtimeMs: stat.mtimeMs };
-    }
-    // ---- 复制 / 移动 / 重命名 / 删除（源和目标**两边**都过边界与敏感名单）----
-    if (op === 'copy' || op === 'move' || op === 'rename') {
-      const from = abs;
-      const to = resolveSafe(p.to);
-      if (from === to) throw new Error('源路径和目标路径相同');
-      const cap = op === 'copy' ? authzLib.CAPABILITY.FS_COPY : authzLib.CAPABILITY.FS_MOVE;
-      gate('agent:fs', cap, Object.assign({}, p, { path: p.path, to: p.to }));
-      const fromStat = await fs.promises.stat(from);
-      if (op === 'copy') {
-        if (fromStat.isDirectory()) {
-          await fs.promises.cp(from, to, { recursive: true, force: false, errorOnExist: true });
-        } else {
-          await fs.promises.mkdir(path.dirname(to), { recursive: true });
-          if (fs.existsSync(to) && !p.overwrite) throw new Error('目标已存在：' + p.to + '（要覆盖请显式传 overwrite: true）');
-          await fs.promises.copyFile(from, to);
-        }
-        return { ok: true, op: 'copy', from: p.path, to: p.to };
+    const capLib = authzLib.CAPABILITY;
+    try {
+      if (op === 'list') {
+        const t = validateTarget(p.path);
+        gateFs(capLib.FS_READ, { op: 'list', path: String(p.path || '') }, t.scope);
+        const entries = await fs.promises.readdir(t.abs, { withFileTypes: true });
+        return { entries: toPlainDirents(entries), path: t.abs, scope: t.scope };
       }
-      if (fs.existsSync(to) && !p.overwrite) throw new Error('目标已存在：' + p.to + '（要覆盖请显式传 overwrite: true）');
-      await fs.promises.mkdir(path.dirname(to), { recursive: true });
-      await fs.promises.rename(from, to);
-      return { ok: true, op, from: p.path, to: p.to };
+      if (op === 'read') {
+        const t = validateTarget(p.path);
+        gateFs(capLib.FS_READ, { op: 'read', path: String(p.path || '') }, t.scope);
+        const stat = await fs.promises.stat(t.abs);
+        if (stat.isDirectory()) throw fsPaths.makeError('IS_DIRECTORY', '这是一个目录，不是文件');
+        if (stat.size > 4 * 1024 * 1024) throw fsPaths.makeError('FILE_TOO_LARGE', '文件太大（超过 4MB），Agent 不适合整份读入');
+        return { text: await fs.promises.readFile(t.abs, 'utf8'), path: t.abs, scope: t.scope };
+      }
+      if (op === 'write') {
+        const t = validateTarget(p.path);
+        gateFs(capLib.FS_WRITE, { op: 'write', path: String(p.path || '') }, t.scope);
+        const text = String(p.text == null ? '' : p.text);
+        await fs.promises.mkdir(path.dirname(t.abs), { recursive: true });
+        await fs.promises.writeFile(t.abs, text, 'utf8');
+        return { ok: true, bytes: Buffer.byteLength(text, 'utf8'), path: t.abs, scope: t.scope };
+      }
+      if (op === 'stat') {
+        const t = validateTarget(p.path);
+        gateFs(capLib.FS_READ, { op: 'stat', path: String(p.path || '') }, t.scope);
+        const stat = await fs.promises.stat(t.abs);
+        return { size: stat.size, isDirectory: stat.isDirectory(), mtimeMs: stat.mtimeMs, path: t.abs, scope: t.scope };
+      }
+      // ---- 复制 / 移动 / 重命名 / 删除（源和目标**两边**都过范围与敏感名单）----
+      if (op === 'copy' || op === 'move' || op === 'rename') {
+        const from = validateTarget(p.path);
+        const to = validateTarget(p.to);
+        const info = pathsInfo();
+        const combined = (op === 'copy' ? fsPaths.validateCopyOperation : fsPaths.validateMoveOperation)({
+          from: from.abs,
+          to: to.abs,
+          workspace: info.workspace,
+          home: info.home,
+          allowExternal: true,
+          protectedRoots: protectedRootsOf(),
+        });
+        if (!combined.ok) throw fsPaths.makeError(combined.error.code, combined.error.message);
+        const scope = (from.scope === 'external' || to.scope === 'external') ? 'external' : 'workspace';
+        const cap = op === 'copy' ? capLib.FS_COPY : capLib.FS_MOVE;
+        // 凭证绑定的是「源 + 目标」两个绝对路径（见 authz.projection），这里传同一份
+        gateFs(cap, { op, path: from.abs, to: to.abs }, scope);
+        const overwrite = p.overwrite === true;
+        const done = op === 'copy'
+          ? fsMove.copyPath({ from: from.abs, to: to.abs, overwrite })
+          : fsMove.movePath({ from: from.abs, to: to.abs, overwrite });
+        return {
+          ok: true,
+          op,
+          from: from.abs,
+          to: to.abs,
+          scope,
+          crossScope: from.scope !== to.scope,
+          strategy: done.strategy,
+          isDirectory: !!done.isDirectory,
+          verified: done.verified || null,
+          overwritten: overwrite,
+        };
+      }
+      if (op === 'remove') {
+        const t = validateTarget(p.path);
+        gateFs(capLib.FS_DELETE, { op: 'remove', path: String(p.path || '') }, t.scope);
+        const stat = await fs.promises.stat(t.abs);
+        // 删除一律走回收站：Agent 删错东西不该是不可恢复的。
+        // 永久删除这一轮不提供（任务书要求它必须独立确认，界面还没做那个确认）。
+        const script = desktopInput.recycleScript(t.abs, stat.isDirectory());
+        const res = await desktopInput.runPwsh(script, 20000);
+        if (!res.ok) throw fsPaths.makeError('DELETE_FAILED', '删除失败：' + (res.err || '未知错误'));
+        return { ok: true, op: 'remove', path: t.abs, scope: t.scope, recycle: true, isDirectory: stat.isDirectory() };
+      }
+      throw fsPaths.makeError('UNKNOWN_OP', '未知的 agent:fs 操作：' + op);
+    } catch (e) {
+      // 跨 IPC 只有 message 能可靠传过去，错误码写进文本（渲染层据此区分原因）
+      throw withCode(e);
     }
-    if (op === 'remove') {
-      gate('agent:fs', authzLib.CAPABILITY.FS_DELETE, { op: 'remove', path: p.path });
-      const stat = await fs.promises.stat(abs);
-      // 删除一律走回收站：Agent 删错东西不该是不可恢复的。
-      // 永久删除这一轮不提供（任务书要求它必须独立确认，界面还没做那个确认）。
-      const script = desktopInput.recycleScript(abs, stat.isDirectory());
-      const res = await desktopInput.runPwsh(script, 20000);
-      if (!res.ok) throw new Error('删除失败：' + (res.err || '未知错误'));
-      return { ok: true, op: 'remove', path: p.path, recycle: true, isDirectory: stat.isDirectory() };
-    }
-    throw new Error('未知的 agent:fs 操作：' + op);
   });
 
   // ---- 跑命令 ----

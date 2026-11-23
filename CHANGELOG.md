@@ -2,6 +2,43 @@
 
 本项目所有重要改动都会记录在此，版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [0.8.1] - 2026-11-23
+
+### Overview
+
+The workspace is no longer a hard boundary. The Agent can now read, write, copy and move files in ordinary directories outside it (Desktop, Documents, other drives) after an explicit authorization, while credential and system locations stay off limits.
+
+### File System Access
+
+- Path handling now has a single implementation (`shared/fs-paths.cjs`) shared by the renderer and the main process: Windows absolute paths, paths relative to the workspace, `~` expansion (an explicit error when the home directory is unknown), case-insensitive comparison, `..` normalization, and explicit rejection of drive-relative paths (`C:foo`), device namespaces (`\\?\`) and NTFS alternate data streams (`file.txt:stream`).
+- Symlinks, junctions and reparse points are resolved with `realpath` in the main process (nearest existing ancestor for paths that do not exist yet) and re-validated, so a link inside the workspace cannot be used to reach the rest of the machine silently.
+- External access is its own capability (`fs.external`, HIGH). A one-time grant is bound to the exact operation and paths, so approving "read Desktop\A" cannot be reused for Desktop\B. There is no authorization layer configured: external paths fail closed.
+- Sensitive locations (credentials, keys, browser profiles, system directories, AILEEN's own `settings.json`) are always refused, including with full access.
+- The workspace root is canonicalized through `realpath` before any comparison: 8.3 short names such as `C:\Users\ADMINI~1\...` used to be misclassified as external.
+
+### Move and copy
+
+- `move_path` / `copy_path` no longer call `fs.rename` directly. Same-volume moves still use rename; cross-volume moves copy, verify (sha256 for files, entry/byte fingerprints for directories), and only then delete the source. Overwrites move the existing target aside first and restore it if anything fails, so "overwrite" can never silently lose a file.
+- Errors are now distinguishable instead of collapsing into one message: outside-the-workspace-needs-authorization, sensitive path, file in use, target exists, verification failed, source preserved.
+- The Agent verifies results itself: after a move it lists the target, reads it back and confirms the source is gone; a success string from the tool is not treated as proof.
+
+### Agent
+
+- The seven file tools now describe the workspace as the default working directory, accept absolute paths and `~/...`, and state that `to` is the full destination path (not "into this directory").
+- The Agent system prompt gained a file-system section with the machine's real home/Desktop/Documents paths, the external-authorization flow, and the rule that failures must be reported by their actual cause.
+
+### Fixes
+
+- Desktop and Start Menu icons: the shortcut pointed at `%LOCALAPPDATA%\Programs\AILEEN\aileen.ico` which was missing, so the icon rendered blank. The icon is copied back and the shortcuts are re-pointed; `sync-installed.mjs` now verifies the copy instead of only logging "updated".
+- `themeModeOk` self-test false red when the appearance mode is "follow system" and the OS is dark (the restored theme is legitimately `dark`, not `light`).
+
+### Verification
+
+- 74 test files / 1162 tests passing (48 new: 22 path resolution, 11 move/copy, 15 end-to-end external access including junction escapes and expired/revoked authorization).
+- Lint over 196 files and production build passing.
+- Installed-build self-test: every main-window and stage gate green, `errors=[]`.
+- Real Windows cross-drive verification on the installed app: a file was moved from `D:\AileenData\data` to `C:\Users\<user>\Desktop` with `strategy=copy+delete`, sha256 verification, the source deleted, the content read back, then moved back and cleaned up. The `agentFsOk` gate performs the same round trip.
+
 ## [0.8.0] - 2026-11-22
 
 ### Overview

@@ -25,6 +25,10 @@ const CAPABILITY = {
   FS_COPY: 'fs.copy',
   FS_MOVE: 'fs.move',
   FS_DELETE: 'fs.delete',
+  // 外部文件访问：工作区之外的普通目录（桌面 / 文档 / 其它盘）。
+  // 单独一个能力，是为了让「外部」这件事在设置、审计、确认框里都说得清楚，
+  // 而不是和「工作区内正常读写」混成同一个风险等级。
+  FS_EXTERNAL: 'fs.external',
   EXEC: 'exec.run',
   GIT_READ: 'git.read',
   GIT_COMMIT: 'git.commit',
@@ -57,6 +61,8 @@ const CAP_RISK = {
   [CAPABILITY.FS_MOVE]: RISK.MEDIUM,
   [CAPABILITY.GIT_COMMIT]: RISK.MEDIUM,
   [CAPABILITY.FS_DELETE]: RISK.HIGH,
+  // 工作区外 = 天然高风险：桌面/文档里可能是用户重要的东西，默认逐次确认
+  [CAPABILITY.FS_EXTERNAL]: RISK.HIGH,
   [CAPABILITY.EXEC]: RISK.HIGH,
   [CAPABILITY.WINDOW_CONTROL]: RISK.HIGH,
   [CAPABILITY.APP_LAUNCH]: RISK.HIGH,
@@ -73,6 +79,7 @@ const ACTION_CAPABILITIES = [
   CAPABILITY.FS_COPY,
   CAPABILITY.FS_MOVE,
   CAPABILITY.FS_DELETE,
+  CAPABILITY.FS_EXTERNAL,
   CAPABILITY.GIT_COMMIT,
   CAPABILITY.EXEC,
   CAPABILITY.WINDOW_CONTROL,
@@ -161,6 +168,13 @@ function projection(capability, payload) {
     case CAPABILITY.FS_COPY:
     case CAPABILITY.FS_MOVE:
       return { op: String(p.op || ''), from: String(p.path || ''), to: String(p.to || '') };
+    // 外部访问凭证绑定「这一次的 op + 源 + 目标」：批准了读桌面 A，不能拿去读桌面 B
+    case CAPABILITY.FS_EXTERNAL:
+      return {
+        op: String(p.op || ''),
+        from: String(p.path || p.from || ''),
+        to: String(p.to || ''),
+      };
     case CAPABILITY.FS_DELETE:
       return { op: String(p.op || 'remove'), path: String(p.path || ''), permanent: p.permanent === true };
     case CAPABILITY.UIA_ACT:
@@ -294,6 +308,10 @@ function summarize(capability, payload, limit = 200) {
     case CAPABILITY.FS_COPY:
     case CAPABILITY.FS_MOVE:
       text = String(p.op || '') + ' ' + String(p.path || '') + ' → ' + String(p.to || '');
+      break;
+    case CAPABILITY.FS_EXTERNAL:
+      text = '工作区外 ' + String(p.op || '') + ' ' + String(p.path || p.from || '')
+        + (p.to ? (' → ' + String(p.to)) : '');
       break;
     case CAPABILITY.FS_DELETE:
       text = 'remove ' + String(p.path || '') + (p.permanent === true ? '（永久）' : '（回收站）');
